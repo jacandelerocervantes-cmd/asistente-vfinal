@@ -1,9 +1,6 @@
 // supabase/functions/sync-drive-on-first-login/index.ts
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-console.log("Función 'sync-drive-on-first-login' v-batch inicializada.");
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,86 +9,45 @@ const corsHeaders = {
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
-
   try {
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
-    );
-
+    const supabaseClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: req.headers.get("Authorization")! } } });
     const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("No se pudo obtener la información del usuario.");
-
+    if (!user) throw new Error("Usuario no autenticado.");
     if (user.user_metadata?.drive_synced) {
-      return new Response(JSON.stringify({ message: "El Drive del usuario ya está sincronizado." }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
-      });
+      return new Response(JSON.stringify({ message: "El Drive del usuario ya está sincronizado." }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
     }
 
-    const supabaseAdmin = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
-
-    const { data: materias, error: materiasError } = await supabaseAdmin
-      .from('materias')
-      .select(`*, alumnos ( matricula, nombre, apellido )`)
-      .eq('user_id', user.id)
-      .is('drive_url', null);
-
+    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    const { data: materias, error: materiasError } = await supabaseAdmin.from('materias').select(`*, alumnos ( matricula, nombre, apellido )`).eq('user_id', user.id).is('drive_url', null);
     if (materiasError) throw materiasError;
 
     if (materias.length > 0) {
-        console.log(`Se encontraron ${materias.length} materias para sincronizar en un solo lote.`);
         const googleScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
         if (!googleScriptUrl) throw new Error("El secreto GOOGLE_SCRIPT_CREATE_MATERIA_URL no está definido.");
 
-        const payload = {
-            action: 'create_materias_batch',
-            docente: { 
-                id: user.id, 
-                nombre: user.user_metadata?.full_name || user.email,
-                email: user.email
-            },
-            materias: materias
-        };
-
-        const response = await fetch(googleScriptUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        
+        const payload = { action: 'create_materias_batch', docente: { id: user.id, nombre: user.user_metadata?.full_name || user.email, email: user.email }, materias };
+        const response = await fetch(googleScriptUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const scriptResponse = await response.json();
         if (scriptResponse.status === 'error') throw new Error(`Error en el lote de Google Script: ${scriptResponse.message}`);
 
-        // --- MODIFICADO: Ahora procesamos tanto las URLs como los IDs de Spreadsheet ---
-        if (scriptResponse.drive_urls && scriptResponse.spreadsheet_ids) {
-            for (const materiaId in scriptResponse.drive_urls) {
-                await supabaseAdmin
-                    .from('materias')
-                    .update({ 
-                        drive_url: scriptResponse.drive_urls[materiaId],
-                        spreadsheet_id: scriptResponse.spreadsheet_ids[materiaId] // <-- GUARDAMOS EL ID
-                    })
-                    .eq('id', materiaId);
+        // --- ¡LÓGICA CORREGIDA! ---
+        const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse;
+        if (drive_urls) {
+            for (const materiaId in drive_urls) {
+                await supabaseAdmin.from('materias').update({ 
+                    drive_url: drive_urls[materiaId],
+                    rubricas_spreadsheet_id: rubricas_spreadsheet_ids[materiaId],
+                    plagio_spreadsheet_id: plagio_spreadsheet_ids[materiaId],
+                    calificaciones_spreadsheet_id: calificaciones_spreadsheet_ids[materiaId]
+                }).eq('id', materiaId);
             }
         }
     }
 
     await supabaseAdmin.auth.admin.updateUserById(user.id, { user_metadata: { ...user.user_metadata, drive_synced: true } });
-    console.log(`Usuario ${user.email} marcado como sincronizado.`);
-
-    return new Response(JSON.stringify({ success: true, message: `Sincronización completada. ${materias.length} materias procesadas.` }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
-    });
-
+    return new Response(JSON.stringify({ success: true, message: `Sincronización completada.` }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
   } catch (error) {
-    console.error("ERROR en sync-drive-on-first-login:", error);
-    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-    return new Response(JSON.stringify({ error: errorMessage }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500,
-    });
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido durante la sincronización.";
+    return new Response(JSON.stringify({ message: errorMessage }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
   }
 });

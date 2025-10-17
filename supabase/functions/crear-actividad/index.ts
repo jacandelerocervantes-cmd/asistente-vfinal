@@ -15,7 +15,6 @@ interface Criterio {
 
 interface ActividadData {
   materia_id: number;
-  drive_url_materia: string | null;
   nombre_actividad: string;
   unidad: number | null;
   tipo_entrega: string;
@@ -30,11 +29,10 @@ serve(async (req: Request) => {
 
   try {
     const { 
-      materia_id, 
-      drive_url_materia, 
+      materia_id,
       nombre_actividad, 
       unidad, 
-      tipo_entrega,
+      tipo_entrega, 
       criterios,
       descripcion
     }: ActividadData = await req.json();
@@ -48,76 +46,52 @@ serve(async (req: Request) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Usuario no autenticado.");
 
+    // --- ¡LÓGICA CORREGIDA Y MÁS ESTRICTA! ---
+    // 1. Obtener los datos de la materia, incluyendo los nuevos IDs de los sheets
+    const { data: materia, error: materiaError } = await supabase
+      .from('materias')
+      .select('drive_url, rubricas_spreadsheet_id')
+      .eq('id', materia_id)
+      .single();
+
+    if (materiaError) throw materiaError;
+    if (!materia.drive_url || !materia.rubricas_spreadsheet_id) {
+      throw new Error("La materia no está sincronizada correctamente con Google Drive. Faltan IDs de Drive/Sheets.");
+    }
+
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
-    let driveFolderIdActividad: string | null = null;
-    let driveFolderIdEntregas: string | null = null;
-    let driveFolderIdCalificados: string | null = null;
+    // 2. Crear las carpetas para la actividad
+    const folderResponse = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify({ action: 'create_activity_folder', drive_url_materia: materia.drive_url, nombre_actividad, unidad }), headers: { 'Content-Type': 'application/json' } });
+    if (!folderResponse.ok) throw new Error("Error al crear carpetas en Google Drive.");
+    const driveData = await folderResponse.json();
+    if(driveData.status !== 'success') throw new Error(driveData.message);
+    
+    // 3. Guardar la rúbrica
+    const rubricaResponse = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify({ action: 'guardar_rubrica', rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id, nombre_actividad, criterios }), headers: { 'Content-Type': 'application/json' } });
+    if (!rubricaResponse.ok) throw new Error("Error al guardar la rúbrica.");
+    const rubricaData = await rubricaResponse.json();
+    if(rubricaData.status !== 'success') throw new Error(rubricaData.message);
 
-    if (drive_url_materia) {
-        const scriptResponse = await fetch(appsScriptUrl, {
-            method: 'POST',
-            body: JSON.stringify({
-                action: 'create_activity_folder',
-                drive_url_materia: drive_url_materia,
-                nombre_actividad: nombre_actividad,
-                unidad: unidad
-            }),
-            headers: { 'Content-Type': 'application/json' },
-        });
-        if (!scriptResponse.ok) throw new Error("Error al crear carpetas en Google Drive.");
-        const driveData = await scriptResponse.json();
-        if(driveData.status === 'success') {
-          driveFolderIdActividad = driveData.drive_folder_id_actividad;
-          driveFolderIdEntregas = driveData.drive_folder_id_entregas;
-          driveFolderIdCalificados = driveData.drive_folder_id_calificados;
-        }
-    }
-
-    let rubricaSheetRange: string | null = null;
-    let rubricaSpreadsheetId: string | null = null;
-    if (drive_url_materia && criterios && criterios.length > 0) {
-      const rubricaResponse = await fetch(appsScriptUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'guardar_rubrica',
-          drive_url_materia: drive_url_materia, // Pasamos la URL de la materia
-          nombre_actividad: nombre_actividad,
-          criterios: criterios,
-        }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!rubricaResponse.ok) throw new Error("Error al guardar la rúbrica en Google Sheets.");
-      const rubricaData = await rubricaResponse.json();
-      if(rubricaData.status === 'success') {
-        rubricaSheetRange = rubricaData.rubrica_sheet_range;
-        rubricaSpreadsheetId = rubricaData.rubrica_spreadsheet_id;
-      }
-    }
-
-    const { data: nuevaActividad, error: insertError } = await supabase
-      .from('actividades')
-      .insert({
+    // 4. Guardar todo en Supabase
+    const { data: nuevaActividad, error: insertError } = await supabase.from('actividades').insert({
         materia_id,
         nombre: nombre_actividad,
         unidad,
         tipo_entrega,
         user_id: user.id,
         descripcion: descripcion,
-        drive_folder_id: driveFolderIdActividad,
-        drive_folder_entregas_id: driveFolderIdEntregas,
-        drive_folder_id_calificados: driveFolderIdCalificados,
-        rubrica_sheet_range: rubricaSheetRange,
-        rubrica_spreadsheet_id: rubricaSpreadsheetId,
-      })
-      .select()
-      .single();
-
+        drive_folder_id: driveData.drive_folder_id_actividad,
+        drive_folder_entregas_id: driveData.drive_folder_id_entregas,
+        drive_folder_id_calificados: driveData.drive_folder_id_calificados,
+        rubrica_sheet_range: rubricaData.rubrica_sheet_range,
+        rubrica_spreadsheet_id: materia.rubricas_spreadsheet_id
+      }).select().single();
     if (insertError) throw insertError;
 
     return new Response(JSON.stringify({ 
-        message: "Actividad creada exitosamente y sincronizada con Google Drive.",
+        message: "Actividad creada y sincronizada.",
         actividad: nuevaActividad
     }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
