@@ -1,0 +1,127 @@
+/* src/pages/MateriasDashboard.css */
+.dashboard-container {
+  width: 100%;
+  padding: var(--spacing-lg);
+}
+
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-xl);
+  flex-wrap: wrap; /* Para que se adapte en pantallas pequeñas */
+  gap: var(--spacing-md);
+}
+
+.dashboard-header h2 {
+  color: var(--color-primary);
+  font-size: 2.2rem;
+}
+
+.dashboard-header div {
+  display: flex;
+  gap: var(--spacing-md);
+}
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 1rem;
+}
+.btn-primary:hover {
+  opacity: 0.9;
+}
+
+.btn-secondary {
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 1rem;
+}
+.btn-secondary:hover {
+  opacity: 0.9;
+}
+
+.form-container {
+  margin-bottom: var(--spacing-xl);
+  padding: var(--spacing-lg);
+}
+
+.materia-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.materia-form h3 {
+  text-align: center;
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-md);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.form-group label {
+  font-weight: bold;
+  color: var(--color-text-dark);
+}
+
+.form-group input {
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+}
+
+.materias-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--spacing-lg);
+}
+/* Añadir al final de src/pages/MateriasDashboard.css */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-md);
+}
+
+.btn-danger {
+  background-color: #e53e3e;
+  color: white;
+}
+.btn-danger:hover {
+  background-color: #c53030;
+}
+
+.btn-tertiary {
+  background-color: #718096;
+  color: white;
+}
+.btn-tertiary:hover {
+  background-color: #4a5568;
+}
+/* Añadir al final de src/components/MateriaCard.css */
+.materia-card-link {
+  text-decoration: none;
+  color: inherit;
+}
+/* Añadir al final de MateriasDashboard.css */
+.form-group-horizontal {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+.form-group-horizontal .form-group {
+    flex: 1;
+}

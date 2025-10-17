@@ -1,0 +1,14 @@
+/* src/components/Layout.css */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh; /* Asegura que el layout ocupe toda la altura de la vista */
+}
+
+.app-content {
+  flex-grow: 1; /* Permite que el contenido ocupe todo el espacio disponible */
+  padding: var(--spacing-lg) 0; /* Espacio vertical para el contenido */
+  display: flex; /* Para centrar el contenido fácilmente si es necesario */
+  justify-content: center;
+  align-items: flex-start; /* Alinea el contenido al inicio verticalmente */
+}

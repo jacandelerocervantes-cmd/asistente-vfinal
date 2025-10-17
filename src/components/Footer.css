@@ -1,0 +1,20 @@
+/* src/components/Footer.css */
+.main-footer {
+  background-color: var(--color-primary);
+  color: var(--color-text-light);
+  padding: var(--spacing-md) 0;
+  text-align: center;
+  margin-top: auto; /* Empuja el footer hacia abajo */
+  box-shadow: 0 -1px 3px rgba(0,0,0,0.12), 0 -1px 2px rgba(0,0,0,0.24);
+}
+
+.footer-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.main-footer p {
+  font-size: 0.9rem;
+  margin: 0;
+}

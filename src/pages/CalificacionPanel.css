@@ -1,0 +1,57 @@
+/* src/pages/CalificacionPanel.css */
+.calificacion-panel-container {
+    width: 100%;
+    padding: var(--spacing-lg);
+}
+
+.calificacion-panel-container h2 {
+    color: var(--color-primary);
+    font-size: 2.2rem;
+    margin-bottom: 0;
+}
+
+.calificacion-panel-container > p {
+    color: #666;
+    margin-bottom: var(--spacing-xl);
+    font-size: 1.1rem;
+}
+
+.alumnos-list-container {
+    margin-top: var(--spacing-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background-color: white;
+}
+
+.list-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: #f9fafb;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.list-header input[type="checkbox"] {
+    transform: scale(1.3);
+}
+
+.list-header span {
+    font-weight: bold;
+}
+
+.alumnos-list-container .alumnos-list li {
+    justify-content: flex-start;
+    gap: var(--spacing-md);
+}
+
+.alumnos-list-container .status-pill {
+    margin-left: auto;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: bold;
+}
+
+.status-pill.pendiente { background-color: #feebc8; color: #92400e; }
+.status-pill.calificado { background-color: #c6f6d5; color: #22543d; }

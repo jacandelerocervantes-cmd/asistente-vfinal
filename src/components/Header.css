@@ -1,0 +1,130 @@
+/* src/components/Header.css */
+.main-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) 0; /* Menos padding vertical para dar más espacio a los logos */
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-light);
+  min-height: 120px; /* Aumentamos la altura mínima del banner */
+  background-color: #ffffff; /* Un fondo base por si los degradados no cubren todo */
+}
+
+.header-left-gradient,
+.header-right-gradient {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%; /* Hacemos los degradados más anchos */
+  pointer-events: none;
+}
+
+.header-left-gradient {
+  left: 0;
+  background: linear-gradient(to right, var(--color-primary), transparent);
+}
+
+.header-right-gradient {
+  right: 0;
+  background: linear-gradient(to left, var(--color-secondary), transparent);
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-grow: 1;
+  z-index: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0 var(--spacing-xl); /* Más padding horizontal para que no se peguen a los bordes */
+}
+
+.header-logo {
+  height: 90px; /* AUMENTAMOS SIGNIFICATIVAMENTE EL TAMAÑO */
+  object-fit: contain;
+  margin: 0 var(--spacing-sm); /* Pequeño margen para que no se peguen al título */
+}
+
+.header-title {
+  color: var(--color-primary);
+  font-size: 2rem; /* Un poco más grande para balancear */
+  text-align: center;
+  flex-grow: 1;
+  margin: 0 var(--spacing-md);
+}
+
+/* --- Ajustes para pantallas más pequeñas --- */
+@media (max-width: 768px) {
+  .main-header {
+    min-height: 100px;
+  }
+  .header-logo {
+    height: 70px; /* Ajustamos el tamaño del logo */
+  }
+  .header-title {
+    font-size: 1.6rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-header {
+    min-height: 80px;
+  }
+  .header-logo {
+    height: 50px;
+  }
+  .header-title {
+    font-size: 1.3rem;
+  }
+  .header-content {
+    padding: 0 var(--spacing-md);
+  }
+}
+/* Añadir al final de src/components/Header.css */
+
+.user-session-info {
+  position: absolute;
+  top: 8px;
+  right: 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 12px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 20px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  z-index: 10;
+}
+
+.welcome-message {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-primary);
+}
+
+.btn-signout {
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 15px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.btn-signout:hover {
+  background-color: #d85c00; /* Un naranja más oscuro */
+}
+
+/* Ajuste para que no se monte sobre los logos en pantallas pequeñas */
+@media (max-width: 768px) {
+  .user-session-info {
+    display: none; /* Ocultamos el saludo en móviles para no saturar */
+  }
+  /* Si prefieres mantenerlo, habría que hacer un rediseño más profundo del header */
+}

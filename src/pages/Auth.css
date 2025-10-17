@@ -1,0 +1,57 @@
+/* src/pages/Auth.css */
+.auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-grow: 1; /* Permite que el contenedor de autenticación ocupe el espacio */
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px; /* Ancho máximo para el formulario */
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg); /* Espacio entre elementos dentro de la tarjeta */
+}
+
+.auth-title {
+  color: var(--color-primary);
+  font-size: 2rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.auth-subtitle {
+  color: var(--color-text-dark);
+  font-size: 1rem;
+  margin-bottom: var(--spacing-md);
+}
+/* src/pages/Auth.css */
+
+.google-signin-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  
+  /* --- CAMBIOS PRINCIPALES AQUÍ --- */
+  background-color: #ffffff; /* Fondo blanco */
+  color: var(--color-text-dark); /* Texto oscuro para contraste */
+  border: 1px solid var(--color-border); /* Borde sutil para que se vea bien sobre fondos claros */
+  
+  padding: var(--spacing-md) var(--spacing-xl);
+  font-size: 1.1rem;
+  font-weight: 500; /* Un poco de grosor en la fuente */
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.google-signin-button:hover {
+  background-color: #f9f9f9; /* Un gris muy claro al pasar el mouse */
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+.google-icon {
+  width: 24px;
+  height: 24px;
+}

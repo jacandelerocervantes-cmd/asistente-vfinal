@@ -1,0 +1,154 @@
+/* src/components/materia_panel/Asistencia.css */
+
+.asistencia-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  gap: 24px;
+}
+
+/* --- Contenedor principal para la barra superior --- */
+.pase-lista-controles {
+  width: 100%;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between; /* Alinea los elementos a los extremos */
+  align-items: center;
+  min-height: 80px;
+  flex-wrap: wrap; /* Para que se adapte en pantallas pequeñas */
+  gap: 20px;
+}
+
+/* Contenedor para los elementos de la izquierda */
+.controles-accion {
+  display: flex;
+  justify-content: flex-start;
+  flex-grow: 1; /* Permite que ocupe el espacio sobrante */
+}
+
+/* Contenedor para el botón de la derecha */
+.controles-cierre {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-crear-pase {
+  padding: 12px 24px;
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+.config-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.config-bar label {
+  font-weight: bold;
+}
+
+.config-bar select {
+  padding: 8px 12px;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--color-border);
+  font-size: 1rem;
+}
+
+/* --- Estilos para la vista del QR y la lista --- */
+.qr-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.qr-display h3 {
+  color: var(--color-primary);
+}
+
+.timer {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: var(--color-accent);
+  background-color: #fff3e0;
+  padding: 8px 16px;
+  border-radius: 20px;
+}
+
+.qr-display h4 {
+  margin-top: 24px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 24px;
+  width: 100%;
+  text-align: center;
+  font-size: 1.3rem;
+  color: var(--color-primary);
+}
+
+.lista-alumnos-asistencia {
+  list-style: none;
+  padding: 0;
+  width: 100%;
+  max-width: 600px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  background-color: white;
+}
+
+.lista-alumnos-asistencia li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-background-light);
+}
+
+.lista-alumnos-asistencia li:last-child {
+  border-bottom: none;
+}
+
+.status-btn {
+  border: none;
+  color: white;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+}
+
+.status-btn:active {
+    transform: scale(0.95);
+}
+
+.status-btn.presente {
+  background-color: #48bb78; /* Verde */
+}
+
+.status-btn.ausente {
+  background-color: #f56565; /* Rojo */
+}
+/* Añadir al final de Asistencia.css */
+.info-message {
+  background-color: #feebc8; /* Amarillo claro */
+  color: #92400e;
+  padding: 16px;
+  border-radius: var(--border-radius);
+  text-align: center;
+  font-weight: 500;
+  width: 100%;
+  max-width: 600px;
+}

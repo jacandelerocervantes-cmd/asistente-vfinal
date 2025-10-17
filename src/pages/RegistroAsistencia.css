@@ -1,0 +1,73 @@
+/* src/pages/RegistroAsistencia.css */
+.registro-container {
+  display: flex;
+  justify-content: center;
+  width: 100%; /* Ocupa el ancho del contenedor padre */
+}
+
+.registro-card {
+  padding: 32px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  text-align: center;
+  width: 100%;
+  max-width: 450px;
+  margin-top: 24px; /* Un poco de espacio superior */
+}
+
+.registro-card h2 {
+  color: var(--color-primary);
+  margin-bottom: 24px;
+}
+
+.registro-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.registro-card label {
+  font-weight: bold;
+  text-align: left;
+}
+
+.registro-card input {
+  padding: 12px;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.registro-card button {
+  padding: 12px;
+  font-size: 1rem;
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.registro-card button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.message {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: var(--border-radius);
+  font-weight: 500;
+}
+
+.message.success {
+  background-color: #e6fffa;
+  color: #234e52;
+}
+
+.message.error {
+  background-color: #fed7d7;
+  color: #742a2a;
+}

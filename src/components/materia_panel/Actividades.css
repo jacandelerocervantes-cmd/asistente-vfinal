@@ -1,0 +1,44 @@
+/* src/components/materia_panel/Actividades.css */
+.actividades-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.actividades-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--spacing-lg);
+}
+
+/* Estilos para el futuro ActividadForm */
+.actividad-form-container {
+    padding: var(--spacing-lg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background-color: #fdfdfd;
+}
+
+.criterios-list {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+.criterio-item {
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+    padding: var(--spacing-md) 0;
+    border-bottom: 1px solid var(--color-background-light);
+}
+
+.criterio-item input {
+    flex-grow: 1;
+}
+
+.criterio-item .puntos-input {
+    flex-grow: 0;
+    width: 80px;
+}

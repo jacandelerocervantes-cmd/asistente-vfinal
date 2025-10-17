@@ -1,0 +1,34 @@
+/* src/components/UserBar.css */
+.user-bar {
+  background-color: #f7f7f7; /* Un fondo sutil para distinguirlo */
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.user-bar-content {
+  display: flex;
+  justify-content: flex-end; /* Alinea todo a la derecha */
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.welcome-message {
+  font-size: 0.95rem;
+  color: var(--color-text-dark);
+}
+
+.btn-signout {
+  background-color: var(--color-accent);
+  color: white;
+  border: none;
+  padding: 6px 16px;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.btn-signout:hover {
+  background-color: #d85c00; /* Naranja más oscuro */
+}
