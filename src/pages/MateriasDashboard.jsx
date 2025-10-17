@@ -53,22 +53,13 @@ const MateriasDashboard = ({ session }) => {
     fetchMaterias();
   };
 
-  const handleDriveClick = async (materia) => {
-    const url = prompt("Por favor, ingresa la URL de la carpeta de Google Drive:", materia.drive_url || "https://");
-    if (url && url.startsWith("http")) {
-      const { error } = await supabase
-        .from('materias')
-        .update({ drive_url: url })
-        .eq('id', materia.id);
-      
-      if (error) {
-        alert("Error al guardar la URL: " + error.message);
-      } else {
-        alert("URL guardada exitosamente.");
-        fetchMaterias();
-      }
-    } else if (url) {
-      alert("URL no válida. Asegúrate de que comience con http:// o https://");
+  const handleDriveClick = (materia) => {
+    if (materia.drive_url) {
+      // Abre la URL de la carpeta de Drive en una nueva pestaña.
+      window.open(materia.drive_url, '_blank', 'noopener,noreferrer');
+    } else {
+      // Informa al usuario si la materia aún no está sincronizada.
+      alert('Esta materia aún no ha sido sincronizada con Google Drive. La sincronización ocurre automáticamente la primera vez que inicias sesión.');
     }
   };
 

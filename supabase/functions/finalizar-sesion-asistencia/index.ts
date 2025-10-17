@@ -1,7 +1,7 @@
 // supabase/functions/finalizar-sesion-asistencia/index.ts
 
 import { serve } from "std/http/server.ts";
-import { createClient } from "supabase";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -93,13 +93,15 @@ serve(async (req: Request) => {
     const googleScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
 
     if (googleScriptUrl && materia.drive_url) {
-        fetch(googleScriptUrl, {
+        const response = await fetch(googleScriptUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-        }).catch(err => console.error('Error al llamar al Webhook de Google Script:', err.message));
-        
-        syncMessage = "Solicitud de sincronización con Google Sheets enviada.";
+        });
+        if (!response.ok) {
+          console.error("Error al sincronizar asistencia con Google Script.");
+        }
+        syncMessage = "Sincronización con Google Sheets completada.";
     }
 
     return new Response(JSON.stringify({ 

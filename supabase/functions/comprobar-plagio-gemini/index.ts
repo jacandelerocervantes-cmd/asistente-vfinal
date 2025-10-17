@@ -1,7 +1,7 @@
 // supabase/functions/comprobar-plagio-gemini/index.ts
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,19 +10,35 @@ const corsHeaders = {
 
 interface PlagioRequest {
   drive_file_ids: string[];
-  drive_url_materia: string;
+  materia_id: number;
 }
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
 
   try {
-    const { drive_file_ids, drive_url_materia }: PlagioRequest = await req.json();
+    const { drive_file_ids, materia_id }: PlagioRequest = await req.json();
     if (!drive_file_ids || drive_file_ids.length < 2) {
       throw new Error("Se requieren al menos dos trabajos para comparar.");
     }
-    if (!drive_url_materia) {
-      throw new Error("Se requiere la URL de la materia para guardar el reporte.");
+    if (!materia_id) {
+      throw new Error("Se requiere el ID de la materia para guardar el reporte.");
+    }
+
+    const authHeader = req.headers.get("Authorization")!;
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: materia, error: materiaError } = await supabase
+      .from('materias')
+      .select('plagio_spreadsheet_id')
+      .eq('id', materia_id)
+      .single();
+
+    if (materiaError) throw materiaError;
+    if (!materia || !materia.plagio_spreadsheet_id) {
+      throw new Error("La materia no tiene un ID de hoja de cálculo de plagio configurado.");
     }
 
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
@@ -68,15 +84,19 @@ serve(async (req: Request) => {
     const plagioReport = JSON.parse(jsonString);
 
     if (plagioReport.reporte_plagio && plagioReport.reporte_plagio.length > 0) {
-      fetch(appsScriptUrl, {
+      const saveReportResponse = await fetch(appsScriptUrl, {
         method: 'POST',
         body: JSON.stringify({
           action: 'guardar_reporte_plagio',
-          drive_url_materia: drive_url_materia,
+          plagio_spreadsheet_id: materia.plagio_spreadsheet_id,
           reporte_plagio: plagioReport.reporte_plagio
         }),
         headers: { 'Content-Type': 'application/json' },
-      }).catch(err => console.error("Error al guardar el reporte de plagio:", err.message));
+      });
+
+      if (!saveReportResponse.ok) {
+        console.error("Error al guardar el reporte de plagio. La respuesta no fue OK.");
+      }
     }
 
     return new Response(JSON.stringify(plagioReport), {

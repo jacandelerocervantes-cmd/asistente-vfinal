@@ -1,7 +1,7 @@
 // supabase/functions/get-activity-details/index.ts
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,7 +41,7 @@ serve(async (req: Request) => {
 
     // 2. Si hay una rúbrica, llamar a Apps Script para obtener sus datos
     let criterios = [];
-    if (actividad.rubrica_sheet_range && actividad.materias?.spreadsheet_id) {
+    if (actividad.rubrica_sheet_range && actividad.materias?.rubricas_spreadsheet_id) {
       const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
       if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
@@ -49,7 +49,7 @@ serve(async (req: Request) => {
         method: 'POST',
         body: JSON.stringify({
           action: 'get_rubric_data',
-          spreadsheet_id: actividad.materias.spreadsheet_id,
+          spreadsheet_id: actividad.materias.rubricas_spreadsheet_id,
           rubrica_sheet_range: actividad.rubrica_sheet_range,
         }),
         headers: { 'Content-Type': 'application/json' },

@@ -1,7 +1,7 @@
 // supabase/functions/actualizar-actividad/index.ts
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,7 +16,6 @@ interface Criterio {
 interface ActividadUpdateRequest {
   actividad_id: number;
   materia_id: number;
-  drive_url_materia: string | null;
   nombre_actividad: string;
   unidad: number | null;
   tipo_entrega: string;
@@ -33,7 +32,6 @@ serve(async (req: Request) => {
     const { 
       actividad_id,
       materia_id,
-      drive_url_materia, 
       nombre_actividad, 
       unidad, 
       tipo_entrega,
@@ -54,29 +52,34 @@ serve(async (req: Request) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Usuario no autenticado.");
 
+    const { data: materia, error: materiaError } = await supabase
+      .from('materias')
+      .select('rubricas_spreadsheet_id')
+      .eq('id', materia_id)
+      .single();
+
+    if (materiaError) throw materiaError;
+
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
     let rubricaSheetRange: string | null = null;
-    let rubricaSpreadsheetId: string | null = null;
-    if (drive_url_materia && criterios && criterios.length > 0) {
+    if (materia.rubricas_spreadsheet_id && criterios && criterios.length > 0) {
       const rubricaResponse = await fetch(appsScriptUrl, {
         method: 'POST',
         body: JSON.stringify({
           action: 'guardar_rubrica',
-          drive_url_materia: drive_url_materia,
+          rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id,
           nombre_actividad: nombre_actividad,
           criterios: criterios,
         }),
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (!rubricaResponse.ok) throw new Error("Error al actualizar la rúbrica en Google Sheets.");
+      if (!rubricaResponse.ok) throw new Error("Error al guardar la rúbrica en Google Sheets.");
       const rubricaData = await rubricaResponse.json();
-      if(rubricaData.status === 'success') {
-        rubricaSheetRange = rubricaData.rubrica_sheet_range;
-        rubricaSpreadsheetId = rubricaData.rubrica_spreadsheet_id;
-      }
+      if(rubricaData.status !== 'success') throw new Error(rubricaData.message);
+      rubricaSheetRange = rubricaData.rubrica_sheet_range;
     }
 
     const { data: actividadActualizada, error: updateError } = await supabase
@@ -87,7 +90,7 @@ serve(async (req: Request) => {
         tipo_entrega,
         descripcion: descripcion,
         rubrica_sheet_range: rubricaSheetRange,
-        rubrica_spreadsheet_id: rubricaSpreadsheetId,
+        // rubrica_spreadsheet_id no cambia al actualizar, ya pertenece a la materia
       })
       .eq('id', actividad_id)
       .eq('user_id', user.id)
