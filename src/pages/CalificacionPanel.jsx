@@ -101,7 +101,6 @@ const CalificacionPanel = () => {
                 if (calificacionesParaUpsert.length > 0) {
                     const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id' });
                     if (upsertError) throw upsertError;
-                    // Forzamos una recarga de los datos para asegurar consistencia
                     fetchData();
                     return;
                 }
@@ -226,7 +225,7 @@ const CalificacionPanel = () => {
         try {
             const { data, error } = await supabase.functions.invoke('get_justification_text', {
                 body: {
-                    spreadsheet_id: actividad.materias.spreadsheet_id,
+                    rubrica_spreadsheet_id: actividad.rubrica_spreadsheet_id,
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });
