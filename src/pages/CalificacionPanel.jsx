@@ -154,10 +154,6 @@ const CalificacionPanel = () => {
         setSelectedItems(newSelection);
     };
 
-    /**
-     * ¡CORREGIDO!
-     * Esta función ahora extrae correctamente el array 'reporte_plagio' de la respuesta.
-     */
     const handlePlagioCheck = async () => {
         if (selectedItems.size < 2) {
             alert("Debes seleccionar al menos dos trabajos para comparar.");
@@ -175,9 +171,7 @@ const CalificacionPanel = () => {
             });
 
             if (error) throw error;
-
-            // --- ¡CORRECCIÓN APLICADA AQUÍ! ---
-            // Extraemos el array 'reporte_plagio' del objeto 'data'
+            
             setPlagioReportData(data.reporte_plagio);
             setShowPlagioReport(true);
 
