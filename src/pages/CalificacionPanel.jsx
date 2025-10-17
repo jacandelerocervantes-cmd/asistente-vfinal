@@ -66,7 +66,8 @@ const CalificacionPanel = () => {
                     estado: cal.estado,
                     calificacion_obtenida: cal.calificacion_obtenida,
                     justificacion_sheet_cell: cal.justificacion_sheet_cell,
-                    drive_file_id: cal.evidencia_drive_file_id
+                    drive_file_id: cal.evidencia_drive_file_id,
+                    progreso_evaluacion: cal.progreso_evaluacion // <-- AÑADIDO
                 });
             });
 
@@ -129,6 +130,7 @@ const CalificacionPanel = () => {
                     entrega.estado = calificacionActualizada.estado;
                     entrega.calificacion_obtenida = calificacionActualizada.calificacion_obtenida;
                     entrega.justificacion_sheet_cell = calificacionActualizada.justificacion_sheet_cell;
+                    entrega.progreso_evaluacion = calificacionActualizada.progreso_evaluacion;
                 }
                 return nuevasEntregas;
             });
@@ -223,9 +225,9 @@ const CalificacionPanel = () => {
         setLoadingJustificacion(true);
 
         try {
-            const { data, error } = await supabase.functions.invoke('get_justification_text', {
+            const { data, error } = await supabase.functions.invoke('get-justification-text', {
                 body: {
-                    rubrica_spreadsheet_id: actividad.rubrica_spreadsheet_id,
+                    spreadsheet_id: actividad.materias.spreadsheet_id,
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });
@@ -292,6 +294,7 @@ const CalificacionPanel = () => {
                         const entrega = entregas.get(item.id);
                         const status = entrega?.estado || 'pendiente';
                         const calificacion = entrega?.calificacion_obtenida;
+                        const progreso = entrega?.progreso_evaluacion;
 
                         return (
                             <li key={item.id} 
@@ -305,7 +308,13 @@ const CalificacionPanel = () => {
                                     disabled={!entrega || status === 'calificado'}
                                 />
                                 <span className="entregable-nombre">{item.nombre}</span>
-                                <span className={`status-pill ${status}`}>{status}</span>
+
+                                {status === 'procesando' && progreso ? (
+                                    <span className="status-pill procesando" title={progreso}>{progreso}</span>
+                                ) : (
+                                    <span className={`status-pill ${status}`}>{status}</span>
+                                )}
+                                
                                 <div className="calificacion-display">
                                     {calificacion !== null && calificacion !== undefined ? (
                                         <span className={calificacion >= 70 ? 'aprobado' : 'reprobado'}>
