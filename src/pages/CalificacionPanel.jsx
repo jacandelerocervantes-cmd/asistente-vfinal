@@ -39,14 +39,10 @@ const CalificacionPanel = () => {
             const { data: gruposData, error: gruposError } = await supabase.from('grupos').select('*').eq('materia_id', actData.materia_id);
             if (gruposError) throw gruposError;
 
-            // --- LÓGICA DE FILTRADO DE ENTREGABLES ---
-
             let posiblesEntregables = [];
-            // Para 'individual' y 'mixta', los alumnos son candidatos.
             if (actData.tipo_entrega === 'individual' || actData.tipo_entrega === 'mixta') {
                 posiblesEntregables.push(...alumnosData.map(a => ({ id: a.id, tipo: 'alumno', nombre: `${a.apellido}, ${a.nombre}`, identificador: a.matricula.toUpperCase() })));
             }
-            // Para 'grupal' y 'mixta', los grupos son candidatos.
             if (actData.tipo_entrega === 'grupal' || actData.tipo_entrega === 'mixta') {
                 posiblesEntregables.push(...gruposData.map(g => ({ id: g.id, tipo: 'grupo', nombre: g.nombre, identificador: g.nombre.toUpperCase().replace(/\s/g, '') })));
             }
@@ -158,6 +154,10 @@ const CalificacionPanel = () => {
         setSelectedItems(newSelection);
     };
 
+    /**
+     * ¡CORREGIDO!
+     * Esta función ahora extrae correctamente el array 'reporte_plagio' de la respuesta.
+     */
     const handlePlagioCheck = async () => {
         if (selectedItems.size < 2) {
             alert("Debes seleccionar al menos dos trabajos para comparar.");
@@ -166,10 +166,21 @@ const CalificacionPanel = () => {
         setLoadingPlagio(true);
         try {
             const driveFileIds = Array.from(selectedItems).map(id => entregas.get(id)?.drive_file_id).filter(Boolean);
-            const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', { body: { drive_file_ids: driveFileIds } });
+            
+            const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', {
+                body: { 
+                    drive_file_ids: driveFileIds,
+                    drive_url_materia: actividad.materias.drive_url
+                }
+            });
+
             if (error) throw error;
+
+            // --- ¡CORRECCIÓN APLICADA AQUÍ! ---
+            // Extraemos el array 'reporte_plagio' del objeto 'data'
             setPlagioReportData(data.reporte_plagio);
             setShowPlagioReport(true);
+
         } catch (error) {
             alert("Error al comprobar el plagio: " + error.message);
         } finally {
