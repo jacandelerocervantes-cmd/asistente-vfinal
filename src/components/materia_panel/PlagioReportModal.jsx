@@ -2,12 +2,11 @@
 import React from 'react';
 import './PlagioReportModal.css';
 
-const PlagioReportModal = ({ reporte, alumnos, onClose }) => {
-    // Función para obtener el nombre del alumno a partir de su ID
-    const getAlumnoNombre = (alumnoId) => {
-        const alumno = alumnos.find(a => a.id === alumnoId);
-        return alumno ? `${alumno.nombre} ${alumno.apellido}` : `ID ${alumnoId}`;
-    };
+const PlagioReportModal = ({ reporte, fileIdToNameMap, onClose }) => {
+
+    if (!reporte) {
+        return null;
+    }
 
     return (
         <div className="modal-overlay" onClick={onClose}>
@@ -22,14 +21,13 @@ const PlagioReportModal = ({ reporte, alumnos, onClose }) => {
                     ) : (
                         <ul className="report-list">
                             {reporte.map((item, index) => {
-                                // Buscamos los IDs de alumno correspondientes a los file IDs
-                                const alumnoAId = item.trabajo_A_id;
-                                const alumnoBId = item.trabajo_B_id;
+                                const nombreA = fileIdToNameMap.get(item.trabajo_A_id) || `ID de archivo no encontrado`;
+                                const nombreB = fileIdToNameMap.get(item.trabajo_B_id) || `ID de archivo no encontrado`;
 
                                 return (
                                     <li key={index} className="report-item">
                                         <div className="report-pair">
-                                            <strong>{getAlumnoNombre(alumnoAId)}</strong> y <strong>{getAlumnoNombre(alumnoBId)}</strong>
+                                            <strong>{nombreA}</strong> y <strong>{nombreB}</strong>
                                             <span className="similarity-badge">{item.porcentaje_similitud}% de similitud</span>
                                         </div>
                                         <div className="report-fragments">

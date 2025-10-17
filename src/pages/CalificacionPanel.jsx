@@ -21,6 +21,7 @@ const CalificacionPanel = () => {
     const [showJustificacion, setShowJustificacion] = useState(false);
     const [selectedCalificacion, setSelectedCalificacion] = useState(null);
     const [loadingJustificacion, setLoadingJustificacion] = useState(false);
+    const [fileIdToNameMap, setFileIdToNameMap] = useState(new Map());
 
     const fetchData = async () => {
         setLoading(true);
@@ -100,6 +101,7 @@ const CalificacionPanel = () => {
                 if (calificacionesParaUpsert.length > 0) {
                     const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id' });
                     if (upsertError) throw upsertError;
+                    // Forzamos una recarga de los datos para asegurar consistencia
                     fetchData();
                     return;
                 }
@@ -134,6 +136,19 @@ const CalificacionPanel = () => {
         }).subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [actividad_id]);
+    
+    useEffect(() => {
+        const newMap = new Map();
+        if (entregables.length > 0 && entregas.size > 0) {
+            for (const entregable of entregables) {
+                const entrega = entregas.get(entregable.id);
+                if (entrega && entrega.drive_file_id) {
+                    newMap.set(entrega.drive_file_id, entregable.nombre);
+                }
+            }
+        }
+        setFileIdToNameMap(newMap);
+    }, [entregables, entregas]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
@@ -172,7 +187,7 @@ const CalificacionPanel = () => {
 
             if (error) throw error;
             
-            setPlagioReportData(data.reporte_plagio);
+            setPlagioReportData(data.reporte_plagio || []);
             setShowPlagioReport(true);
 
         } catch (error) {
@@ -211,7 +226,7 @@ const CalificacionPanel = () => {
         try {
             const { data, error } = await supabase.functions.invoke('get_justification_text', {
                 body: {
-                    rubrica_spreadsheet_id: actividad.rubrica_spreadsheet_id,
+                    spreadsheet_id: actividad.materias.spreadsheet_id,
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });
@@ -244,7 +259,7 @@ const CalificacionPanel = () => {
         <div className="calificacion-panel-container container">
             <div className="calificacion-header">
                 <div>
-                    <Link to={`/materia/${actividad.materia_id}`} className="back-link">&larr; Volver a Actividades</Link>
+                    <Link to={`/materia/${actividad.materias.id}`} className="back-link">&larr; Volver a Actividades</Link>
                     <h2>{actividad.nombre}</h2>
                     <p>Unidad {actividad.unidad} | Tipo de Entrega: {actividad.tipo_entrega}</p>
                 </div>
@@ -305,7 +320,7 @@ const CalificacionPanel = () => {
                 </ul>
             </div>
 
-            {showPlagioReport && ( <PlagioReportModal reporte={plagioReportData} alumnos={alumnos} onClose={() => setShowPlagioReport(false)} /> )}
+            {showPlagioReport && ( <PlagioReportModal reporte={plagioReportData} fileIdToNameMap={fileIdToNameMap} onClose={() => setShowPlagioReport(false)} /> )}
             
             {showJustificacion && (
                 <JustificacionModal 
