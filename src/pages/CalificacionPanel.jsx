@@ -35,16 +35,28 @@ const CalificacionPanel = () => {
             const { data: alumnosData, error: alumnosError } = await supabase.from('alumnos').select('*').eq('materia_id', actData.materia_id).order('apellido');
             if (alumnosError) throw alumnosError;
             setAlumnos(alumnosData);
+            
+            const { data: gruposData, error: gruposError } = await supabase.from('grupos').select('*').eq('materia_id', actData.materia_id);
+            if (gruposError) throw gruposError;
 
-            let listaDeEntregables = [];
+            // --- LÓGICA DE FILTRADO DE ENTREGABLES ---
+
+            let posiblesEntregables = [];
+            // Para 'individual' y 'mixta', los alumnos son candidatos.
             if (actData.tipo_entrega === 'individual' || actData.tipo_entrega === 'mixta') {
-                listaDeEntregables = alumnosData.map(a => ({ id: a.id, tipo: 'alumno', nombre: `${a.apellido}, ${a.nombre}`, identificador: a.matricula.toUpperCase() }));
-            } else if (actData.tipo_entrega === 'grupal') {
-                const { data: gruposData, error: gruposError } = await supabase.from('grupos').select('*').eq('materia_id', actData.materia_id);
-                if (gruposError) throw gruposError;
-                listaDeEntregables = gruposData.map(g => ({ id: g.id, tipo: 'grupo', nombre: g.nombre, identificador: g.nombre.toUpperCase().replace(/\s/g, '') }));
+                posiblesEntregables.push(...alumnosData.map(a => ({ id: a.id, tipo: 'alumno', nombre: `${a.apellido}, ${a.nombre}`, identificador: a.matricula.toUpperCase() })));
             }
-            setEntregables(listaDeEntregables);
+            // Para 'grupal' y 'mixta', los grupos son candidatos.
+            if (actData.tipo_entrega === 'grupal' || actData.tipo_entrega === 'mixta') {
+                posiblesEntregables.push(...gruposData.map(g => ({ id: g.id, tipo: 'grupo', nombre: g.nombre, identificador: g.nombre.toUpperCase().replace(/\s/g, '') })));
+            }
+
+            let listaFinalDeEntregables = [];
+            if (actData.tipo_entrega === 'individual') {
+                listaFinalDeEntregables = posiblesEntregables.filter(p => p.tipo === 'alumno');
+            } else if (actData.tipo_entrega === 'grupal') {
+                listaFinalDeEntregables = posiblesEntregables.filter(p => p.tipo === 'grupo');
+            }
 
             const { data: calificacionesExistentes, error: califError } = await supabase.from('calificaciones').select('*').eq('actividad_id', actividad_id);
             if(califError) throw califError;
@@ -66,18 +78,27 @@ const CalificacionPanel = () => {
                 if (driveError) throw driveError;
 
                 const calificacionesParaUpsert = [];
+                const entregablesConArchivo = new Set();
+
                 for (const archivo of driveFilesData.archivos) {
-                    const entregable = listaDeEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
-                    if (entregable && !entregasMap.has(entregable.id)) {
-                        calificacionesParaUpsert.push({
-                            actividad_id: parseInt(actividad_id, 10),
-                            alumno_id: entregable.tipo === 'alumno' ? entregable.id : null,
-                            grupo_id: entregable.tipo === 'grupo' ? entregable.id : null,
-                            evidencia_drive_file_id: archivo.id,
-                            estado: 'entregado',
-                            user_id: user.id
-                        });
+                    const entregable = posiblesEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
+                    if (entregable) {
+                        entregablesConArchivo.add(entregable.id);
+                        if (!entregasMap.has(entregable.id)) {
+                            calificacionesParaUpsert.push({
+                                actividad_id: parseInt(actividad_id, 10),
+                                alumno_id: entregable.tipo === 'alumno' ? entregable.id : null,
+                                grupo_id: entregable.tipo === 'grupo' ? entregable.id : null,
+                                evidencia_drive_file_id: archivo.id,
+                                estado: 'entregado',
+                                user_id: user.id
+                            });
+                        }
                     }
+                }
+
+                if (actData.tipo_entrega === 'mixta') {
+                    listaFinalDeEntregables = posiblesEntregables.filter(p => entregablesConArchivo.has(p.id));
                 }
                 
                 if (calificacionesParaUpsert.length > 0) {
@@ -87,6 +108,8 @@ const CalificacionPanel = () => {
                     return;
                 }
             }
+
+            setEntregables(listaFinalDeEntregables);
             setEntregas(entregasMap);
 
         } catch (error) {
@@ -104,14 +127,13 @@ const CalificacionPanel = () => {
             const entregableId = calificacionActualizada.alumno_id || calificacionActualizada.grupo_id;
             setEntregas(prevEntregas => {
                 const nuevasEntregas = new Map(prevEntregas);
-                if (nuevasEntregas.has(entregableId)) {
-                    const entrega = nuevasEntregas.get(entregableId);
+                const entrega = nuevasEntregas.get(entregableId);
+                if (entrega) {
                     entrega.estado = calificacionActualizada.estado;
                     entrega.calificacion_obtenida = calificacionActualizada.calificacion_obtenida;
                     entrega.justificacion_sheet_cell = calificacionActualizada.justificacion_sheet_cell;
-                    return nuevasEntregas;
                 }
-                return prevEntregas;
+                return nuevasEntregas;
             });
         }).subscribe();
         return () => { supabase.removeChannel(channel); };
