@@ -1,0 +1,90 @@
+/* src/components/materia_panel/JustificacionModal.css */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: var(--spacing-lg);
+    border-radius: var(--border-radius);
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.modal-header h3 {
+    color: var(--color-primary);
+    margin: 0;
+    font-size: 1.4rem;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 2rem;
+    cursor: pointer;
+    color: #888;
+}
+
+.calificacion-info {
+    margin-bottom: var(--spacing-lg);
+    font-size: 1.1rem;
+}
+
+.calificacion-info span {
+    font-weight: bold;
+    font-size: 1.3rem;
+    padding: 4px 8px;
+    border-radius: var(--border-radius);
+}
+
+.calificacion-info .aprobado {
+    color: #2f855a;
+    background-color: #c6f6d5;
+}
+
+.calificacion-info .reprobado {
+    color: #c53030;
+    background-color: #fed7d7;
+}
+
+.justificacion-texto h4 {
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.justificacion-texto p {
+    background-color: #f9fafb;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    white-space: pre-wrap; /* Mantiene los saltos de línea de la justificación */
+    line-height: 1.6;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--spacing-xl);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border);
+}

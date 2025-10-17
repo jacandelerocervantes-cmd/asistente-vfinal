@@ -3,77 +3,116 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import PlagioReportModal from '../components/materia_panel/PlagioReportModal';
+import JustificacionModal from '../components/materia_panel/JustificacionModal';
 import './CalificacionPanel.css';
 
 const CalificacionPanel = () => {
     const { id: actividad_id } = useParams();
     const [actividad, setActividad] = useState(null);
-    const [entregables, setEntregables] = useState([]); // Lista de alumnos o grupos
-    const [entregasDrive, setEntregasDrive] = useState(new Map()); // Mapa para vincular entregas
+    const [entregables, setEntregables] = useState([]);
+    const [alumnos, setAlumnos] = useState([]);
+    const [entregas, setEntregas] = useState(new Map());
     const [loading, setLoading] = useState(true);
     const [selectedItems, setSelectedItems] = useState(new Set());
     const [loadingPlagio, setLoadingPlagio] = useState(false);
+    const [loadingIA, setLoadingIA] = useState(false);
     const [showPlagioReport, setShowPlagioReport] = useState(false);
     const [plagioReportData, setPlagioReportData] = useState(null);
+    const [showJustificacion, setShowJustificacion] = useState(false);
+    const [selectedCalificacion, setSelectedCalificacion] = useState(null);
+    const [loadingJustificacion, setLoadingJustificacion] = useState(false);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                // 1. Obtener datos de la actividad, incluyendo el ID de su carpeta de Drive
-                const { data: actData, error: actError } = await supabase
-                    .from('actividades')
-                    .select('*, materias(*), drive_folder_id') // Asumimos que guardamos el ID de la carpeta de la actividad
-                    .eq('id', actividad_id)
-                    .single();
-                if (actError) throw actError;
-                setActividad(actData);
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            const { data: actData, error: actError } = await supabase.from('actividades').select('*, materias(*)').eq('id', actividad_id).single();
+            if (actError) throw actError;
+            setActividad(actData);
 
-                // 2. Obtener las "entidades" a calificar (alumnos y/o grupos)
-                let listaDeEntregables = [];
-                const { data: alumnosData, error: alumnosError } = await supabase.from('alumnos').select('*').eq('materia_id', actData.materia_id).order('apellido');
-                if (alumnosError) throw alumnosError;
-                
-                // Lógica para mostrar alumnos, grupos o mixto (ampliar en el futuro)
-                if (actData.tipo_entrega === 'individual' || actData.tipo_entrega === 'mixta') {
-                    listaDeEntregables = alumnosData.map(a => ({ id: a.id, tipo: 'alumno', nombre: `${a.apellido}, ${a.nombre}`, identificador: a.matricula.toUpperCase() }));
-                }
-                setEntregables(listaDeEntregables);
+            const { data: alumnosData, error: alumnosError } = await supabase.from('alumnos').select('*').eq('materia_id', actData.materia_id).order('apellido');
+            if (alumnosError) throw alumnosError;
+            setAlumnos(alumnosData);
 
-                // 3. --- VINCULACIÓN AUTOMÁTICA DE ENTREGAS ---
-                if (actData.drive_folder_id) {
-                    const { data: driveFilesData, error: driveError } = await supabase.functions.invoke('obtener-entregas-drive', {
-                        body: { drive_folder_id: actData.drive_folder_id }
-                    });
-                    if (driveError) throw driveError;
-
-                    const entregasMap = new Map();
-                    // Para cada archivo en la carpeta de Drive...
-                    driveFilesData.archivos.forEach(archivo => {
-                        // ...buscamos un alumno/grupo cuyo identificador (matrícula) coincida con el inicio del nombre del archivo.
-                        const entregable = listaDeEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
-                        if (entregable) {
-                            // Si hay match, vinculamos el ID del archivo de Drive con el ID del alumno/grupo
-                            entregasMap.set(entregable.id, { drive_file_id: archivo.id, nombre_archivo: archivo.nombre });
-                        }
-                    });
-                    setEntregasDrive(entregasMap);
-                }
-                 // --- FIN VINCULACIÓN ---
-
-            } catch (error) {
-                console.error("Error cargando datos para calificar:", error);
-                alert("Error al cargar los datos del panel de calificación.");
-            } finally {
-                setLoading(false);
+            let listaDeEntregables = [];
+            if (actData.tipo_entrega === 'individual' || actData.tipo_entrega === 'mixta') {
+                listaDeEntregables = alumnosData.map(a => ({ id: a.id, tipo: 'alumno', nombre: `${a.apellido}, ${a.nombre}`, identificador: a.matricula.toUpperCase() }));
+            } else if (actData.tipo_entrega === 'grupal') {
+                const { data: gruposData, error: gruposError } = await supabase.from('grupos').select('*').eq('materia_id', actData.materia_id);
+                if (gruposError) throw gruposError;
+                listaDeEntregables = gruposData.map(g => ({ id: g.id, tipo: 'grupo', nombre: g.nombre, identificador: g.nombre.toUpperCase().replace(/\s/g, '') }));
             }
-        };
+            setEntregables(listaDeEntregables);
+
+            const { data: calificacionesExistentes, error: califError } = await supabase.from('calificaciones').select('*').eq('actividad_id', actividad_id);
+            if(califError) throw califError;
+            
+            const entregasMap = new Map();
+            calificacionesExistentes.forEach(cal => {
+                const entregableId = cal.alumno_id || cal.grupo_id;
+                entregasMap.set(entregableId, {
+                    calificacion_id: cal.id,
+                    estado: cal.estado,
+                    calificacion_obtenida: cal.calificacion_obtenida,
+                    justificacion_sheet_cell: cal.justificacion_sheet_cell
+                });
+            });
+
+            if (actData.drive_folder_entregas_id) {
+                const { data: driveFilesData, error: driveError } = await supabase.functions.invoke('obtener-entregas-drive', { body: { drive_folder_id: actData.drive_folder_entregas_id } });
+                if (driveError) throw driveError;
+
+                const calificacionesParaUpsert = [];
+                for (const archivo of driveFilesData.archivos) {
+                    const entregable = listaDeEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
+                    if (entregable) {
+                         if (entregasMap.has(entregable.id)) {
+                            entregasMap.get(entregable.id).drive_file_id = archivo.id;
+                            entregasMap.get(entregable.id).nombre_archivo = archivo.nombre;
+                        } else {
+                             entregasMap.set(entregable.id, { drive_file_id: archivo.id, nombre_archivo: archivo.nombre, estado: 'entregado' });
+                        }
+                        calificacionesParaUpsert.push({ actividad_id: parseInt(actividad_id, 10), alumno_id: entregable.tipo === 'alumno' ? entregable.id : null, grupo_id: entregable.tipo === 'grupo' ? entregable.id : null, evidencia_drive_file_id: archivo.id, estado: 'entregado' });
+                    }
+                }
+                
+                if (calificacionesParaUpsert.length > 0) {
+                    const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id', ignoreDuplicates: false }).select();
+                    if (upsertError) throw upsertError;
+                }
+            }
+            setEntregas(entregasMap);
+
+        } catch (error) {
+            console.error("Error cargando datos:", error);
+            alert("Error al cargar los datos: " + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    useEffect(() => {
         fetchData();
+        const channel = supabase.channel(`calificaciones-actividad-${actividad_id}`).on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calificaciones', filter: `actividad_id=eq.${actividad_id}` }, (payload) => {
+            const calificacionActualizada = payload.new;
+            const entregableId = calificacionActualizada.alumno_id || calificacionActualizada.grupo_id;
+            setEntregas(prevEntregas => {
+                const nuevasEntregas = new Map(prevEntregas);
+                if (nuevasEntregas.has(entregableId)) {
+                    const entrega = nuevasEntregas.get(entregableId);
+                    entrega.estado = calificacionActualizada.estado;
+                    entrega.calificacion_obtenida = calificacionActualizada.calificacion_obtenida;
+                    entrega.justificacion_sheet_cell = calificacionActualizada.justificacion_sheet_cell;
+                    return nuevasEntregas;
+                }
+                return prevEntregas;
+            });
+        }).subscribe();
+        return () => { supabase.removeChannel(channel); };
     }, [actividad_id]);
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            const allIds = new Set(entregables.filter(item => entregasDrive.has(item.id)).map(item => item.id));
+            const allIds = new Set(entregables.filter(item => entregas.has(item.id) && entregas.get(item.id).estado !== 'calificado').map(item => item.id));
             setSelectedItems(allIds);
         } else {
             setSelectedItems(new Set());
@@ -90,58 +129,167 @@ const CalificacionPanel = () => {
         setSelectedItems(newSelection);
     };
 
-    const handlePlagioCheck = async () => { /* ... Lógica existente ... */ };
-    const handleEvaluarConIA = async () => { /* ... Lógica existente ... */ };
+    const handlePlagioCheck = async () => {
+        if (selectedItems.size < 2) {
+            alert("Debes seleccionar al menos dos trabajos para comparar.");
+            return;
+        }
+        setLoadingPlagio(true);
+        try {
+            const driveFileIds = Array.from(selectedItems).map(id => entregas.get(id)?.drive_file_id).filter(Boolean);
+            const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', { body: { drive_file_ids: driveFileIds } });
+            if (error) throw error;
+            setPlagioReportData(data.reporte_plagio);
+            setShowPlagioReport(true);
+        } catch (error) {
+            alert("Error al comprobar el plagio: " + error.message);
+        } finally {
+            setLoadingPlagio(false);
+        }
+    };
 
+    const handleEvaluarConIA = async () => {
+        if (selectedItems.size === 0) {
+            alert("Debes seleccionar al menos un trabajo para evaluar.");
+            return;
+        }
+        setLoadingIA(true);
+        try {
+            const calificacionesIds = Array.from(selectedItems).map(id => entregas.get(id)?.calificacion_id).filter(Boolean);
+            if (calificacionesIds.length === 0) { throw new Error("No se encontraron registros de calificación para los trabajos seleccionados."); }
+            const { data, error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', { body: { calificaciones_ids: calificacionesIds } });
+            if (error) throw error;
+            alert(data.message);
+        } catch (error) {
+            alert("Error al iniciar la evaluación con IA: " + error.message);
+        } finally {
+            setLoadingIA(false);
+        }
+    };
+
+    const handleOpenJustificacion = async (entrega, entregable) => {
+        if (!entrega?.justificacion_sheet_cell) return;
+        
+        setSelectedCalificacion({ ...entrega, entregable });
+        setShowJustificacion(true);
+        setLoadingJustificacion(true);
+
+        try {
+            const { data, error } = await supabase.functions.invoke('get_justification_text', {
+                body: {
+                    drive_url_materia: actividad.materias.drive_url,
+                    justificacion_sheet_cell: entrega.justificacion_sheet_cell,
+                }
+            });
+
+            if (error) throw error;
+            
+            setSelectedCalificacion(prev => ({ ...prev, justificacion_texto: data.justificacion_texto }));
+
+        } catch (error) {
+            alert("Error al cargar la retroalimentación: " + error.message);
+        } finally {
+            setLoadingJustificacion(false);
+        }
+    };
+
+    const handleOpenRubric = () => {
+        const spreadsheetId = actividad?.materias?.spreadsheet_id;
+        if (spreadsheetId) {
+            // Construye la URL base del spreadsheet
+            const baseUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+            
+            // Si tenemos el rango, podemos intentar ir a la hoja específica
+            const rubricaSheetRange = actividad?.rubrica_sheet_range;
+            if (rubricaSheetRange) {
+                const sheetName = rubricaSheetRange.split('!')[0].replace(/'/g, '');
+                // No podemos obtener el gid() del sheet desde el cliente, pero abrir la hoja por nombre es un buen intento
+                // Google Sheets no soporta ir a una hoja por nombre en la URL, pero abrir el archivo ya es una gran ayuda.
+                window.open(baseUrl, '_blank', 'noopener,noreferrer');
+            } else {
+                window.open(baseUrl, '_blank', 'noopener,noreferrer');
+            }
+        } else {
+            alert("No se encontró el enlace al archivo de reportes de esta materia.");
+        }
+    };
+    
     if (loading) return <p className="container">Cargando panel de calificación...</p>;
     if (!actividad) return <p className="container">Actividad no encontrada.</p>;
 
     return (
         <div className="calificacion-panel-container container">
-            <Link to={`/materia/${actividad.materia_id}`} className="back-link">&larr; Volver a Actividades</Link>
-            <h2>{actividad.nombre}</h2>
-            <p>Unidad {actividad.unidad} | Tipo de Entrega: {actividad.tipo_entrega}</p>
+            <div className="calificacion-header">
+                <div>
+                    <Link to={`/materia/${actividad.materia_id}`} className="back-link">&larr; Volver a Actividades</Link>
+                    <h2>{actividad.nombre}</h2>
+                    <p>Unidad {actividad.unidad} | Tipo de Entrega: {actividad.tipo_entrega}</p>
+                </div>
+                <button 
+                    onClick={handleOpenRubric} 
+                    className="btn-secondary" 
+                    title="Abrir la rúbrica de esta actividad en Google Sheets"
+                    disabled={!actividad?.materias?.spreadsheet_id}
+                >
+                    📄 Ver Rúbrica
+                </button>
+            </div>
 
             <div className="panel-actions">
-                <button disabled={selectedItems.size < 2 || loadingPlagio} onClick={handlePlagioCheck} className="btn-secondary">
+                <button disabled={selectedItems.size < 2 || loadingPlagio || loadingIA} onClick={handlePlagioCheck} className="btn-secondary">
                     {loadingPlagio ? 'Analizando...' : `🔍 Comprobar Plagio (${selectedItems.size})`}
                 </button>
-                <button disabled={selectedItems.size === 0} onClick={handleEvaluarConIA} className="btn-primary">
-                    🤖 Evaluar con IA ({selectedItems.size})
+                <button disabled={selectedItems.size === 0 || loadingIA || loadingPlagio} onClick={handleEvaluarConIA} className="btn-primary">
+                    {loadingIA ? 'Procesando...' : `🤖 Evaluar con IA (${selectedItems.size})`}
                 </button>
             </div>
 
             <div className="alumnos-list-container">
                 <div className="list-header">
                     <input type="checkbox" onChange={handleSelectAll} />
-                    <span>Seleccionar Todos ({entregables.length})</span>
+                    <span>Seleccionar Pendientes ({entregables.length})</span>
+                    <span className="header-calificacion">Calificación</span>
                 </div>
                 <ul className="alumnos-list">
                     {entregables.map(item => {
-                        const entrega = entregasDrive.get(item.id);
-                        const status = entrega ? 'entregado' : 'pendiente';
+                        const entrega = entregas.get(item.id);
+                        const status = entrega?.estado || 'pendiente';
+                        const calificacion = entrega?.calificacion_obtenida;
 
                         return (
-                            <li key={item.id}>
+                            <li key={item.id} 
+                                className={status === 'calificado' ? 'calificado-row' : ''}
+                                onClick={() => status === 'calificado' && handleOpenJustificacion(entrega, item)}
+                            >
                                 <input
                                     type="checkbox"
                                     checked={selectedItems.has(item.id)}
                                     onChange={() => handleSelectOne(item.id)}
-                                    disabled={!entrega} // El checkbox se activa solo si hay una entrega vinculada
+                                    disabled={!entrega || status === 'calificado'}
                                 />
-                                <span>{item.nombre}</span>
+                                <span className="entregable-nombre">{item.nombre}</span>
                                 <span className={`status-pill ${status}`}>{status}</span>
+                                <div className="calificacion-display">
+                                    {calificacion !== null && calificacion !== undefined ? (
+                                        <span className={calificacion >= 70 ? 'aprobado' : 'reprobado'}>
+                                            {calificacion}
+                                        </span>
+                                    ) : ( <span>-</span> )}
+                                </div>
                             </li>
                         );
                     })}
                 </ul>
             </div>
 
-            {showPlagioReport && (
-                <PlagioReportModal 
-                    reporte={plagioReportData}
-                    alumnos={alumnos} // Necesitaremos la lista de alumnos para buscar nombres
-                    onClose={() => setShowPlagioReport(false)}
+            {showPlagioReport && ( <PlagioReportModal reporte={plagioReportData} alumnos={alumnos} onClose={() => setShowPlagioReport(false)} /> )}
+            
+            {showJustificacion && (
+                <JustificacionModal 
+                    calificacion={selectedCalificacion}
+                    entregable={entregables.find(e => e.id === (selectedCalificacion.alumno_id || selectedCalificacion.grupo_id))}
+                    loading={loadingJustificacion}
+                    onClose={() => setShowJustificacion(false)}
                 />
             )}
         </div>

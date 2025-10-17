@@ -1,15 +1,43 @@
 // src/components/materia_panel/ActividadForm.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 
-const ActividadForm = ({ materia, onSave, onCancel }) => {
+const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
     const [nombre, setNombre] = useState('');
     const [unidad, setUnidad] = useState(1);
     const [descripcion, setDescripcion] = useState('');
-    const [tipoEntrega, setTipoEntrega] = useState('individual'); // Nuevo estado
+    const [tipoEntrega, setTipoEntrega] = useState('individual');
     const [criterios, setCriterios] = useState([{ descripcion: '', puntos: 50 }, { descripcion: '', puntos: 50 }]);
     const [loading, setLoading] = useState(false);
     const [loadingRubric, setLoadingRubric] = useState(false);
+    const isEditing = Boolean(actividadToEdit);
+
+    // useEffect para cargar todos los datos de la actividad en modo edición
+    useEffect(() => {
+        if (isEditing && actividadToEdit) {
+            setLoading(true); // Muestra un indicador de carga
+            supabase.functions.invoke('get-activity-details', {
+                body: { actividad_id: actividadToEdit.id }
+            }).then(({ data, error }) => {
+                if (error) {
+                    throw error;
+                }
+                // Llena el formulario con los datos obtenidos
+                setNombre(data.nombre);
+                setUnidad(data.unidad);
+                setTipoEntrega(data.tipo_entrega);
+                setDescripcion(data.descripcion || ''); // Usa un string vacío si la descripción es nula
+                if (data.criterios && data.criterios.length > 0) {
+                    setCriterios(data.criterios);
+                }
+            }).catch(error => {
+                alert("Error al cargar los detalles de la actividad: " + error.message);
+            }).finally(() => {
+                setLoading(false);
+            });
+        }
+    }, [actividadToEdit, isEditing]);
+
 
     const handleCriterioChange = (index, field, value) => {
         const nuevosCriterios = [...criterios];
@@ -66,15 +94,23 @@ const ActividadForm = ({ materia, onSave, onCancel }) => {
         }
         setLoading(true);
         try {
+            const functionName = isEditing ? 'actualizar-actividad' : 'crear-actividad';
+            
             const payload = {
                 materia_id: materia.id,
                 drive_url_materia: materia.drive_url,
                 nombre_actividad: nombre,
                 unidad: parseInt(unidad, 10),
-                tipo_entrega: tipoEntrega, // Se añade el nuevo dato
+                tipo_entrega: tipoEntrega,
+                criterios: criterios,
+                descripcion: descripcion, // Guardamos también la descripción
             };
 
-            const { data, error } = await supabase.functions.invoke('crear-actividad', {
+            if (isEditing) {
+                payload.actividad_id = actividadToEdit.id;
+            }
+
+            const { data, error } = await supabase.functions.invoke(functionName, {
                 body: payload,
             });
 
@@ -84,16 +120,21 @@ const ActividadForm = ({ materia, onSave, onCancel }) => {
             onSave(data.actividad);
 
         } catch (error) {
-            alert("Error al crear la actividad: " + error.message);
+            alert(`Error al ${isEditing ? 'actualizar' : 'crear'} la actividad: ${error.message}`);
         } finally {
             setLoading(false);
         }
     };
 
+    // Muestra un mensaje de carga específico mientras se obtienen los datos para editar
+    if (loading && isEditing) {
+        return <p>Cargando datos de la actividad...</p>;
+    }
+
     return (
         <div className="actividad-form-container card">
             <form onSubmit={handleSubmit} className="materia-form">
-                <h3>Nueva Actividad</h3>
+                <h3>{isEditing ? 'Editar Actividad' : 'Nueva Actividad'}</h3>
                 
                 <div className="form-group">
                     <label htmlFor="nombre_actividad">Nombre de la Actividad</label>
@@ -109,7 +150,6 @@ const ActividadForm = ({ materia, onSave, onCancel }) => {
                             ))}
                         </select>
                     </div>
-                    {/* --- NUEVO SELECTOR DE TIPO DE ENTREGA --- */}
                     <div className="form-group">
                         <label htmlFor="tipo_entrega">Tipo de Entrega</label>
                         <select id="tipo_entrega" value={tipoEntrega} onChange={(e) => setTipoEntrega(e.target.value)}>
@@ -167,7 +207,7 @@ const ActividadForm = ({ materia, onSave, onCancel }) => {
                 <div className="form-actions">
                     <button type="button" onClick={onCancel} className="btn-tertiary" disabled={loading}>Cancelar</button>
                     <button type="submit" className="btn-primary" disabled={loading}>
-                        {loading ? 'Creando...' : 'Guardar Actividad'}
+                        {loading ? 'Guardando...' : (isEditing ? 'Actualizar Actividad' : 'Guardar Actividad')}
                     </button>
                 </div>
             </form>

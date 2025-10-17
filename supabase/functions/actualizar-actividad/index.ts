@@ -1,4 +1,4 @@
-// supabase/functions/crear-actividad/index.ts
+// supabase/functions/actualizar-actividad/index.ts
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -8,19 +8,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Define la estructura de los datos, incluyendo la rúbrica
+// Define la estructura de los datos que esperamos recibir
 interface Criterio {
   descripcion: string;
   puntos: number;
 }
 
-interface ActividadData {
+interface ActividadUpdateRequest {
+  actividad_id: number; // <-- ID de la actividad a actualizar
   materia_id: number;
   drive_url_materia: string | null;
   nombre_actividad: string;
   unidad: number | null;
   tipo_entrega: string;
-  criterios: Criterio[]; // <-- AÑADIDO
+  criterios: Criterio[];
 }
 
 serve(async (req: Request) => {
@@ -30,13 +31,18 @@ serve(async (req: Request) => {
 
   try {
     const { 
-      materia_id, 
+      actividad_id,
+      materia_id,
       drive_url_materia, 
       nombre_actividad, 
       unidad, 
       tipo_entrega,
-      criterios // <-- AÑADIDO
-    }: ActividadData = await req.json();
+      criterios
+    }: ActividadUpdateRequest = await req.json();
+
+    if (!actividad_id) {
+        throw new Error("Se requiere el ID de la actividad para actualizarla.");
+    }
 
     const authHeader = req.headers.get("Authorization")!;
     
@@ -47,34 +53,11 @@ serve(async (req: Request) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Usuario no autenticado.");
 
-    // 1. Llama al Apps Script para crear las carpetas en Drive
+    // 1. Llama al Apps Script para (re)guardar la rúbrica y obtener el nuevo rango.
+    // Usamos la misma función 'guardar_rubrica' que se encarga de sobreescribir si ya existe.
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
-    let driveFolderIdActividad: string | null = null;
-    let driveFolderIdEntregas: string | null = null;
-
-    if (drive_url_materia) {
-        const scriptResponse = await fetch(appsScriptUrl, {
-            method: 'POST',
-            body: JSON.stringify({
-                action: 'create_activity_folder',
-                drive_url_materia: drive_url_materia,
-                nombre_actividad: nombre_actividad,
-                unidad: unidad
-            }),
-            headers: { 'Content-Type': 'application/json' },
-        });
-
-        if (!scriptResponse.ok) throw new Error("Error al crear carpetas en Google Drive.");
-        const driveData = await scriptResponse.json();
-        if(driveData.status === 'success') {
-          driveFolderIdActividad = driveData.drive_folder_id_actividad;
-          driveFolderIdEntregas = driveData.drive_folder_id_entregas;
-        }
-    }
-
-    // 2. Llama al Apps Script para guardar la rúbrica y obtener el rango
     let rubricaSheetRange: string | null = null;
     if (drive_url_materia && criterios && criterios.length > 0) {
       const rubricaResponse = await fetch(appsScriptUrl, {
@@ -88,34 +71,32 @@ serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (!rubricaResponse.ok) throw new Error("Error al guardar la rúbrica en Google Sheets.");
+      if (!rubricaResponse.ok) throw new Error("Error al actualizar la rúbrica en Google Sheets.");
       const rubricaData = await rubricaResponse.json();
       if(rubricaData.status === 'success') {
         rubricaSheetRange = rubricaData.rubrica_sheet_range;
       }
     }
 
-    // 3. Guardar todo en Supabase
-    const { data: nuevaActividad, error: insertError } = await supabase
+    // 2. Actualizar los datos de la actividad en Supabase
+    const { data: actividadActualizada, error: updateError } = await supabase
       .from('actividades')
-      .insert({
-        materia_id,
+      .update({
         nombre: nombre_actividad,
         unidad,
         tipo_entrega,
-        user_id: user.id,
-        drive_folder_id: driveFolderIdActividad, // <-- AÑADIDO
-        drive_folder_entregas_id: driveFolderIdEntregas, // <-- AÑADIDO
-        rubrica_sheet_range: rubricaSheetRange, // <-- AÑADIDO
+        rubrica_sheet_range: rubricaSheetRange,
       })
+      .eq('id', actividad_id)
+      .eq('user_id', user.id) // Asegura que el usuario solo puede editar sus propias actividades
       .select()
       .single();
 
-    if (insertError) throw insertError;
+    if (updateError) throw updateError;
 
     return new Response(JSON.stringify({ 
-        message: "Actividad creada exitosamente y sincronizada con Google Drive.",
-        actividad: nuevaActividad
+        message: "Actividad actualizada exitosamente.",
+        actividad: actividadActualizada
     }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200 

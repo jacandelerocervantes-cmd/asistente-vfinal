@@ -348,7 +348,7 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.crear-actividad]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/crear-actividad/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -359,7 +359,7 @@ entrypoint = "./functions/crear-actividad/index.ts"
 
 [functions.generar-rubrica-gemini]
 enabled = true
-verify_jwt = true
+verify_jwt =false
 import_map = "./functions/generar-rubrica-gemini/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -370,7 +370,7 @@ entrypoint = "./functions/generar-rubrica-gemini/index.ts"
 
 [functions.comprobar-plagio-gemini]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/comprobar-plagio-gemini/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -381,7 +381,7 @@ entrypoint = "./functions/comprobar-plagio-gemini/index.ts"
 
 [functions.iniciar-evaluacion-masiva]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/iniciar-evaluacion-masiva/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -392,7 +392,7 @@ entrypoint = "./functions/iniciar-evaluacion-masiva/index.ts"
 
 [functions.procesar-cola-evaluacion]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/procesar-cola-evaluacion/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -403,7 +403,7 @@ entrypoint = "./functions/procesar-cola-evaluacion/index.ts"
 
 [functions.obtener-entregas-drive]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/obtener-entregas-drive/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx

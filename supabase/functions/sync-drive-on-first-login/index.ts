@@ -1,7 +1,7 @@
 // supabase/functions/sync-drive-on-first-login/index.ts
 
-import { serve } from "std/http/server.ts";
-import { createClient } from "supabase";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 console.log("Función 'sync-drive-on-first-login' v-batch inicializada.");
 
@@ -47,15 +47,14 @@ serve(async (req: Request) => {
         const googleScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
         if (!googleScriptUrl) throw new Error("El secreto GOOGLE_SCRIPT_CREATE_MATERIA_URL no está definido.");
 
-        // --- ¡CORRECCIÓN APLICADA AQUÍ! ---
         const payload = {
-            action: 'create_materias_batch', // Se usa la acción correcta para lotes
+            action: 'create_materias_batch',
             docente: { 
                 id: user.id, 
                 nombre: user.user_metadata?.full_name || user.email,
                 email: user.email
             },
-            materias: materias // Se envía el array completo de materias
+            materias: materias
         };
 
         const response = await fetch(googleScriptUrl, {
@@ -67,11 +66,15 @@ serve(async (req: Request) => {
         const scriptResponse = await response.json();
         if (scriptResponse.status === 'error') throw new Error(`Error en el lote de Google Script: ${scriptResponse.message}`);
 
-        if (scriptResponse.drive_urls) {
+        // --- MODIFICADO: Ahora procesamos tanto las URLs como los IDs de Spreadsheet ---
+        if (scriptResponse.drive_urls && scriptResponse.spreadsheet_ids) {
             for (const materiaId in scriptResponse.drive_urls) {
                 await supabaseAdmin
                     .from('materias')
-                    .update({ drive_url: scriptResponse.drive_urls[materiaId] })
+                    .update({ 
+                        drive_url: scriptResponse.drive_urls[materiaId],
+                        spreadsheet_id: scriptResponse.spreadsheet_ids[materiaId] // <-- GUARDAMOS EL ID
+                    })
                     .eq('id', materiaId);
             }
         }

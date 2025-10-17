@@ -21,6 +21,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
     background-color: white;
+    overflow: hidden; /* Para que el borde redondeado se aplique bien */
 }
 
 .list-header {
@@ -40,18 +41,79 @@
     font-weight: bold;
 }
 
-.alumnos-list-container .alumnos-list li {
-    justify-content: flex-start;
+/* --- NUEVO: Estilos para la lista de entregas --- */
+.alumnos-list li {
+    display: grid; /* Usamos grid para alinear columnas */
+    grid-template-columns: auto 1fr auto auto; /* checkbox, nombre, estado, calificacion */
+    align-items: center;
     gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--color-background-light);
 }
 
-.alumnos-list-container .status-pill {
+.alumnos-list li:last-child {
+    border-bottom: none;
+}
+
+.entregable-nombre {
+    font-weight: 500;
+}
+
+.header-calificacion {
     margin-left: auto;
+    width: 100px;
+    text-align: center;
+}
+
+.calificacion-display {
+    width: 100px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.calificacion-display .aprobado {
+    color: #2f855a; /* Verde */
+}
+
+.calificacion-display .reprobado {
+    color: #c53030; /* Rojo */
+}
+
+
+.status-pill {
     padding: 4px 12px;
     border-radius: 12px;
     font-size: 0.85rem;
     font-weight: bold;
+    text-transform: capitalize;
 }
 
 .status-pill.pendiente { background-color: #feebc8; color: #92400e; }
+.status-pill.entregado { background-color: #bee3f8; color: #2a4365; }
+.status-pill.procesando { background-color: #f0f4f8; color: #4a5568; }
 .status-pill.calificado { background-color: #c6f6d5; color: #22543d; }
+/* ... (al final de CalificacionPanel.css) ... */
+
+.alumnos-list li.calificado-row {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.alumnos-list li.calificado-row:hover {
+    background-color: #f7fafc; /* Un gris muy claro */
+}
+/* ... (al final de CalificacionPanel.css) ... */
+
+.calificacion-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.calificacion-header .back-link {
+    margin-bottom: var(--spacing-sm); /* Menos margen para que se vea más agrupado */
+}
