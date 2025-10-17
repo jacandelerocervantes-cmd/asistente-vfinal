@@ -8,20 +8,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Define la estructura de los datos que esperamos recibir
 interface Criterio {
   descripcion: string;
   puntos: number;
 }
 
 interface ActividadUpdateRequest {
-  actividad_id: number; // <-- ID de la actividad a actualizar
+  actividad_id: number;
   materia_id: number;
   drive_url_materia: string | null;
   nombre_actividad: string;
   unidad: number | null;
   tipo_entrega: string;
   criterios: Criterio[];
+  descripcion: string;
 }
 
 serve(async (req: Request) => {
@@ -37,7 +37,8 @@ serve(async (req: Request) => {
       nombre_actividad, 
       unidad, 
       tipo_entrega,
-      criterios
+      criterios,
+      descripcion
     }: ActividadUpdateRequest = await req.json();
 
     if (!actividad_id) {
@@ -53,12 +54,11 @@ serve(async (req: Request) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Usuario no autenticado.");
 
-    // 1. Llama al Apps Script para (re)guardar la rúbrica y obtener el nuevo rango.
-    // Usamos la misma función 'guardar_rubrica' que se encarga de sobreescribir si ya existe.
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
     let rubricaSheetRange: string | null = null;
+    let rubricaSpreadsheetId: string | null = null;
     if (drive_url_materia && criterios && criterios.length > 0) {
       const rubricaResponse = await fetch(appsScriptUrl, {
         method: 'POST',
@@ -75,20 +75,22 @@ serve(async (req: Request) => {
       const rubricaData = await rubricaResponse.json();
       if(rubricaData.status === 'success') {
         rubricaSheetRange = rubricaData.rubrica_sheet_range;
+        rubricaSpreadsheetId = rubricaData.rubrica_spreadsheet_id;
       }
     }
 
-    // 2. Actualizar los datos de la actividad en Supabase
     const { data: actividadActualizada, error: updateError } = await supabase
       .from('actividades')
       .update({
         nombre: nombre_actividad,
         unidad,
         tipo_entrega,
+        descripcion: descripcion,
         rubrica_sheet_range: rubricaSheetRange,
+        rubrica_spreadsheet_id: rubricaSpreadsheetId,
       })
       .eq('id', actividad_id)
-      .eq('user_id', user.id) // Asegura que el usuario solo puede editar sus propias actividades
+      .eq('user_id', user.id)
       .select()
       .single();
 

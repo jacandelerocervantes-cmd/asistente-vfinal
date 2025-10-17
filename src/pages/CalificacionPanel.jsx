@@ -25,6 +25,9 @@ const CalificacionPanel = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("Usuario no autenticado.");
+
             const { data: actData, error: actError } = await supabase.from('actividades').select('*, materias(*)').eq('id', actividad_id).single();
             if (actError) throw actError;
             setActividad(actData);
@@ -53,7 +56,8 @@ const CalificacionPanel = () => {
                     calificacion_id: cal.id,
                     estado: cal.estado,
                     calificacion_obtenida: cal.calificacion_obtenida,
-                    justificacion_sheet_cell: cal.justificacion_sheet_cell
+                    justificacion_sheet_cell: cal.justificacion_sheet_cell,
+                    drive_file_id: cal.evidencia_drive_file_id
                 });
             });
 
@@ -64,20 +68,23 @@ const CalificacionPanel = () => {
                 const calificacionesParaUpsert = [];
                 for (const archivo of driveFilesData.archivos) {
                     const entregable = listaDeEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
-                    if (entregable) {
-                         if (entregasMap.has(entregable.id)) {
-                            entregasMap.get(entregable.id).drive_file_id = archivo.id;
-                            entregasMap.get(entregable.id).nombre_archivo = archivo.nombre;
-                        } else {
-                             entregasMap.set(entregable.id, { drive_file_id: archivo.id, nombre_archivo: archivo.nombre, estado: 'entregado' });
-                        }
-                        calificacionesParaUpsert.push({ actividad_id: parseInt(actividad_id, 10), alumno_id: entregable.tipo === 'alumno' ? entregable.id : null, grupo_id: entregable.tipo === 'grupo' ? entregable.id : null, evidencia_drive_file_id: archivo.id, estado: 'entregado' });
+                    if (entregable && !entregasMap.has(entregable.id)) {
+                        calificacionesParaUpsert.push({
+                            actividad_id: parseInt(actividad_id, 10),
+                            alumno_id: entregable.tipo === 'alumno' ? entregable.id : null,
+                            grupo_id: entregable.tipo === 'grupo' ? entregable.id : null,
+                            evidencia_drive_file_id: archivo.id,
+                            estado: 'entregado',
+                            user_id: user.id
+                        });
                     }
                 }
                 
                 if (calificacionesParaUpsert.length > 0) {
-                    const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id', ignoreDuplicates: false }).select();
+                    const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id' });
                     if (upsertError) throw upsertError;
+                    fetchData();
+                    return;
                 }
             }
             setEntregas(entregasMap);
@@ -177,7 +184,7 @@ const CalificacionPanel = () => {
         try {
             const { data, error } = await supabase.functions.invoke('get_justification_text', {
                 body: {
-                    drive_url_materia: actividad.materias.drive_url,
+                    rubrica_spreadsheet_id: actividad.rubrica_spreadsheet_id,
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });
@@ -194,23 +201,12 @@ const CalificacionPanel = () => {
     };
 
     const handleOpenRubric = () => {
-        const spreadsheetId = actividad?.materias?.spreadsheet_id;
+        const spreadsheetId = actividad?.rubrica_spreadsheet_id;
         if (spreadsheetId) {
-            // Construye la URL base del spreadsheet
-            const baseUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
-            
-            // Si tenemos el rango, podemos intentar ir a la hoja específica
-            const rubricaSheetRange = actividad?.rubrica_sheet_range;
-            if (rubricaSheetRange) {
-                const sheetName = rubricaSheetRange.split('!')[0].replace(/'/g, '');
-                // No podemos obtener el gid() del sheet desde el cliente, pero abrir la hoja por nombre es un buen intento
-                // Google Sheets no soporta ir a una hoja por nombre en la URL, pero abrir el archivo ya es una gran ayuda.
-                window.open(baseUrl, '_blank', 'noopener,noreferrer');
-            } else {
-                window.open(baseUrl, '_blank', 'noopener,noreferrer');
-            }
+            const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+            window.open(url, '_blank', 'noopener,noreferrer');
         } else {
-            alert("No se encontró el enlace al archivo de reportes de esta materia.");
+            alert("No se encontró el enlace al archivo de rúbricas de esta materia.");
         }
     };
     
@@ -228,8 +224,8 @@ const CalificacionPanel = () => {
                 <button 
                     onClick={handleOpenRubric} 
                     className="btn-secondary" 
-                    title="Abrir la rúbrica de esta actividad en Google Sheets"
-                    disabled={!actividad?.materias?.spreadsheet_id}
+                    title="Abrir el archivo maestro de rúbricas"
+                    disabled={!actividad?.rubrica_spreadsheet_id}
                 >
                     📄 Ver Rúbrica
                 </button>
