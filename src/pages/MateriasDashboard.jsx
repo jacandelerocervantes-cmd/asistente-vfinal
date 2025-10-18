@@ -13,7 +13,17 @@ const MateriasDashboard = ({ session }) => {
 
   useEffect(() => {
     fetchMaterias();
-  }, []);
+
+    // Escucha cambios en la sesión (ej. después de un refreshSession)
+    // para recargar las materias y mostrar los nuevos datos de Drive.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        fetchMaterias();
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [session]); // Se vuelve a ejecutar si la sesión cambia.
 
   const fetchMaterias = async () => {
     try {

@@ -12,7 +12,6 @@ import { supabase } from './supabaseClient';
 function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false); // <-- NUEVO ESTADO
 
   useEffect(() => {
     // 1. Obtiene la sesión inicial al cargar la app
@@ -32,7 +31,6 @@ function App() {
         // Verificamos si es la primera vez que el usuario inicia sesión
         // La metadata 'drive_synced' la creamos nosotros en la función de Supabase
         if (!session.user.user_metadata?.drive_synced) {
-          setSyncing(true); // <-- Inicia el estado de sincronización
           console.log("Drive sync metadata not found. Invoking sync function...");
           
           // Invocamos la función para crear las carpetas en Google Drive
@@ -46,9 +44,6 @@ function App() {
             .catch(error => {
               console.error("Error invoking sync-drive-on-first-login:", error);
               alert("Hubo un error al sincronizar con Google Drive: " + error.message);
-            })
-            .finally(() => {
-              setSyncing(false); // <-- Finaliza el estado de sincronización, incluso si hay error
             });
 
         } else {
@@ -66,16 +61,6 @@ function App() {
     return <div>Cargando...</div>;
   }
 
-  // --- ¡NUEVA VISTA! ---
-  // Mientras se sincroniza, mostramos una pantalla de carga dedicada.
-  if (syncing) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column' }}>
-        <h2>Sincronizando con Google Drive...</h2>
-        <p>Estamos creando tus carpetas y archivos por primera vez. Esto puede tardar un momento.</p>
-      </div>
-    );
-  }
   return (
     <Router>
       <Layout session={session}>

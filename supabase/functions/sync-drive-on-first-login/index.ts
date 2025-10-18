@@ -27,11 +27,16 @@ serve(async (req: Request) => {
 
         const payload = { action: 'create_materias_batch', docente: { id: user.id, nombre: user.user_metadata?.full_name || user.email, email: user.email }, materias };
         const response = await fetch(googleScriptUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        
+        // --- ¡CORRECCIÓN CLAVE! ---
+        // Validar si la respuesta de la red fue exitosa antes de intentar leer el JSON.
+        if (!response.ok) throw new Error(`Error en la llamada a Google Apps Script: ${response.statusText}`);
+
         const scriptResponse = await response.json();
         if (scriptResponse.status === 'error') throw new Error(`Error en el lote de Google Script: ${scriptResponse.message}`);
 
-        // --- ¡LÓGICA CORREGIDA! ---
-        const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse;
+        // --- ¡CORRECCIÓN CLAVE! --- La respuesta de Apps Script anida los datos.
+        const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse.data;
         if (drive_urls) {
             for (const materiaId in drive_urls) {
                 await supabaseAdmin.from('materias').update({ 
