@@ -92,7 +92,7 @@ serve(async (req: Request) => {
         method: 'POST',
         body: JSON.stringify({
           action: 'write_justification',
-          spreadsheet_id: materia.spreadsheet_id, // Usamos el ID genérico de la hoja de la materia
+          spreadsheet_id: materia.calificaciones_spreadsheet_id, // CORRECCIÓN: Usar el ID correcto de la hoja de calificaciones
           justificacion: justificacion_texto,
           alumno_id: calificacion.alumno_id || calificacion.grupo_id, // Usamos el ID disponible
           actividad_id: actividad.id,

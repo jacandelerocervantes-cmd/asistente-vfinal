@@ -25,31 +25,39 @@ serve(async (req: Request) => {
     if (materiasError) throw materiasError;
 
     if (materias.length > 0) {
-        const googleScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
-        if (!googleScriptUrl) throw new Error("El secreto GOOGLE_SCRIPT_CREATE_MATERIA_URL no está definido.");
+        try {
+            const googleScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
+            if (!googleScriptUrl) throw new Error("El secreto GOOGLE_SCRIPT_CREATE_MATERIA_URL no está definido.");
 
-        const payload = { action: 'create_materias_batch', docente: { id: user.id, nombre: user.user_metadata?.full_name || user.email, email: user.email }, materias };
-        const response = await fetch(googleScriptUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        
-        // --- ¡CORRECCIÓN CLAVE! ---
-        // Validar si la respuesta de la red fue exitosa antes de intentar leer el JSON.
-        if (!response.ok) throw new Error(`Error en la llamada a Google Apps Script: ${response.statusText}`);
+            const payload = { action: 'create_materias_batch', docente: { id: user.id, nombre: user.user_metadata?.full_name || user.email, email: user.email }, materias };
+            const response = await fetch(googleScriptUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            
+            if (!response.ok) throw new Error(`Error en la llamada a Google Apps Script: ${response.statusText}`);
 
-        const scriptResponse = await response.json();
-        if (scriptResponse.status === 'error') throw new Error(`Error en el lote de Google Script: ${scriptResponse.message}`);
+            const scriptResponse = await response.json();
+            if (scriptResponse.status === 'error') throw new Error(`Error en el lote de Google Script: ${scriptResponse.message}`);
 
-        // --- ¡CORRECCIÓN CLAVE! ---
-        // Adaptado a la respuesta del code.gs final, que devuelve los 3 IDs de sheets.
-        const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse;
-        if (drive_urls) {
-            for (const materiaId in drive_urls) {
-                await supabaseAdmin.from('materias').update({ 
-                    drive_url: drive_urls[materiaId],
-                    rubricas_spreadsheet_id: rubricas_spreadsheet_ids[materiaId],
-                    plagio_spreadsheet_id: plagio_spreadsheet_ids[materiaId],
-                    calificaciones_spreadsheet_id: calificaciones_spreadsheet_ids[materiaId]
-                }).eq('id', materiaId);
+            const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse;
+            if (drive_urls) {
+                for (const materiaId in drive_urls) {
+                    await supabaseAdmin.from('materias').update({ 
+                        drive_url: drive_urls[materiaId],
+                        rubricas_spreadsheet_id: rubricas_spreadsheet_ids[materiaId],
+                        plagio_spreadsheet_id: plagio_spreadsheet_ids[materiaId],
+                        calificaciones_spreadsheet_id: calificaciones_spreadsheet_ids[materiaId]
+                    }).eq('id', materiaId);
+                }
             }
+        } catch (scriptError) {
+            // --- ¡MEJORA CLAVE! ---
+            // Si la sincronización con Google falla, revertimos el estado del usuario
+            // para que pueda reintentarse en el próximo login.
+            console.error("Fallo en la sincronización con Google Script, revirtiendo metadata:", scriptError.message);
+            await supabaseAdmin.auth.admin.updateUserById(user.id, { 
+                user_metadata: { ...user.user_metadata, drive_synced: false } 
+            });
+            // Re-lanzamos el error para que el catch principal lo maneje y devuelva 400.
+            throw scriptError;
         }
     }
 
