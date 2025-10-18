@@ -54,7 +54,7 @@ serve(async (req: Request) => {
 
     const { data: materia, error: materiaError } = await supabase
       .from('materias')
-      .select('rubricas_spreadsheet_id')
+      .select('drive_url') // Solo necesitamos la URL de la materia
       .eq('id', materia_id)
       .single();
 
@@ -64,12 +64,13 @@ serve(async (req: Request) => {
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
     let rubricaSheetRange: string | null = null;
-    if (materia.rubricas_spreadsheet_id && criterios && criterios.length > 0) {
+    let rubricaSpreadsheetId: string | null = null;
+    if (materia.drive_url && criterios && criterios.length > 0) {
       const rubricaResponse = await fetch(appsScriptUrl, {
         method: 'POST',
         body: JSON.stringify({
           action: 'guardar_rubrica',
-          rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id,
+          drive_url_materia: materia.drive_url,
           nombre_actividad: nombre_actividad,
           criterios: criterios,
         }),
@@ -80,6 +81,7 @@ serve(async (req: Request) => {
       const rubricaData = await rubricaResponse.json();
       if(rubricaData.status !== 'success') throw new Error(rubricaData.message);
       rubricaSheetRange = rubricaData.rubrica_sheet_range;
+      rubricaSpreadsheetId = rubricaData.rubrica_spreadsheet_id;
     }
 
     const { data: actividadActualizada, error: updateError } = await supabase
@@ -90,7 +92,7 @@ serve(async (req: Request) => {
         tipo_entrega,
         descripcion: descripcion,
         rubrica_sheet_range: rubricaSheetRange,
-        // rubrica_spreadsheet_id no cambia al actualizar, ya pertenece a la materia
+        rubrica_spreadsheet_id: rubricaSpreadsheetId,
       })
       .eq('id', actividad_id)
       .eq('user_id', user.id)

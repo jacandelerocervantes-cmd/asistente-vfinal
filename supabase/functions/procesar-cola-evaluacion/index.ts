@@ -30,19 +30,19 @@ serve(async (req: Request) => {
       const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
       if (!appsScriptUrl) throw new Error("URL de Apps Script no configurada.");
 
-      // Obtener datos de la rúbrica
+      // Obtener texto de la rúbrica
       const rubricRes = await fetch(appsScriptUrl, {
         method: 'POST',
         body: JSON.stringify({
-          action: 'get_rubric_data',
-          spreadsheet_id: materia.rubricas_spreadsheet_id,
+          action: 'get_rubric_text',
+          spreadsheet_id: actividad.rubrica_spreadsheet_id,
           rubrica_sheet_range: actividad.rubrica_sheet_range
         }),
         headers: { 'Content-Type': 'application/json' },
       });
       const rubricJson = await rubricRes.json();
-      if(rubricJson.status !== 'success') throw new Error(`Apps Script (get_rubric_data) falló: ${rubricJson.message}`);
-      const texto_rubrica = rubricJson.criterios.map((c: {descripcion: string, puntos: number}) => `- ${c.descripcion} (${c.puntos} pts)`).join('\n');
+      if(rubricJson.status !== 'success') throw new Error(`Apps Script (get_rubric_text) falló: ${rubricJson.message}`);
+      const texto_rubrica = rubricJson.texto_rubrica;
       
       // Obtener texto del trabajo
       const workRes = await fetch(appsScriptUrl, {
@@ -92,7 +92,7 @@ serve(async (req: Request) => {
         method: 'POST',
         body: JSON.stringify({
           action: 'write_justification',
-          calificaciones_spreadsheet_id: materia.calificaciones_spreadsheet_id,
+          spreadsheet_id: materia.spreadsheet_id, // Usamos el ID genérico de la hoja de la materia
           justificacion: justificacion_texto,
           alumno_id: calificacion.alumno_id || calificacion.grupo_id, // Usamos el ID disponible
           actividad_id: actividad.id,

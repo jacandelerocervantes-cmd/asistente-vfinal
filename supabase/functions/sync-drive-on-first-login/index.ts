@@ -35,8 +35,9 @@ serve(async (req: Request) => {
         const scriptResponse = await response.json();
         if (scriptResponse.status === 'error') throw new Error(`Error en el lote de Google Script: ${scriptResponse.message}`);
 
-        // --- ¡CORRECCIÓN CLAVE! --- La respuesta de Apps Script anida los datos.
-        const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse.data;
+        // --- ¡CORRECCIÓN CLAVE! ---
+        // Adaptado a la respuesta del code.gs final, que devuelve los 3 IDs de sheets.
+        const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse;
         if (drive_urls) {
             for (const materiaId in drive_urls) {
                 await supabaseAdmin.from('materias').update({ 

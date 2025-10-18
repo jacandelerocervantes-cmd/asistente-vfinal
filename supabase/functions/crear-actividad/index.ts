@@ -50,14 +50,12 @@ serve(async (req: Request) => {
     // 1. Obtener los datos de la materia, incluyendo los nuevos IDs de los sheets
     const { data: materia, error: materiaError } = await supabase
       .from('materias')
-      .select('drive_url, rubricas_spreadsheet_id')
+      .select('drive_url') // Solo necesitamos la URL de la carpeta de la materia
       .eq('id', materia_id)
       .single();
 
     if (materiaError) throw materiaError;
-    if (!materia.drive_url || !materia.rubricas_spreadsheet_id) {
-      throw new Error("La materia no está sincronizada correctamente con Google Drive. Faltan IDs de Drive/Sheets.");
-    }
+    if (!materia.drive_url) throw new Error("La materia no está sincronizada correctamente con Google Drive. Falta la URL de Drive.");
 
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
@@ -69,7 +67,7 @@ serve(async (req: Request) => {
     if(driveData.status !== 'success') throw new Error(driveData.message);
     
     // 3. Guardar la rúbrica
-    const rubricaResponse = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify({ action: 'guardar_rubrica', rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id, nombre_actividad, criterios }), headers: { 'Content-Type': 'application/json' } });
+    const rubricaResponse = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify({ action: 'guardar_rubrica', drive_url_materia: materia.drive_url, nombre_actividad, criterios }), headers: { 'Content-Type': 'application/json' } });
     if (!rubricaResponse.ok) throw new Error("Error al guardar la rúbrica.");
     const rubricaData = await rubricaResponse.json();
     if(rubricaData.status !== 'success') throw new Error(rubricaData.message);
@@ -85,8 +83,8 @@ serve(async (req: Request) => {
         drive_folder_id: driveData.drive_folder_id_actividad,
         drive_folder_entregas_id: driveData.drive_folder_id_entregas,
         drive_folder_id_calificados: driveData.drive_folder_id_calificados,
-        rubrica_sheet_range: rubricaData.rubrica_sheet_range,
-        rubrica_spreadsheet_id: materia.rubricas_spreadsheet_id
+        rubrica_sheet_range: rubricaData.rubrica_sheet_range, // Rango dentro de la hoja de rúbricas
+        rubrica_spreadsheet_id: rubricaData.rubrica_spreadsheet_id // ID de la hoja de rúbricas
       }).select().single();
     if (insertError) throw insertError;
 

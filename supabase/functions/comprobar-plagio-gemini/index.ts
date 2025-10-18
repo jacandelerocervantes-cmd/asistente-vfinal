@@ -32,14 +32,12 @@ serve(async (req: Request) => {
 
     const { data: materia, error: materiaError } = await supabase
       .from('materias')
-      .select('plagio_spreadsheet_id')
+      .select('drive_url') // Obtenemos la URL de la carpeta de la materia
       .eq('id', materia_id)
       .single();
 
     if (materiaError) throw materiaError;
-    if (!materia || !materia.plagio_spreadsheet_id) {
-      throw new Error("La materia no tiene un ID de hoja de cálculo de plagio configurado.");
-    }
+    if (!materia || !materia.drive_url) throw new Error("La materia no tiene una URL de Drive configurada.");
 
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
@@ -88,7 +86,7 @@ serve(async (req: Request) => {
         method: 'POST',
         body: JSON.stringify({
           action: 'guardar_reporte_plagio',
-          plagio_spreadsheet_id: materia.plagio_spreadsheet_id,
+          drive_url_materia: materia.drive_url,
           reporte_plagio: plagioReport.reporte_plagio
         }),
         headers: { 'Content-Type': 'application/json' },
