@@ -43,14 +43,24 @@ function App() {
             .then(response => {
               console.log('Sync function response:', response);
               if (response.error) throw response.error;
-              // Opcional: Forzar una recarga de la sesión para obtener la nueva metadata
-              return supabase.auth.refreshSession();
+              // Se elimina la llamada a refreshSession de aquí, se moverá al finally
             })
             .catch(error => {
               console.error("Error invoking sync-drive-on-first-login:", error);
-              alert("Hubo un error al sincronizar con Google Drive: " + error.message);
+              // Mantenemos la alerta para notificar el fallo de Drive al usuario
+              alert("Hubo un error al intentar sincronizar con Google Drive. Por favor, asegúrate de haber dado permisos en Google: " + error.message);
             })
-            .finally(() => {
+            .finally(async () => {
+              // --- 🚨 CORRECCIÓN CLAVE: Refrescar sesión SIEMPRE ---
+              // Esto garantiza que se recoja la metadata 'drive_synced: true'
+              // establecida al comienzo de la función Edge, deteniendo el bucle.
+              try {
+                  await supabase.auth.refreshSession();
+                  console.log('Session refreshed to update metadata.');
+              } catch (e) {
+                  console.error('Error refreshing session in finally:', e);
+              }
+              
               setIsSyncing(false); // Marcamos que la sincronización ha terminado (éxito o fallo).
             });
 

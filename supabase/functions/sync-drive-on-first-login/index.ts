@@ -18,6 +18,9 @@ serve(async (req: Request) => {
     }
 
     const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    await supabaseAdmin.auth.admin.updateUserById(user.id, { user_metadata: { ...user.user_metadata, drive_synced: true } });
+
     const { data: materias, error: materiasError } = await supabaseAdmin.from('materias').select(`*, alumnos ( matricula, nombre, apellido )`).eq('user_id', user.id).is('drive_url', null);
     if (materiasError) throw materiasError;
 
@@ -50,7 +53,6 @@ serve(async (req: Request) => {
         }
     }
 
-    await supabaseAdmin.auth.admin.updateUserById(user.id, { user_metadata: { ...user.user_metadata, drive_synced: true } });
     return new Response(JSON.stringify({ success: true, message: `Sincronización completada.` }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Error desconocido durante la sincronización.";
