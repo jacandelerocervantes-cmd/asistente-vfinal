@@ -182,7 +182,7 @@ const CalificacionPanel = () => {
             const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', {
                 body: { 
                     drive_file_ids: driveFileIds,
-                    drive_url_materia: actividad.materias.drive_url
+                    materia_id: actividad.materia_id
                 }
             });
 
@@ -227,7 +227,7 @@ const CalificacionPanel = () => {
         try {
             const { data, error } = await supabase.functions.invoke('get-justification-text', {
                 body: {
-                    spreadsheet_id: actividad.materias.spreadsheet_id,
+                    spreadsheet_id: actividad.materias.calificaciones_spreadsheet_id,
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });

@@ -1,6 +1,6 @@
 // supabase/functions/procesar-cola-evaluacion/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = { /* ... */ };
 
@@ -9,7 +9,7 @@ serve(async (req: Request) => {
 
   try {
     const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: trabajo, error: trabajoError } = await supabaseAdmin.from('cola_de_trabajos').select(`..., calificaciones (*, actividades (*, materias (*)))`).eq('estado', 'pendiente').order('created_at', { ascending: true }).limit(1).single();
+    const { data: trabajo, error: trabajoError } = await supabaseAdmin.from('cola_de_trabajos').select(`*, calificaciones (*, actividades (*, materias (*)))`).eq('estado', 'pendiente').order('created_at', { ascending: true }).limit(1).single();
 
     if (trabajoError || !trabajo) {
       return new Response(JSON.stringify({ message: "No hay trabajos pendientes." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -30,18 +30,44 @@ serve(async (req: Request) => {
       const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
       if (!appsScriptUrl) throw new Error("URL de Apps Script no configurada.");
 
-      const rubricRes = await fetch(appsScriptUrl, { /* ... */ });
+      // Obtener datos de la rúbrica
+      const rubricRes = await fetch(appsScriptUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'get_rubric_data',
+          spreadsheet_id: materia.rubricas_spreadsheet_id,
+          rubrica_sheet_range: actividad.rubrica_sheet_range
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
       const rubricJson = await rubricRes.json();
-      if(rubricJson.status !== 'success') throw new Error(`Apps Script (get_rubric_text) falló: ${rubricJson.message}`);
-      const { texto_rubrica } = rubricJson;
+      if(rubricJson.status !== 'success') throw new Error(`Apps Script (get_rubric_data) falló: ${rubricJson.message}`);
+      const texto_rubrica = rubricJson.criterios.map((c: {descripcion: string, puntos: number}) => `- ${c.descripcion} (${c.puntos} pts)`).join('\n');
       
-      const workRes = await fetch(appsScriptUrl, { /* ... */ });
+      // Obtener texto del trabajo
+      const workRes = await fetch(appsScriptUrl, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'get_student_work_text', drive_file_id: calificacion.evidencia_drive_file_id }),
+        headers: { 'Content-Type': 'application/json' },
+      });
       const workJson = await workRes.json();
       if(workJson.status !== 'success') throw new Error(`Apps Script (get_student_work_text) falló: ${workJson.message}`);
-      const { texto_trabajo } = workJson;
+      const texto_trabajo = workJson.texto_trabajo;
 
       await updateProgress("2 de 4: Calificando con IA...");
-      const prompt = `Evalúa el siguiente trabajo...`; // Tu prompt aquí
+      const prompt = `
+        Eres un asistente experto en evaluación académica. Tu tarea es calificar un trabajo de un estudiante basándote en una rúbrica específica.
+        Proporciona una calificación numérica del 0 al 100 y una justificación detallada.
+
+        **Rúbrica de Evaluación:**
+        ${texto_rubrica}
+
+        **Trabajo del Estudiante:**
+        ${texto_trabajo}
+
+        **Instrucciones de Salida:**
+        Tu respuesta DEBE ser únicamente un objeto JSON válido con dos claves: "calificacion_total" (number) y "justificacion_texto" (string).
+      `;
       const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`;
       const geminiResponse = await fetch(geminiUrl, { /* ... */ });
@@ -62,7 +88,18 @@ serve(async (req: Request) => {
       });
 
       await updateProgress("4 de 4: Guardando resultados...");
-      const justificacionRes = await fetch(appsScriptUrl, { /* ... */ });
+      const justificacionRes = await fetch(appsScriptUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'write_justification',
+          calificaciones_spreadsheet_id: materia.calificaciones_spreadsheet_id,
+          justificacion: justificacion_texto,
+          alumno_id: calificacion.alumno_id || calificacion.grupo_id, // Usamos el ID disponible
+          actividad_id: actividad.id,
+          unidad: actividad.unidad
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
       const justificacionJson = await justificacionRes.json();
       if(justificacionJson.status !== 'success') throw new Error(`Apps Script (write_justification) falló: ${justificacionJson.message}`);
       const { justificacion_sheet_cell } = justificacionJson;
@@ -71,8 +108,9 @@ serve(async (req: Request) => {
       await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado' }).eq('id', trabajo.id);
 
     } catch (e) {
-      await supabaseAdmin.from('calificaciones').update({ estado: 'fallido', progreso_evaluacion: `Error: ${e.message}` }).eq('id', trabajo.calificaciones.id);
-      await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'fallido', ultimo_error: e.message, intentos: (trabajo.intentos || 0) + 1 }).eq('id', trabajo.id);
+      const processError = e instanceof Error ? e.message : "Error desconocido durante el procesamiento.";
+      await supabaseAdmin.from('calificaciones').update({ estado: 'fallido', progreso_evaluacion: `Error: ${processError}` }).eq('id', trabajo.calificaciones.id);
+      await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'fallido', ultimo_error: processError, intentos: (trabajo.intentos || 0) + 1 }).eq('id', trabajo.id);
       throw e;
     }
 
