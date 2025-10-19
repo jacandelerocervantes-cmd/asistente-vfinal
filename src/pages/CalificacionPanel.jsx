@@ -13,20 +13,15 @@ const CalificacionPanel = () => {
     const [entregas, setEntregas] = useState(new Map());
     const [loading, setLoading] = useState(true);
     const [selectedItems, setSelectedItems] = useState(new Set());
-    const [loadingPlagio, setLoadingPlagio] = useState(false);
-    const [loadingIA, setLoadingIA] = useState(false);
+    const [isActionRunning, setIsActionRunning] = useState(false);
     const [showPlagioReport, setShowPlagioReport] = useState(false);
     const [plagioReportData, setPlagioReportData] = useState(null);
     const [showJustificacion, setShowJustificacion] = useState(false);
     const [selectedCalificacion, setSelectedCalificacion] = useState(null);
     const [loadingJustificacion, setLoadingJustificacion] = useState(false);
     const [fileIdToNameMap, setFileIdToNameMap] = useState(new Map());
-    
-    // --- MEJORA ---
-    // Nuevo estado para rastrear los ítems que ya fueron enviados a la cola de IA.
     const [itemsSiendoProcesados, setItemsSiendoProcesados] = useState(new Set());
 
-    // Se usa useCallback para optimizar el rendimiento y evitar re-creaciones innecesarias de la función.
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
@@ -105,7 +100,6 @@ const CalificacionPanel = () => {
                 if (calificacionesParaUpsert.length > 0) {
                     const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id' });
                     if (upsertError) throw upsertError;
-                    // Llamada recursiva para refrescar los datos después del upsert
                     fetchData();
                     return;
                 }
@@ -120,40 +114,45 @@ const CalificacionPanel = () => {
         } finally {
             setLoading(false);
         }
-    }, [actividad_id]);
+    }, [actividad_id, fetchData]);
     
     useEffect(() => {
         fetchData();
     }, [fetchData]);
     
     useEffect(() => {
+        const handleRealtimeUpdate = (payload) => {
+            const calificacionActualizada = payload.new || payload.old;
+            if (!calificacionActualizada) return;
+    
+            const entregableId = calificacionActualizada.alumno_id || calificacionActualizada.grupo_id;
+    
+            setEntregas(prevEntregas => {
+                const nuevasEntregas = new Map(prevEntregas);
+                const entrega = nuevasEntregas.get(entregableId);
+                if (entrega) {
+                    entrega.estado = calificacionActualizada.estado;
+                    entrega.calificacion_obtenida = calificacionActualizada.calificacion_obtenida;
+                    entrega.justificacion_sheet_cell = calificacionActualizada.justificacion_sheet_cell;
+                    entrega.progreso_evaluacion = calificacionActualizada.progreso_evaluacion;
+                }
+                return nuevasEntregas;
+            });
+    
+            if (calificacionActualizada.estado === 'calificado' || calificacionActualizada.estado === 'fallido') {
+                setItemsSiendoProcesados(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(entregableId);
+                    return newSet;
+                });
+            }
+        };
+
         const channel = supabase.channel(`calificaciones-actividad-${actividad_id}`)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'calificaciones', filter: `actividad_id=eq.${actividad_id}` }, 
-            (payload) => {
-                const calificacionActualizada = payload.new || payload.old;
-                const entregableId = calificacionActualizada.alumno_id || calificacionActualizada.grupo_id;
-
-                setEntregas(prevEntregas => {
-                    const nuevasEntregas = new Map(prevEntregas);
-                    const entrega = nuevasEntregas.get(entregableId);
-                    if (entrega) {
-                        entrega.estado = calificacionActualizada.estado;
-                        entrega.calificacion_obtenida = calificacionActualizada.calificacion_obtenida;
-                        entrega.justificacion_sheet_cell = calificacionActualizada.justificacion_sheet_cell;
-                        entrega.progreso_evaluacion = calificacionActualizada.progreso_evaluacion;
-                    }
-                    return nuevasEntregas;
-                });
-
-                if (calificacionActualizada.estado === 'calificado' || calificacionActualizada.estado === 'fallido') {
-                    setItemsSiendoProcesados(prev => {
-                        const newSet = new Set(prev);
-                        newSet.delete(entregableId);
-                        return newSet;
-                    });
-                }
-            }
+            handleRealtimeUpdate
           ).subscribe();
+
         return () => { supabase.removeChannel(channel); };
     }, [actividad_id]);
     
@@ -193,15 +192,31 @@ const CalificacionPanel = () => {
     };
 
     const handlePlagioCheck = async () => {
-        // ... (lógica sin cambios)
+        if (selectedItems.size < 2) return;
+        
+        setIsActionRunning(true);
+        try {
+            const driveFileIds = Array.from(selectedItems).map(id => entregas.get(id)?.drive_file_id).filter(Boolean);
+            const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', {
+                body: { 
+                    drive_file_ids: driveFileIds,
+                    materia_id: actividad.materia_id
+                }
+            });
+            if (error) throw error;
+            setPlagioReportData(data.reporte_plagio || []);
+            setShowPlagioReport(true);
+        } catch (error) {
+            alert("Error al comprobar el plagio: " + error.message);
+        } finally {
+            setIsActionRunning(false);
+        }
     };
 
-    // --- MEJORA ---
-    // Función corregida para deshabilitar el botón y dar feedback inmediato.
     const handleEvaluarConIA = async () => {
         if (selectedItems.size === 0) return;
         
-        setLoadingIA(true);
+        setIsActionRunning(true);
         setItemsSiendoProcesados(prev => new Set([...prev, ...selectedItems]));
 
         setEntregas(prevEntregas => {
@@ -217,6 +232,7 @@ const CalificacionPanel = () => {
         });
 
         const calificacionesIds = Array.from(selectedItems).map(id => entregas.get(id)?.calificacion_id).filter(Boolean);
+        const selectedEntregableIds = Array.from(selectedItems);
         setSelectedItems(new Set());
 
         try {
@@ -228,23 +244,50 @@ const CalificacionPanel = () => {
             alert(data.message);
         } catch (error) {
             alert("Error al iniciar la evaluación con IA: " + error.message);
-            // Revertir estado si la llamada falla
             setItemsSiendoProcesados(prev => {
                 const newSet = new Set(prev);
-                calificacionesIds.forEach(id => newSet.delete(id)); // Esto necesita el `entregableId` no `calificacionId`
+                selectedEntregableIds.forEach(id => newSet.delete(id));
                 return newSet;
             });
         } finally {
-            setLoadingIA(false);
+            // No reseteamos isActionRunning aquí, esperamos al listener de realtime
         }
     };
 
     const handleOpenJustificacion = async (entrega, entregable) => {
-        // ... (lógica sin cambios)
+        if (!entrega?.justificacion_sheet_cell) return;
+        
+        setSelectedCalificacion({ ...entrega, entregable });
+        setShowJustificacion(true);
+        setLoadingJustificacion(true);
+
+        try {
+            const { data, error } = await supabase.functions.invoke('get-justification-text', {
+                body: {
+                    spreadsheet_id: actividad.materias.calificaciones_spreadsheet_id,
+                    justificacion_sheet_cell: entrega.justificacion_sheet_cell,
+                }
+            });
+
+            if (error) throw error;
+            
+            setSelectedCalificacion(prev => ({ ...prev, justificacion_texto: data.justificacion_texto }));
+
+        } catch (error) {
+            alert("Error al cargar la retroalimentación: " + error.message);
+        } finally {
+            setLoadingJustificacion(false);
+        }
     };
 
     const handleOpenRubric = () => {
-        // ... (lógica sin cambios)
+        const spreadsheetId = actividad?.rubrica_spreadsheet_id;
+        if (spreadsheetId) {
+            const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+            window.open(url, '_blank', 'noopener,noreferrer');
+        } else {
+            alert("No se encontró el enlace al archivo de rúbricas de esta materia.");
+        }
     };
     
     if (loading) return <p className="container">Cargando panel de calificación...</p>;
@@ -269,11 +312,11 @@ const CalificacionPanel = () => {
             </div>
 
             <div className="panel-actions">
-                <button disabled={selectedItems.size < 2 || loadingPlagio || loadingIA} onClick={handlePlagioCheck} className="btn-secondary">
-                    {loadingPlagio ? 'Analizando...' : `🔍 Comprobar Plagio (${selectedItems.size})`}
+                <button disabled={selectedItems.size < 2 || isActionRunning} onClick={handlePlagioCheck} className="btn-secondary">
+                    {isActionRunning ? 'Procesando...' : `🔍 Comprobar Plagio (${selectedItems.size})`}
                 </button>
-                <button disabled={selectedItems.size === 0 || loadingIA || loadingPlagio || itemsSiendoProcesados.size > 0} onClick={handleEvaluarConIA} className="btn-primary">
-                    {loadingIA ? 'Enviando...' : `🤖 Evaluar con IA (${selectedItems.size})`}
+                <button disabled={selectedItems.size === 0 || isActionRunning} onClick={handleEvaluarConIA} className="btn-primary">
+                    {isActionRunning ? 'Procesando...' : `🤖 Evaluar con IA (${selectedItems.size})`}
                 </button>
             </div>
 
@@ -300,12 +343,10 @@ const CalificacionPanel = () => {
                                     type="checkbox"
                                     checked={selectedItems.has(item.id)}
                                     onChange={() => handleSelectOne(item.id)}
-                                    // --- MEJORA --- Se deshabilita si no hay entrega, si ya está calificado, o si se está procesando
                                     disabled={!entrega || status !== 'entregado' || isProcessing}
                                 />
                                 <span className="entregable-nombre">{item.nombre}</span>
 
-                                {/* --- MEJORA --- Muestra un estado consistente de "procesando" */}
                                 {isProcessing || status === 'procesando' ? (
                                     <span className="status-pill procesando" title={progreso}>{progreso || 'Procesando...'}</span>
                                 ) : (
