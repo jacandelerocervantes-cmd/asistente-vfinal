@@ -1,6 +1,6 @@
 // supabase/functions/procesar-cola-evaluacion/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 // Función auxiliar para extraer JSON de forma segura de una cadena de texto
-function extractJson(text: string): Record<string, any> | null {
+function extractJson(text: string): Record<string, unknown> | null {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
@@ -16,6 +16,52 @@ function extractJson(text: string): Record<string, any> | null {
     } catch (_e) {
         return null;
     }
+}
+
+// --- Definiciones de Tipos ---
+interface Materia {
+  id: number;
+  drive_url: string;
+}
+
+interface Actividad {
+  id: number;
+  nombre: string;
+  unidad: number;
+  rubrica_spreadsheet_id: string;
+  rubrica_sheet_range: string;
+  materias: Materia | null;
+}
+
+interface Calificacion {
+  id: number;
+  alumno_id: number;
+  grupo_id: number | null;
+  actividad_id: number;
+  evidencia_drive_file_id: string;
+  actividades: Actividad | null;
+}
+
+interface Alumno {
+  matricula: string;
+  nombre: string;
+  apellido: string;
+}
+
+interface Grupo {
+  nombre: string;
+}
+
+interface MiembroGrupo {
+  alumnos: Alumno;
+  grupos: Grupo;
+}
+
+
+interface Trabajo {
+  id: number;
+  user_id: string;
+  calificaciones: Calificacion | null;
 }
 
 serve(async (req: Request) => {
@@ -33,23 +79,29 @@ serve(async (req: Request) => {
       .eq('estado', 'pendiente')
       .order('created_at', { ascending: true })
       .limit(1)
-      .single();
+      .single<Trabajo>();
 
     if (trabajoError || !trabajo) {
       return new Response(JSON.stringify({ message: "No hay trabajos pendientes." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
     trabajoId = trabajo.id;
-    calificacionId = trabajo.calificaciones?.id ?? null;
+    
+    const calificacion = trabajo.calificaciones;
+    if (!calificacion) {
+      throw new Error(`El trabajo ID ${trabajo.id} no tiene una calificación asociada válida.`);
+    }
+    calificacionId = calificacion.id;
+
+    const actividad = calificacion.actividades;
+    if (!actividad) {
+      throw new Error(`La calificación ID ${calificacion.id} no tiene una actividad asociada válida.`);
+    }
+
+    const materia = actividad.materias;
+    if (!materia) throw new Error(`La actividad ID ${actividad.id} no tiene una materia asociada válida.`);
 
     await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'procesando' }).eq('id', trabajo.id);
-
-    const { calificaciones: calificacion } = trabajo;
-    if (!calificacion || !calificacion.actividades || !calificacion.actividades.materias) {
-      throw new Error(`Datos anidados incompletos para el trabajo ID ${trabajo.id}.`);
-    }
-    const { actividades: actividad } = calificacion;
-    const { materias: materia } = actividad;
     
     const updateProgress = async (progreso: string) => {
       if (calificacionId) {
@@ -88,17 +140,16 @@ serve(async (req: Request) => {
 
     await updateProgress("3/4: Generando reportes de calificación...");
     
-    let calificacionesParaReporte = [];
-
+    let calificacionesParaReporte: { matricula: string; nombre: string; equipo: string; calificacion: number; retroalimentacion: string; }[] = [];
     if (calificacion.grupo_id) {
-      const { data: miembros, error: errorMiembros } = await supabaseAdmin.from('alumnos_grupos').select('alumnos(matricula, nombre, apellido), grupos(nombre)').eq('grupo_id', calificacion.grupo_id);
+      const { data: miembros, error: errorMiembros } = await supabaseAdmin.from('alumnos_grupos').select('alumnos(matricula, nombre, apellido), grupos(nombre)').eq('grupo_id', calificacion.grupo_id).returns<MiembroGrupo[]>();
       if (errorMiembros) throw errorMiembros;
 
-      calificacionesParaReporte = miembros.map((m: any) => ({
+      calificacionesParaReporte = miembros.map((m) => ({
         matricula: m.alumnos.matricula,
         nombre: `${m.alumnos.nombre} ${m.alumnos.apellido}`,
         equipo: m.grupos.nombre,
-        calificacion: calificacion_total,
+        calificacion: calificacion_total as number,
         retroalimentacion: justificacion_texto
       }));
     } else {
@@ -109,7 +160,7 @@ serve(async (req: Request) => {
         matricula: alumno.matricula,
         nombre: `${alumno.nombre} ${alumno.apellido}`,
         equipo: '',
-        calificacion: calificacion_total,
+        calificacion: calificacion_total as number,
         retroalimentacion: justificacion_texto
       });
     }

@@ -114,7 +114,7 @@ const CalificacionPanel = () => {
         } finally {
             setLoading(false);
         }
-    }, [actividad_id, fetchData]);
+    }, [actividad_id]);
     
     useEffect(() => {
         fetchData();
