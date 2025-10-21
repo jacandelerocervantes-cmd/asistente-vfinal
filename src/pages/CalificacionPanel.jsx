@@ -10,6 +10,7 @@ import './CalificacionPanel.css';
 
 const CalificacionPanel = () => {
     const { id: actividad_id_str } = useParams();
+    // Convertir a número al inicio
     const actividad_id = parseInt(actividad_id_str || '0', 10);
 
     const [actividad, setActividad] = useState(null);
@@ -39,7 +40,7 @@ const CalificacionPanel = () => {
 
             const { data: alumnosData, error: alumnosError } = await supabase.from('alumnos').select('*').eq('materia_id', actData.materia_id).order('apellido');
             if (alumnosError) throw alumnosError;
-            
+
             const { data: gruposData, error: gruposError } = await supabase.from('grupos').select('*').eq('materia_id', actData.materia_id);
             if (gruposError) throw gruposError;
 
@@ -57,18 +58,18 @@ const CalificacionPanel = () => {
             } else if (actData.tipo_entrega === 'grupal') {
                 listaFinalDeEntregables = posiblesEntregables.filter(p => p.tipo === 'grupo');
             } else {
-                 listaFinalDeEntregables = posiblesEntregables;
+                 listaFinalDeEntregables = posiblesEntregables; // Para mixta, se filtrará después
             }
 
 
             const { data: calificacionesExistentes, error: califError } = await supabase.from('calificaciones').select('*').eq('actividad_id', actividad_id);
             if(califError) throw califError;
-            
+
             const entregasMap = new Map();
             const procesandoSet = new Set();
             calificacionesExistentes.forEach(cal => {
                 const entregableId = cal.alumno_id || cal.grupo_id;
-                 if(entregableId === null || entregableId === undefined) return;
+                 if(entregableId === null || entregableId === undefined) return; // Saltar si no hay ID
 
                 entregasMap.set(entregableId, {
                     calificacion_id: cal.id,
@@ -77,29 +78,37 @@ const CalificacionPanel = () => {
                     justificacion_sheet_cell: cal.justificacion_sheet_cell,
                     drive_file_id: cal.evidencia_drive_file_id,
                     progreso_evaluacion: cal.progreso_evaluacion,
-                    alumno_id: cal.alumno_id,
-                    grupo_id: cal.grupo_id
+                    alumno_id: cal.alumno_id, // Añadir para JustificacionModal
+                    grupo_id: cal.grupo_id   // Añadir para JustificacionModal
                 });
                 if (cal.estado === 'procesando') {
                     procesandoSet.add(entregableId);
                 }
             });
-             setItemsSiendoProcesados(procesandoSet);
+             setItemsSiendoProcesados(procesandoSet); // Inicializar estado de procesamiento
 
-            let shouldRefresh = false;
+            let shouldRefresh = false; // Bandera para refrescar una sola vez
             if (actData.drive_folder_entregas_id) {
-                let driveFilesData = null;
+                let driveFilesData = null; // Inicializar a null
                 try {
+                    // Especificar tipo genérico esperado si es posible
                     const { data, error: driveError } = await supabase.functions.invoke('obtener-entregas-drive', { body: { drive_folder_id: actData.drive_folder_entregas_id } });
                     if (driveError) throw driveError;
-                    driveFilesData = data;
+                    // Validar la estructura esperada
+                    if (data && Array.isArray(data.archivos)) {
+                        driveFilesData = data;
+                    } else {
+                        console.warn("Respuesta inesperada de 'obtener-entregas-drive':", data);
+                    }
                 } catch (driveError) {
-                     console.warn("Error al obtener archivos de Drive:", driveError);
+                     console.warn("Error al obtener archivos de Drive, continuando sin ellos:", driveError);
+                     // No lanzar error, permitir que la app continúe mostrando
                 }
 
                 const calificacionesParaUpsert = [];
                 const entregablesConArchivo = new Set();
 
+                 // Solo procesar si driveFilesData existe y tiene archivos
                  if (driveFilesData && driveFilesData.archivos) {
                     for (const archivo of driveFilesData.archivos) {
                         const entregable = posiblesEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
@@ -107,19 +116,22 @@ const CalificacionPanel = () => {
                             entregablesConArchivo.add(entregable.id);
                             if (!entregasMap.has(entregable.id)) {
                                 calificacionesParaUpsert.push({
-                                    actividad_id: actividad_id,
+                                    actividad_id: actividad_id, // Usar la variable numérica
                                     alumno_id: entregable.tipo === 'alumno' ? entregable.id : null,
                                     grupo_id: entregable.tipo === 'grupo' ? entregable.id : null,
                                     evidencia_drive_file_id: archivo.id,
                                     estado: 'entregado',
                                     user_id: user.id
                                 });
-                                shouldRefresh = true;
+                                shouldRefresh = true; // Marcar que se necesita refetch
                             } else {
                                 const existingCal = entregasMap.get(entregable.id);
-                                if (existingCal && !existingCal.drive_file_id && existingCal.estado !== 'procesando') {
-                                    await supabase.from('calificaciones').update({ evidencia_drive_file_id: archivo.id }).eq('id', existingCal.calificacion_id);
-                                    entregasMap.set(entregable.id, { ...existingCal, drive_file_id: archivo.id });
+                                if (existingCal && !existingCal.drive_file_id) {
+                                    // Actualizar solo si falta el ID del archivo y no está procesando
+                                    if (existingCal.estado !== 'procesando') {
+                                        await supabase.from('calificaciones').update({ evidencia_drive_file_id: archivo.id }).eq('id', existingCal.calificacion_id);
+                                        entregasMap.set(entregable.id, { ...existingCal, drive_file_id: archivo.id }); // Actualizar mapa local
+                                    }
                                 }
                             }
                         }
@@ -127,26 +139,40 @@ const CalificacionPanel = () => {
                  }
 
                 if (actData.tipo_entrega === 'mixta') {
-                    listaFinalDeEntregables = posiblesEntregables.filter(p => entregablesConArchivo.has(p.id));
+                    // Filtrar la lista final solo si se encontraron archivos
+                    if(entregablesConArchivo.size > 0){
+                       listaFinalDeEntregables = posiblesEntregables.filter(p => entregablesConArchivo.has(p.id));
+                    } else if (driveFilesData === null) {
+                         // Si hubo error al leer Drive, podríamos mostrar todos o ninguno
+                         listaFinalDeEntregables = posiblesEntregables; // O [] si prefieres ocultar
+                    } else {
+                         // Si no hubo error pero no se encontraron archivos coincidentes
+                         listaFinalDeEntregables = [];
+                    }
                 }
                 
                 if (calificacionesParaUpsert.length > 0) {
                     const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id' });
                     if (upsertError) throw upsertError;
+                    // No llamar fetchData aquí, el listener de realtime lo hará
                 }
             } else {
+                 // Si no hay carpeta de entregas configurada
                  if (actData.tipo_entrega === 'mixta') {
-                    listaFinalDeEntregables = [];
+                    listaFinalDeEntregables = []; // No podemos saber quién entregó
                  }
+                 // Para individual o grupal, la lista ya está filtrada correctamente
             }
 
             setEntregables(listaFinalDeEntregables);
             setEntregas(entregasMap);
 
-            if (shouldRefresh) {
-                 setTimeout(fetchData, 1000);
-                 return;
-            }
+            // No hacer refetch aquí, confiar en el listener
+            // if (shouldRefresh) {
+            //      setTimeout(fetchData, 1000); // Dar tiempo a que la BD se actualice
+            //      return;
+            // }
+
 
         } catch (error) {
             console.error("Error cargando datos:", error);
@@ -154,25 +180,28 @@ const CalificacionPanel = () => {
         } finally {
             setLoading(false);
         }
-    }, [actividad_id]); 
+    }, [actividad_id]); // Quitar fetchData de las dependencias
     
     useEffect(() => {
+        setLoading(true); // Poner loading al inicio
         fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [actividad_id]); 
+    }, [actividad_id]); // Dependencia correcta es actividad_id
     
     useEffect(() => {
-        const handleRealtimeUpdate = (payload) => {
+        const handleRealtimeUpdate = (payload) => { // No usar : any en JS
             const calificacionActualizada = payload.new || payload.old;
             if (!calificacionActualizada) return;
     
             const entregableId = calificacionActualizada.alumno_id || calificacionActualizada.grupo_id;
-            if (entregableId === null || entregableId === undefined) return;
+             if (entregableId === null || entregableId === undefined) return;
 
             setEntregas(prevEntregas => {
                 const nuevasEntregas = new Map(prevEntregas);
+                // Si la entrada no existe (ej. upsert de grupo), la crea
                 const entrega = nuevasEntregas.get(entregableId) || { calificacion_id: calificacionActualizada.id }; 
                 
+                // Actualizar todas las propiedades relevantes
                 entrega.estado = calificacionActualizada.estado;
                 entrega.calificacion_obtenida = calificacionActualizada.calificacion_obtenida;
                 entrega.justificacion_sheet_cell = calificacionActualizada.justificacion_sheet_cell;
@@ -180,14 +209,16 @@ const CalificacionPanel = () => {
                 if (!entrega.drive_file_id && calificacionActualizada.evidencia_drive_file_id) {
                     entrega.drive_file_id = calificacionActualizada.evidencia_drive_file_id;
                 }
-                 if (!entrega.alumno_id && calificacionActualizada.alumno_id) entrega.alumno_id = calificacionActualizada.alumno_id;
-                 if (!entrega.grupo_id && calificacionActualizada.grupo_id) entrega.grupo_id = calificacionActualizada.grupo_id;
+                 // Añadir IDs faltantes si es una nueva entrada
+                 if (entrega.alumno_id === undefined && calificacionActualizada.alumno_id !== null) entrega.alumno_id = calificacionActualizada.alumno_id;
+                 if (entrega.grupo_id === undefined && calificacionActualizada.grupo_id !== null) entrega.grupo_id = calificacionActualizada.grupo_id;
 
 
                 nuevasEntregas.set(entregableId, entrega); 
                 return nuevasEntregas;
             });
     
+            // Actualizar estado de procesamiento
             if (calificacionActualizada.estado === 'calificado' || calificacionActualizada.estado === 'fallido') {
                 setItemsSiendoProcesados(prev => {
                     const newSet = new Set(prev);
@@ -198,34 +229,47 @@ const CalificacionPanel = () => {
                 });
             } else if (calificacionActualizada.estado === 'procesando') {
                  setItemsSiendoProcesados(prev => {
+                     // Solo añadir si no estaba ya
                      if (!prev.has(entregableId)) {
                         return new Set([...prev, entregableId]);
                      }
-                     return prev;
+                     return prev; // Evitar re-renders innecesarios
                  });
             }
         };
 
+        // Crear el canal de Supabase
         const channel = supabase.channel(`calificaciones-actividad-${actividad_id}`)
           .on('postgres_changes', { event: '*', schema: 'public', table: 'calificaciones', filter: `actividad_id=eq.${actividad_id}` }, 
             handleRealtimeUpdate
           ).subscribe((status, err) => {
-             if (err) console.error("Error en Realtime:", err);
+             if (status === 'SUBSCRIBED') {
+                 console.log(`Conectado a Realtime para actividad ${actividad_id}`);
+                 // Podrías forzar un fetchData aquí si sospechas que te perdiste updates iniciales
+                 // fetchData();
+             }
+             if (err) {
+                console.error("Error en la suscripción a Realtime:", err);
+             }
           });
 
+        // Limpiar al desmontar
         return () => { supabase.removeChannel(channel); };
-    }, [actividad_id]);
+    }, [actividad_id]); // Solo depende de actividad_id
     
+     // Efecto para actualizar isActionRunning basado en itemsSiendoProcesados
      useEffect(() => {
          setIsActionRunning(itemsSiendoProcesados.size > 0);
      }, [itemsSiendoProcesados]);
 
+    // Efecto para crear el mapa fileId -> nombre
     useEffect(() => {
         const newMap = new Map();
         if (entregables.length > 0 && entregas.size > 0) {
             for (const entregable of entregables) {
                 const entrega = entregas.get(entregable.id);
-                if (entrega && entrega.drive_file_id) {
+                // Usar ?. para acceso seguro
+                if (entrega?.drive_file_id) { 
                     newMap.set(entrega.drive_file_id, entregable.nombre);
                 }
             }
@@ -233,19 +277,25 @@ const CalificacionPanel = () => {
         setFileIdToNameMap(newMap);
     }, [entregables, entregas]);
 
-    const handleSelectAll = (e) => { // No usar : React.ChangeEvent<HTMLInputElement> en JS
+    // Manejador para seleccionar/deseleccionar todos
+    const handleSelectAll = (e) => { // No usar tipos : React.ChangeEvent<HTMLInputElement>
         if (e.target.checked) {
-            const allIds = new Set(entregables.filter(item => {
-                const entrega = entregas.get(item.id);
-                return entrega && entrega.estado === 'entregado' && !itemsSiendoProcesados.has(item.id);
-            }).map(item => item.id));
+            const allIds = new Set(entregables
+                .filter(item => {
+                    const entrega = entregas.get(item.id);
+                    // Solo seleccionar los entregados que no estén ya procesándose
+                    return entrega && entrega.estado === 'entregado' && !itemsSiendoProcesados.has(item.id);
+                })
+                .map(item => item.id)
+            );
             setSelectedItems(allIds);
         } else {
             setSelectedItems(new Set());
         }
     };
 
-    const handleSelectOne = (itemId) => { // No usar : number en JS
+    // Manejador para seleccionar/deseleccionar uno
+    const handleSelectOne = (itemId) => { // No usar : number
         setSelectedItems(prev => {
             const newSelection = new Set(prev);
             if (newSelection.has(itemId)) {
@@ -257,37 +307,42 @@ const CalificacionPanel = () => {
         });
     };
 
+    // Manejador para comprobar plagio
     const handlePlagioCheck = async () => {
         if (selectedItems.size < 2 || isActionRunning) return;
         
-        setIsActionRunning(true);
+        setIsActionRunning(true); // Bloquear UI
         try {
             const driveFileIds = Array.from(selectedItems).map(id => entregas.get(id)?.drive_file_id).filter(Boolean);
             if (driveFileIds.length < 2) throw new Error("No se encontraron suficientes archivos válidos para comparar.");
+            if (!actividad?.materia_id) throw new Error("No se pudo obtener el ID de la materia."); // Validar
 
             const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', {
                 body: { 
                     drive_file_ids: driveFileIds,
-                    materia_id: actividad?.materia_id 
+                    materia_id: actividad.materia_id 
                 }
             });
             if (error) throw error;
-            setPlagioReportData(data.reporte_plagio || []);
+            // Asegurarse que data.reporte_plagio es un array
+            setPlagioReportData(Array.isArray(data?.reporte_plagio) ? data.reporte_plagio : []); 
             setShowPlagioReport(true);
         } catch (error) {
             console.error("Error en handlePlagioCheck:", error);
             alert("Error al comprobar el plagio: " + (error instanceof Error ? error.message : String(error)));
         } finally {
-            setIsActionRunning(false);
+            setIsActionRunning(false); // Desbloquear UI
         }
     };
 
+    // Manejador para evaluar con IA
     const handleEvaluarConIA = async () => {
         if (selectedItems.size === 0 || isActionRunning) return;
         
         setIsActionRunning(true);
-        setItemsSiendoProcesados(prev => new Set([...prev, ...selectedItems]));
+        setItemsSiendoProcesados(prev => new Set([...prev, ...selectedItems])); // Marcar como procesando
 
+        // Actualización optimista de UI
         setEntregas(prevEntregas => {
             const nuevasEntregas = new Map(prevEntregas);
             selectedItems.forEach(id => {
@@ -301,41 +356,47 @@ const CalificacionPanel = () => {
         });
 
         const calificacionesIds = Array.from(selectedItems).map(id => entregas.get(id)?.calificacion_id).filter(Boolean);
-        const selectedEntregableIds = Array.from(selectedItems);
-        setSelectedItems(new Set());
+        const selectedEntregableIds = Array.from(selectedItems); // Guardar para rollback
+        setSelectedItems(new Set()); // Limpiar selección
 
         try {
-            if (calificacionesIds.length === 0) throw new Error("No se encontraron registros de calificación para los trabajos seleccionados.");
+            if (calificacionesIds.length === 0) throw new Error("No se encontraron registros de calificación para iniciar la evaluación.");
             
             const { data, error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', { body: { calificaciones_ids: calificacionesIds } });
             if (error) throw error;
             
-            // alert(data.message); // No mostrar alerta, la UI se actualiza
+            // Ya no mostramos alerta, confiamos en Realtime
+            // alert(data.message); 
         } catch (error) {
             console.error("Error en handleEvaluarConIA:", error);
             alert("Error al iniciar la evaluación con IA: " + (error instanceof Error ? error.message : String(error)));
+            // --- Rollback en caso de fallo al enviar ---
             setItemsSiendoProcesados(prev => {
                 const newSet = new Set(prev);
                 selectedEntregableIds.forEach(id => newSet.delete(id));
-                // Solo si ya no queda nada, desbloquea
-                if (newSet.size === 0) setIsActionRunning(false); 
+                 // Solo si ya no queda nada procesando, desbloquea
+                 if (newSet.size === 0) setIsActionRunning(false); 
                 return newSet;
             });
             setEntregas(prevEntregas => {
                  const nuevasEntregas = new Map(prevEntregas);
                  selectedEntregableIds.forEach(id => {
                     const entrega = nuevasEntregas.get(id);
-                    if(entrega && entrega.estado === 'procesando') {
-                        entrega.estado = 'entregado';
+                    // Solo revertir si estaba procesando por esta acción fallida
+                    if(entrega && itemsSiendoProcesados.has(id)) { 
+                        entrega.estado = 'entregado'; 
                         entrega.progreso_evaluacion = null;
                     }
                  });
                  return nuevasEntregas;
             });
         } 
+        // No hay finally para setIsActionRunning, depende del listener de Realtime
     };
 
-    const handleOpenJustificacion = async (entrega, entregable) => { // No usar tipos : Entrega, : Entregable
+    // Manejador para abrir modal de justificación
+    const handleOpenJustificacion = async (entrega, entregable) => { // No usar tipos
+        // Validaciones robustas
         if (!entrega || !actividad?.materias?.calificaciones_spreadsheet_id) {
              alert("Faltan datos de la materia o la entrega.");
              return;
@@ -360,7 +421,9 @@ const CalificacionPanel = () => {
 
             if (error) throw error;
             
-            setSelectedCalificacion(prev => prev ? ({ ...prev, justificacion_texto: data.justificacion_texto }) : null);
+            // Asegurarse de que data y la propiedad existen
+            const justificacionTexto = data?.justificacion_texto || "No se pudo cargar la justificación.";
+            setSelectedCalificacion(prev => prev ? ({ ...prev, justificacion_texto: justificacionTexto }) : null);
 
         } catch (error) {
             console.error("Error en handleOpenJustificacion:", error);
@@ -371,6 +434,7 @@ const CalificacionPanel = () => {
         }
     };
 
+    // Manejador para abrir rúbrica
     const handleOpenRubric = () => {
         const spreadsheetId = actividad?.rubrica_spreadsheet_id;
         if (spreadsheetId) {
@@ -381,17 +445,20 @@ const CalificacionPanel = () => {
         }
     };
     
+    // Renderizado condicional mientras carga
     if (loading) return <p className="container">Cargando panel de calificación...</p>;
     if (!actividad) return <p className="container">Actividad no encontrada.</p>;
 
+    // Calcular pendientes reales
     const pendientesCount = entregables.filter(item => {
         const entrega = entregas.get(item.id);
         return entrega && entrega.estado === 'entregado' && !itemsSiendoProcesados.has(item.id);
     }).length;
 
-
+    // Renderizado principal
     return (
         <div className="calificacion-panel-container container">
+            {/* Header */}
             <div className="calificacion-header">
                 <div>
                     <Link to={actividad.materias ? `/materia/${actividad.materias.id}` : '/dashboard'} className="back-link">&larr; Volver a Actividades</Link>
@@ -408,6 +475,7 @@ const CalificacionPanel = () => {
                 </button>
             </div>
 
+            {/* Botones de Acción */}
             <div className="panel-actions">
                 <button disabled={selectedItems.size < 2 || isActionRunning} onClick={handlePlagioCheck} className="btn-secondary">
                     {isActionRunning ? 'Procesando...' : `🔍 Comprobar Plagio (${selectedItems.size})`}
@@ -417,9 +485,17 @@ const CalificacionPanel = () => {
                 </button>
             </div>
 
+            {/* Lista de Entregables */}
             <div className="alumnos-list-container">
                 <div className="list-header">
-                    <input type="checkbox" onChange={handleSelectAll} checked={selectedItems.size === pendientesCount && pendientesCount > 0} />
+                    <input 
+                        type="checkbox" 
+                        onChange={handleSelectAll} 
+                        // Marcar si todos los pendientes están seleccionados
+                        checked={pendientesCount > 0 && selectedItems.size === pendientesCount} 
+                        // Deshabilitar si no hay pendientes
+                        disabled={pendientesCount === 0 || isActionRunning} 
+                    />
                     <span>Seleccionar Pendientes ({pendientesCount})</span>
                     <span className="header-calificacion">Calificación</span>
                 </div>
@@ -441,16 +517,19 @@ const CalificacionPanel = () => {
                                     type="checkbox"
                                     checked={selectedItems.has(item.id)}
                                     onChange={() => handleSelectOne(item.id)}
+                                    // Deshabilitar si no es elegible para selección
                                     disabled={!entrega || status !== 'entregado' || isProcessing}
                                 />
                                 <span className="entregable-nombre">{item.nombre}</span>
 
+                                {/* Mostrar estado de procesamiento o estado final */}
                                 {isProcessing || status === 'procesando' ? (
                                     <span className="status-pill procesando" title={progreso}>{progreso || 'Procesando...'}</span>
                                 ) : (
                                     <span className={`status-pill ${status}`}>{status}</span>
                                 )}
                                 
+                                {/* Mostrar calificación */}
                                 <div className="calificacion-display">
                                     {calificacion !== null && calificacion !== undefined ? (
                                         <span className={calificacion >= 70 ? 'aprobado' : 'reprobado'}>
@@ -464,11 +543,19 @@ const CalificacionPanel = () => {
                 </ul>
             </div>
 
-            {showPlagioReport && ( <PlagioReportModal reporte={plagioReportData} fileIdToNameMap={fileIdToNameMap} onClose={() => setShowPlagioReport(false)} /> )}
+            {/* Modales */}
+            {showPlagioReport && ( 
+                <PlagioReportModal 
+                    reporte={plagioReportData} 
+                    fileIdToNameMap={fileIdToNameMap} 
+                    onClose={() => setShowPlagioReport(false)} 
+                /> 
+            )}
             
             {showJustificacion && selectedCalificacion && ( 
                 <JustificacionModal 
                     calificacion={selectedCalificacion}
+                    // Pasar el objeto entregable completo
                     entregable={entregables.find(e => e.id === (selectedCalificacion.alumno_id || selectedCalificacion.grupo_id))}
                     loading={loadingJustificacion}
                     onClose={() => setShowJustificacion(false)}
