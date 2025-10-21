@@ -1,16 +1,14 @@
 // supabase/functions/iniciar-evaluacion-masiva/index.ts
-
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Define la estructura de los datos que esperamos recibir desde el frontend
-interface EvaluacionRequest {
-  calificaciones_ids: number[]; // Un array con los IDs de las calificaciones a procesar
+interface RequestBody {
+  calificaciones_ids: number[];
 }
 
 serve(async (req: Request) => {
@@ -19,48 +17,62 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { calificaciones_ids }: EvaluacionRequest = await req.json();
-    if (!calificaciones_ids || calificaciones_ids.length === 0) {
-      throw new Error("Se requiere una lista de IDs de calificaciones para iniciar la evaluación.");
-    }
+    console.log("Iniciando 'iniciar-evaluacion-masiva'...");
+    const body: RequestBody = await req.json();
+    const { calificaciones_ids } = body;
 
+    if (!calificaciones_ids || !Array.isArray(calificaciones_ids) || calificaciones_ids.length === 0) {
+      throw new Error("Se requiere un array 'calificaciones_ids' con al menos un ID.");
+    }
+    console.log(`Recibidos ${calificaciones_ids.length} IDs de calificación para encolar.`);
+
+    // Obtener el user_id del token de autorización
     const authHeader = req.headers.get("Authorization")!;
-    
-    // Cliente que actúa en nombre del docente autenticado
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    const supabaseClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: authHeader } },
     });
-
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await supabaseClient.auth.getUser();
     if (!user) throw new Error("Usuario no autenticado.");
+    console.log(`Usuario autenticado: ${user.id}`);
 
-    // 1. Preparamos una "orden de trabajo" para cada calificación seleccionada
-    const trabajosParaLaCola = calificaciones_ids.map(id => ({
-      calificacion_id: id,
-      user_id: user.id,
-      estado: 'pendiente', // Marcamos el trabajo como listo para ser procesado
-      intentos: 0
+    // Usar cliente con rol de servicio para insertar en la cola
+    const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    // Crear un objeto por cada ID para insertar en la cola
+    const trabajosParaInsertar = calificaciones_ids.map(id => ({
+      calificacion_id: id, // <-- ¡CLAVE! Asegura la relación
+      estado: 'pendiente',
+      intentos: 0,
+      user_id: user.id // Asociar el trabajo al usuario que lo solicita
     }));
+    console.log("Preparando inserción de trabajos:", trabajosParaInsertar);
 
-    // 2. Insertamos todas las órdenes de trabajo en la tabla 'cola_de_trabajos'
-    const { error: insertError } = await supabase
+    // Insertar todos los trabajos en la tabla cola_de_trabajos
+    const { error: insertError } = await supabaseAdmin
       .from('cola_de_trabajos')
-      .insert(trabajosParaLaCola);
+      .insert(trabajosParaInsertar);
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error("Error al insertar trabajos en la cola:", insertError);
+      throw new Error(`Error al encolar trabajos: ${insertError.message}`);
+    }
 
-    return new Response(JSON.stringify({ 
-        message: `Evaluación de ${trabajosParaLaCola.length} trabajos iniciada. Las calificaciones aparecerán automáticamente en unos momentos.`
-    }), { 
+    console.log(`${trabajosParaInsertar.length} trabajos añadidos a la cola exitosamente.`);
+    
+    // Opcional: Invocar inmediatamente 'procesar-cola-evaluacion' una vez
+    // await supabaseAdmin.functions.invoke('procesar-cola-evaluacion');
+
+    return new Response(JSON.stringify({ message: `${calificaciones_ids.length} trabajos de evaluación añadidos a la cola.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200 
+      status: 200,
     });
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-    return new Response(JSON.stringify({ message: errorMessage }), { 
+    console.error("ERROR GRAVE en 'iniciar-evaluacion-masiva':", errorMessage);
+    return new Response(JSON.stringify({ message: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400 
+      status: 400, // Devolver 400 en caso de error
     });
   }
 });

@@ -7,12 +7,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Define interfaces para mejorar la seguridad de tipos
+// --- Interfaces para seguridad de tipos ---
 interface Materia {
     id: number;
     drive_url: string;
-    // Asumiendo que esta columna existe, si no, hay que añadirla o quitarla de handleGuardarCalificacionDetallada
-    calificaciones_spreadsheet_id?: string;
 }
 
 interface Actividad {
@@ -21,8 +19,7 @@ interface Actividad {
     unidad: number;
     rubrica_spreadsheet_id: string;
     rubrica_sheet_range: string;
-    drive_folder_id_calificados?: string; // Hacer opcional ya que no se usa
-    materias: Materia | null; // Puede ser null si la relación falla
+    materias: Materia | null;
 }
 
 interface Calificacion {
@@ -31,7 +28,7 @@ interface Calificacion {
     alumno_id?: number | null;
     grupo_id?: number | null;
     evidencia_drive_file_id: string;
-    actividades: Actividad | null; // Puede ser null si la relación falla
+    actividades: Actividad | null;
 }
 
 interface TrabajoCola {
@@ -41,8 +38,7 @@ interface TrabajoCola {
     calificaciones: Calificacion[];
 }
 
-
-// Función auxiliar para extraer JSON de forma segura
+// --- Función auxiliar para extraer JSON ---
 function extractJson(text: string): Record<string, unknown> | null {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
@@ -123,17 +119,14 @@ serve(async (req: Request) => {
     const prompt = `Evalúa el trabajo basándote en la rúbrica. Tu respuesta DEBE ser únicamente un objeto JSON con las claves "calificacion_total" (number) y "justificacion_texto" (string).\n\nRúbrica:\n${rubricJson.texto_rubrica}\n\nTrabajo:\n${workJson.texto_trabajo}`;
     
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
-    // Asegúrate de que el modelo 'gemini-2.5-pro' exista y sea accesible para tu clave API.
-    // Si no, usa un modelo conocido como 'gemini-1.5-pro-latest'.
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`;
     const geminiResponse = await fetch(geminiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { response_mime_type: "application/json" } }) });
     
     if (!geminiResponse.ok) throw new Error(`Error en la API de Gemini: ${(await geminiResponse.json()).error.message}`);
     
     const geminiData = await geminiResponse.json();
-    // Validar estructura de respuesta de Gemini
      if (!geminiData.candidates || !geminiData.candidates[0]?.content?.parts || !geminiData.candidates[0].content.parts[0]?.text) {
-        throw new Error(`Respuesta inesperada de la API de Gemini: ${JSON.stringify(geminiData)}`);
+        throw new Error(`Respuesta inesperada de Gemini: ${JSON.stringify(geminiData)}`);
      }
     const geminiText = geminiData.candidates[0].content.parts[0].text;
     
@@ -149,17 +142,17 @@ serve(async (req: Request) => {
     if (calificacion.grupo_id) {
       const { data: miembros, error: errorMiembros } = await supabaseAdmin.from('alumnos_grupos').select('alumnos(matricula, nombre, apellido), grupos(nombre)').eq('grupo_id', calificacion.grupo_id);
       if (errorMiembros) throw errorMiembros;
+      if (!Array.isArray(miembros)) throw new Error("La consulta de miembros de grupo no devolvió un array.");
 
-      // Asegurarse de que miembros sea un array y tenga la estructura esperada (any para flexibilidad de la respuesta de Supabase)
-       if (!Array.isArray(miembros)) throw new Error("La consulta de miembros de grupo no devolvió un array.");
-
-      calificacionesParaReporte = miembros.map((m: any) => {
-         // Validar estructura de cada miembro
-         if (!m.alumnos || !m.grupos) throw new Error("Estructura de miembro de grupo inesperada.");
+      calificacionesParaReporte = miembros.map((m) => {
+         // Supabase devuelve las relaciones como arrays. Accedemos al primer elemento.
+         const alumno = Array.isArray(m.alumnos) ? m.alumnos[0] : m.alumnos;
+         const grupo = Array.isArray(m.grupos) ? m.grupos[0] : m.grupos;
+         if (!alumno || !grupo) throw new Error("Estructura de miembro de grupo inesperada.");
          return {
-             matricula: m.alumnos.matricula,
-             nombre: `${m.alumnos.nombre} ${m.alumnos.apellido}`,
-             equipo: m.grupos.nombre,
+             matricula: alumno.matricula,
+             nombre: `${alumno.nombre} ${alumno.apellido}`,
+             equipo: grupo.nombre,
              calificacion: calificacion_total,
              retroalimentacion: justificacion_texto
          };
@@ -188,10 +181,8 @@ serve(async (req: Request) => {
     
     const reporteRes = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify(reportePayload), headers: { 'Content-Type': 'application/json' } });
     if (!reporteRes.ok) throw new Error(`Apps Script (guardar_calificacion_detallada) falló: ${await reporteRes.text()}`);
-    // Validar respuesta del script
     const reporteJson = await reporteRes.json();
      if (reporteJson.status !== 'success') throw new Error(`Apps Script (guardar_calificacion_detallada) reportó error: ${reporteJson.message}`);
-
     
     await updateProgress("4/4: Finalizando...");
     
@@ -204,7 +195,6 @@ serve(async (req: Request) => {
         if (errorMiembros) throw new Error(`No se pudieron obtener los miembros del grupo: ${errorMiembros.message}`);
          if (!Array.isArray(miembros)) throw new Error("La consulta de miembros (propagación) no devolvió un array.");
 
-
         const calificacionesAlumnos = miembros.map((miembro: { alumno_id: number }) => ({
             actividad_id: calificacion.actividad_id,
             alumno_id: miembro.alumno_id,
@@ -212,8 +202,6 @@ serve(async (req: Request) => {
             calificacion_obtenida: calificacion_total,
             estado: 'calificado',
             progreso_evaluacion: 'Completado (Grupal)',
-            // No incluir justificacion_sheet_cell aquí si ya está en la principal,
-            // o asegurarse que la columna permita nulos si no siempre se genera.
         }));
 
         if (calificacionesAlumnos.length > 0) {
@@ -231,7 +219,6 @@ serve(async (req: Request) => {
     const processError = error instanceof Error ? error.message : "Error desconocido.";
     console.error(`ERROR GRAVE procesando trabajo ID ${trabajoId}: ${processError}`); // Log del error
     
-    // Marcar como fallido en BD
     try {
         if (calificacionId) {
           await supabaseAdmin.from('calificaciones').update({ estado: 'fallido', progreso_evaluacion: `Error: ${processError}` }).eq('id', calificacionId);
@@ -240,7 +227,7 @@ serve(async (req: Request) => {
           await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'fallido', ultimo_error: processError }).eq('id', trabajoId);
         }
     } catch (dbError) {
-        console.error(`Error adicional al marcar como fallido en BD: ${dbError instanceof Error ? dbError.message : dbError}`);
+        console.error(`Error adicional al marcar como fallido en BD: ${dbError instanceof Error ? String(dbError.message) : String(dbError)}`);
     }
     
     return new Response(JSON.stringify({ message: processError }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
