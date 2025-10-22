@@ -108,8 +108,8 @@ serve(async (req: Request) => {
     const errorMessage = error instanceof Error ? error.message : "Error desconocido";
     console.error("ERROR en crear-actividad:", errorMessage);
     return new Response(JSON.stringify({ message: errorMessage }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, // Ensure CORS headers on error
+      status: 500 // Use 500 for server-side errors
     });
   }
 });

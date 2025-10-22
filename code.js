@@ -179,7 +179,10 @@ function handleGuardarCalificacionDetallada(payload) {
   sheetDetallado.setName("Detalle"); // Renombrar hoja principal si es nueva
 
   if (sheetDetallado.getLastRow() < 1) {
-    sheetDetallado.appendRow(["Matricula", "Equipo", "Calificacion", "Retroalimentacion y observaciones"]).setFontWeight("bold");
+    // 1. Añade la fila de encabezados
+    sheetDetallado.appendRow(["Matricula", "Equipo", "Calificacion", "Retroalimentacion y observaciones"]);
+    // 2. Obtén el rango de esa fila (fila 1) y aplica el formato
+    sheetDetallado.getRange("A1:D1").setFontWeight("bold");
     sheetDetallado.setFrozenRows(1);
     sheetDetallado.setColumnWidth(4, 400);
   }
