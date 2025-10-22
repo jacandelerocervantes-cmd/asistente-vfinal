@@ -1,0 +1,127 @@
+/* src/pages/ExamenAlumno.css */
+
+.examen-container {
+    max-width: 800px; /* Ancho máximo para el examen */
+    margin: var(--spacing-xl) auto; /* Centrado con margen superior/inferior */
+    padding: var(--spacing-xl);
+    background-color: #fff;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-light);
+}
+
+.examen-header {
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap; /* Para pantallas pequeñas */
+}
+
+.examen-header h2 {
+    color: var(--color-primary);
+    margin: 0;
+}
+
+.examen-timer {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--color-accent);
+    background-color: #fff3e0;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: 20px;
+}
+
+.examen-progreso {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.pregunta-container {
+    background-color: #f8fafc; /* Fondo ligeramente diferente */
+    border: 1px solid #e2e8f0;
+    padding: var(--spacing-lg);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-xl);
+}
+
+.pregunta-texto {
+    font-weight: bold;
+    margin-bottom: var(--spacing-lg);
+    font-size: 1.1rem;
+    line-height: 1.6;
+}
+.pregunta-puntos {
+    font-weight: normal;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.opciones-list {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--spacing-md);
+}
+
+.opcion-item {
+    margin-bottom: var(--spacing-md);
+}
+
+.opcion-item label {
+    display: flex; /* Para alinear radio/checkbox con el texto */
+    align-items: center;
+    gap: var(--spacing-md);
+    cursor: pointer;
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius);
+    transition: background-color 0.2s;
+}
+.opcion-item label:hover {
+    background-color: #edf2f7;
+}
+
+.opcion-item input[type="radio"],
+.opcion-item input[type="checkbox"] {
+    transform: scale(1.3);
+}
+
+.respuesta-abierta {
+    width: 100%;
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    font-size: 1rem;
+    font-family: inherit;
+    min-height: 120px;
+    resize: vertical;
+}
+
+.examen-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: var(--spacing-xl);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+.examen-navigation span { /* Contador Pregunta X / Y */
+    font-size: 0.95rem;
+    color: #555;
+}
+
+.examen-navigation button {
+    padding: 10px 20px;
+}
+
+.error-container { /* Para mostrar errores en la carga */
+    text-align: center;
+    padding: var(--spacing-xl);
+}
+.error-container p {
+    color: #c53030;
+    font-weight: bold;
+    margin-bottom: var(--spacing-lg);
+}

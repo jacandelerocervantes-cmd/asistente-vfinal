@@ -1,0 +1,79 @@
+/* src/components/materia_panel/EvaluacionForm.css */
+
+.evaluacion-form-container {
+    padding: var(--spacing-lg);
+}
+
+/* Copia estilos de .materia-form, .form-group, .form-group-horizontal, .form-actions
+   de MateriasDashboard.css o ActividadForm.css */
+
+.materia-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.materia-form h3 {
+  text-align: center;
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-md);
+}
+.materia-form h4 {
+    margin-top: var(--spacing-lg);
+    margin-bottom: var(--spacing-sm);
+    color: var(--color-secondary);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-sm);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.form-group label {
+  font-weight: bold;
+  color: var(--color-text-dark);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  font-family: inherit; /* Asegura misma fuente */
+}
+.form-group textarea {
+    resize: vertical; /* Permite redimensionar verticalmente */
+    min-height: 80px;
+}
+
+.form-group-horizontal {
+    display: flex;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap; /* Para mejor adaptabilidad */
+}
+.form-group-horizontal .form-group {
+    flex: 1;
+    min-width: 150px; /* Ancho mínimo para cada campo */
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-xl); /* Más espacio antes de botones */
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+/* Estilos específicos para la lista de preguntas */
+.preguntas-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+    margin-top: var(--spacing-md);
+}

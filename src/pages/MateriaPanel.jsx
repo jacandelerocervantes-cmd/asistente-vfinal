@@ -7,15 +7,16 @@ import './MateriaPanel.css';
 // Importa los componentes de las pestañas
 import Alumnos from '../components/materia_panel/Alumnos';
 import Asistencia from '../components/materia_panel/Asistencia';
-import Actividades from '../components/materia_panel/Actividades'; // <-- 1. IMPORTA EL NUEVO COMPONENTE
+import Actividades from '../components/materia_panel/Actividades';
+import Evaluaciones from '../components/materia_panel/Evaluaciones'; // <-- IMPORTA EL NUEVO COMPONENTE
 
 const TABS = {
   ALUMNOS: 'Alumnos',
   ASISTENCIA: 'Asistencia',
   ACTIVIDADES: 'Actividades',
-  EVALUACIONES: 'Evaluaciones',
-  CALIFICACIONES: 'Calificaciones',
-  MATERIAL: 'Material Didáctico',
+  EVALUACIONES: 'Evaluaciones', // <-- AÑADE LA NUEVA PESTAÑA
+  // CALIFICACIONES: 'Calificaciones', // Quizás renombrar o quitar si 'Evaluaciones' lo cubre
+  // MATERIAL: 'Material Didáctico',
 };
 
 const MateriaPanel = () => {
@@ -51,13 +52,8 @@ const MateriaPanel = () => {
       // --- 2. USA EL COMPONENTE CORRECTO AQUÍ ---
       case TABS.ACTIVIDADES:
         return <Actividades />;
-      
-      case TABS.EVALUACIONES:
-        return <div style={{padding: '20px', textAlign: 'center'}}>Módulo de <strong>{TABS.EVALUACIONES}</strong> pendiente de desarrollo.</div>;
-      case TABS.CALIFICACIONES:
-        return <div style={{padding: '20px', textAlign: 'center'}}>Módulo de <strong>{TABS.CALIFICACIONES}</strong> pendiente de desarrollo.</div>;
-      case TABS.MATERIAL:
-        return <div style={{padding: '20px', textAlign: 'center'}}>Módulo de <strong>{TABS.MATERIAL}</strong> pendiente de desarrollo.</div>;
+      case TABS.EVALUACIONES: // <-- AÑADE EL CASO PARA RENDERIZAR
+        return <Evaluaciones materia={materia} />; // Pasa la materia como prop
       default:
         return <div style={{padding: '20px', textAlign: 'center'}}>Selecciona una pestaña.</div>;
     }

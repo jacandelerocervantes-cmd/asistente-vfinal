@@ -1,0 +1,56 @@
+/* src/pages/AlumnoDashboard.css */
+
+.alumno-dashboard-container {
+    width: 100%;
+    padding: var(--spacing-lg);
+}
+
+.alumno-dashboard-container h2 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.alumno-dashboard-container > p { /* Mensaje de bienvenida */
+    color: #666;
+    margin-bottom: var(--spacing-xl);
+    font-size: 1.1rem;
+}
+
+.evaluaciones-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.evaluacion-list-item { /* Estilo para cada <li> que es un .card */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap; /* Para adaptarse mejor */
+}
+
+.evaluacion-info h4 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.evaluacion-info p {
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: 5px;
+}
+
+.evaluacion-actions button {
+    margin-left: var(--spacing-sm); /* Espacio entre botones si hay varios */
+    padding: 8px 16px; /* Botones ligeramente más pequeños */
+    font-size: 0.95rem;
+}
+
+.evaluacion-actions span { /* Mensaje "No disponible", etc. */
+    color: #718096; /* Gris */
+    font-style: italic;
+    margin-left: var(--spacing-md);
+}

@@ -7,6 +7,9 @@ import MateriasDashboard from './pages/MateriasDashboard';
 import MateriaPanel from './pages/MateriaPanel';
 import RegistroAsistencia from './pages/RegistroAsistencia';
 import CalificacionPanel from './pages/CalificacionPanel';
+import AlumnoPortal from './pages/AlumnoPortal';
+import AlumnoDashboard from './pages/AlumnoDashboard';
+import ExamenAlumno from './pages/ExamenAlumno';
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -83,16 +86,19 @@ function App() {
     <Router>
       <Layout session={session}>
         <Routes>
-          {/* --- Ruta Pública para Asistencia --- */}
-          <Route
-            path="/asistencia/:materia_id/:unidad/:sesion"
-            element={<RegistroAsistencia />}
-          />
+          {/* --- Rutas Públicas --- */}
+          <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
+          <Route path="/alumno/portal" element={<AlumnoPortal />} /> {/* <-- Ruta Portal Alumno */}
+
+          {/* --- Rutas "Privadas" Alumno (protegidas por lógica en componente) --- */}
+          <Route path="/alumno/evaluaciones" element={<AlumnoDashboard />} /> {/* <-- Ruta Dashboard Alumno */}
+          <Route path="/alumno/examen/:evaluacionId" element={<ExamenAlumno />} /> {/* <-- Ruta Examen */}
+
 
           {/* --- Rutas Privadas para el Docente --- */}
           <Route
             path="/"
-            element={!session ? <Auth /> : <Navigate to="/dashboard" />}
+            element={!session ? <Navigate to="/alumno/portal" /> : <Navigate to="/dashboard" />}
           />
           <Route
             path="/dashboard"
@@ -102,12 +108,14 @@ function App() {
             path="/materia/:id"
             element={session ? <MateriaPanel session={session} /> : <Navigate to="/" />}
           />
-          
-          {/* --- RUTA PARA EL PANEL DE CALIFICACIÓN --- */}
-          <Route 
-            path="/actividad/:id" 
-            element={session ? <CalificacionPanel /> : <Navigate to="/" />} 
+          <Route
+            path="/actividad/:id"
+            element={session ? <CalificacionPanel /> : <Navigate to="/" />}
           />
+
+           {/* Ruta comodín o 404 si es necesario */}
+           <Route path="*" element={<Navigate to={session ? "/dashboard" : "/alumno/portal"} />} />
+
         </Routes>
       </Layout>
     </Router>
