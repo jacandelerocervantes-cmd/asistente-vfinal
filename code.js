@@ -163,9 +163,8 @@ function handleGuardarCalificacionDetallada(payload) {
 
   // *** VALIDACIÓN AÑADIDA ***
   if (!Array.isArray(calificaciones) || calificaciones.length === 0) {
-      Logger.log("Error: El array 'calificaciones' recibido está vacío. No se puede procesar.");
-      // Devolver un error claro a la función de Supabase
-      throw new Error("El array 'calificaciones' recibido por Apps Script estaba vacío.");
+      Logger.log("Error en handleGuardarCalificacionDetallada: El array 'calificaciones' recibido está vacío.");
+      throw new Error("El array 'calificaciones' recibido por Apps Script estaba vacío."); // Error claro
   }
 
   const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url_materia));
@@ -211,9 +210,13 @@ function handleGuardarCalificacionDetallada(payload) {
     colIndex += 1; // Ajuste porque indexOf es base 0 y las columnas son base 1
   }
   
-  // Mapea matrículas existentes a sus filas
-  const matriculasEnSheet = sheetResumen.getRange(2, 1, sheetResumen.getLastRow() > 0 ? sheetResumen.getLastRow() - 1 : 1, 1).getValues().flat();
-  const matriculaToRowIndex = new Map(matriculasEnSheet.map((m, i) => [String(m).trim(), i + 2])); // Asegurar string trim
+  // *** CORRECCIÓN PARA HOJA VACÍA O SOLO HEADER ***
+  let matriculaToRowIndex = new Map();
+  const lastDataRow = sheetResumen.getLastRow();
+  if (lastDataRow > 1) { // Solo leer si hay datos
+      const matriculasEnSheet = sheetResumen.getRange(2, 1, lastDataRow - 1, 1).getValues().flat();
+      matriculaToRowIndex = new Map(matriculasEnSheet.map((m, i) => [String(m).trim(), i + 2]));
+  }
 
   calificaciones.forEach(cal => {
     const matriculaStr = String(cal.matricula).trim(); // Asegurar string trim
@@ -235,23 +238,22 @@ function handleGuardarCalificacionDetallada(payload) {
     }
   });
 
-  // --- Devolver referencia a la celda (EJEMPLO SIMPLIFICADO) ---
-  // Esto asume que la primera calificación es representativa o que quieres esa celda.
-  // Podrías necesitar una lógica más compleja si quieres referencias para todos.
+  // --- Devolver referencia a la celda (EJEMPLO MEJORADO) ---
   let justificacionCellRef = null;
-  if (calificaciones.length > 0) {
-      const firstMatricula = String(calificaciones[0].matricula).trim();
-      const firstRowIndex = matriculaToRowIndex.get(firstMatricula);
-      // Asumiendo que la justificación va en la columna 4 del sheet detallado
-      if (firstRowIndex) { // Podría no estar si solo se añadió en esta ejecución
-          // Corrección: La referencia debe ser a la hoja DETALLADA, no al resumen
-          const firstDetailRow = sheetDetallado.getLastRow(); // Obtener la última fila añadida en detallado
-           justificacionCellRef = `'Detalle'!D${firstDetailRow}`; // Columna D (4ta) de la última fila
-      }
+  // Intenta obtener la fila de la primera matrícula procesada en ESTA ejecución
+  const firstMatricula = String(calificaciones[0].matricula).trim();
+  const firstRowIndexInSummary = matriculaToRowIndex.get(firstMatricula); // Fila en Resumen
+  if (firstRowIndexInSummary) {
+      // Asume que la retroalimentación está en la 4ta columna del sheet DETALLADO
+      // Manera simple: asumir que la última fila añadida corresponde a la primera matrícula (si solo se procesa uno a la vez)
+       const lastDetailRow = sheetDetallado.getLastRow(); // La última fila que se acaba de añadir
+       if (lastDetailRow > 1) { // Asegurarse que se añadió algo
+            justificacionCellRef = `'Detalle'!D${lastDetailRow}`; // Columna D del sheet 'Detalle'
+       }
   }
-  Logger.log("Referencia de celda generada (ejemplo): " + justificacionCellRef);
+   Logger.log("Referencia de celda generada: " + justificacionCellRef);
 
-  return { message: "Reportes de calificación generados y actualizados.", justificacion_cell_ref: justificacionCellRef }; // Devolver la referencia
+  return { message: "Reportes generados.", justificacion_cell_ref: justificacionCellRef };
 }
 
 
@@ -507,14 +509,21 @@ function handleGetFolderContents(payload) {
 // ==========================================================================================
 
 function getOrCreateFolder(carpetaPadre, nombreSubcarpeta) {
-  const nombreNormalizado = nombreSubcarpeta.trim(); // Quitar espacios extra
-  const carpetas = carpetaPadre.getFoldersByName(nombreNormalizado); // Buscar por nombre normalizado
+  const nombreNormalizado = nombreSubcarpeta.trim();
+  const carpetas = carpetaPadre.getFoldersByName(nombreNormalizado);
 
   if (carpetas.hasNext()) {
-    Logger.log(`Carpeta encontrada: "${nombreNormalizado}"`);
+    // Logger.log(`Carpeta encontrada: "${nombreNormalizado}"`); // Opcional: Descomentar para depurar
     return carpetas.next();
   } else {
-    // Podrías añadir una búsqueda insensible a mayúsculas/minúsculas aquí si es necesario
+    // Podrías añadir búsqueda insensible a mayúsculas/minúsculas si sospechas problemas
+    // var folders = carpetaPadre.getFolders();
+    // while (folders.hasNext()) {
+    //   var folder = folders.next();
+    //   if (folder.getName().toLowerCase() === nombreNormalizado.toLowerCase()) {
+    //     return folder;
+    //   }
+    // }
     Logger.log(`Creando carpeta: "${nombreNormalizado}" dentro de ${carpetaPadre.getName()}`);
     return carpetaPadre.createFolder(nombreNormalizado);
   }
