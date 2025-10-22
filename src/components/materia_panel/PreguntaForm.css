@@ -1,0 +1,95 @@
+/* src/components/materia_panel/PreguntaForm.css */
+
+.pregunta-form-item {
+  border: 1px solid #e2e8f0; /* Borde más suave */
+  border-radius: var(--border-radius);
+  padding: var(--spacing-lg);
+  background-color: #fdfdfd; /* Ligeramente diferente del fondo principal */
+  margin-bottom: var(--spacing-lg); /* Separación entre preguntas */
+}
+
+/* Encabezado de la pregunta (Número y botón eliminar) */
+.pregunta-form-item > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg); /* Más espacio después del encabezado */
+  padding-bottom: var(--spacing-sm); /* Línea sutil debajo */
+  border-bottom: 1px solid var(--color-background-light);
+}
+
+.pregunta-form-item > div:first-child strong {
+  color: var(--color-secondary); /* Verde para el número de pregunta */
+  font-size: 1.1rem;
+}
+
+/* Ajuste para el botón eliminar pregunta */
+.pregunta-form-item .btn-danger {
+  padding: 4px 10px; /* Un poco más de padding */
+  font-size: 0.85rem;
+}
+
+/* Alineación de Tipo y Puntos */
+.pregunta-form-item .form-group-horizontal {
+    align-items: flex-end; /* Alinea los inputs de tipo y puntos abajo */
+    gap: var(--spacing-lg); /* Asegura espacio entre ellos */
+}
+
+.pregunta-form-item .form-group-horizontal .form-group {
+    flex: 1; /* Permite que el select ocupe más espacio */
+}
+
+.pregunta-form-item .form-group-horizontal .form-group input[type="number"] {
+    width: 80px; /* Ancho fijo para puntos */
+    flex: none; /* Evita que crezca */
+}
+
+/* Estilos para la sección de opciones */
+.opciones-section {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px dashed var(--color-border); /* Separador punteado */
+}
+
+.opciones-section > label { /* El label "Opciones de Respuesta:" */
+    display: block;
+    margin-bottom: var(--spacing-md);
+    font-weight: bold;
+    color: var(--color-text-dark);
+}
+
+/* Contenedor de cada opción (radio/check, input, botón X) */
+.opciones-section .opcion-item-container { /* Renombrado para claridad */
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.opciones-section input[type="radio"],
+.opciones-section input[type="checkbox"] {
+  transform: scale(1.2); /* Hacerlos un poco más grandes */
+  flex-shrink: 0; /* Evita que se encojan */
+}
+
+.opciones-section input[type="text"] {
+  flex-grow: 1; /* Ocupa el espacio restante */
+  padding: 8px; /* Más pequeño que los inputs principales */
+  font-size: 0.95rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+/* Botones X y Añadir Opción */
+.opciones-section button {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    min-width: 25px; /* Ancho mínimo para el botón X */
+    flex-shrink: 0;
+}
+
+.opciones-section .btn-secondary { /* Botón Añadir Opción */
+    margin-top: var(--spacing-sm);
+    font-size: 0.9rem; /* Tamaño normalizado */
+    padding: 5px 10px;
+}
