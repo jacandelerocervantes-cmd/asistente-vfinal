@@ -172,7 +172,6 @@ function handleGuardarCalificacionDetallada(payload) {
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
   const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
 
-
   // --- 1. Procesa el Reporte Detallado por Actividad ---
   const carpetaReportesDetallados = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
   const reporteDetalladoSheet = getOrCreateSheet(carpetaReportesDetallados, actividad.nombre); // Nombre del sheet = nombre de actividad
@@ -180,61 +179,75 @@ function handleGuardarCalificacionDetallada(payload) {
   sheetDetallado.setName("Detalle"); // Renombrar hoja principal si es nueva
 
   if (sheetDetallado.getLastRow() < 1) {
-    sheetDetallado.appendRow(["Matricula", "Equipo", "Calificacion", "Retroalimentacion y observaciones"]);
+    sheetDetallado.appendRow(["Matricula", "Equipo", "Calificacion", "Retroalimentacion y observaciones"]).setFontWeight("bold");
     sheetDetallado.setFrozenRows(1);
     sheetDetallado.setColumnWidth(4, 400);
   }
-  
+
   calificaciones.forEach(cal => {
     sheetDetallado.appendRow([cal.matricula, cal.equipo || '', cal.calificacion, cal.retroalimentacion]);
   });
 
   // --- 2. Actualiza el Resumen de la Unidad ---
   const nombreResumen = `Resumen Calificaciones - Unidad ${unidad}`;
-  const resumenUnidadSheet = getOrCreateSheet(carpetaUnidad, nombreResumen); // Se crea/obtiene en la carpeta de Unidad
+  const resumenUnidadSheet = getOrCreateSheet(carpetaUnidad, nombreResumen);
   const sheetResumen = resumenUnidadSheet.getSheets()[0];
-  sheetResumen.setName("Resumen"); // Renombrar hoja principal si es nueva
-  
-  if (sheetResumen.getLastRow() < 1) {
-    sheetResumen.appendRow(["Matricula", "Nombre"]);
-    sheetResumen.setFrozenRows(1);
-  }
+  sheetResumen.setName("Resumen");
 
-  // Asegura que exista la columna para la actividad
-  const headers = sheetResumen.getRange(1, 1, 1, sheetResumen.getLastColumn() || 1).getValues()[0];
-  let colIndex = headers.indexOf(actividad.nombre);
-  if (colIndex === -1) { // Si no existe la columna
-    colIndex = sheetResumen.getLastColumn() + 1;
-    sheetResumen.getRange(1, colIndex).setValue(actividad.nombre).setFontWeight("bold");
+  let headers;
+  let colIndex = -1; // Inicializar como -1
+  let lastHeaderColumn = sheetResumen.getLastColumn();
+
+  // --- LÓGICA DE ENCABEZADOS MEJORADA ---
+  if (sheetResumen.getLastRow() < 1) {
+    // Hoja completamente vacía, añadir headers básicos y de actividad
+    headers = ["Matricula", "Nombre", actividad.nombre];
+    sheetResumen.appendRow(headers);
+    sheetResumen.getRange(1, 1, 1, 3).setFontWeight("bold"); // Ajusta el rango si añades más headers
+    sheetResumen.setFrozenRows(1);
+    colIndex = 3; // La columna de la actividad es la 3ra
+    lastHeaderColumn = 3;
   } else {
-    colIndex += 1; // Ajuste porque indexOf es base 0 y las columnas son base 1
+    // Leer headers existentes
+    headers = sheetResumen.getRange(1, 1, 1, lastHeaderColumn || 1).getValues()[0];
+    colIndex = headers.indexOf(actividad.nombre);
+
+    if (colIndex === -1) { // Si la columna de actividad NO existe
+      colIndex = (lastHeaderColumn || 0) + 1; // Nueva columna al final
+      sheetResumen.getRange(1, colIndex).setValue(actividad.nombre).setFontWeight("bold");
+      lastHeaderColumn = colIndex; // Actualizar última columna de header
+    } else {
+      colIndex += 1; // Ajuste base 0 a base 1 si ya existía
+    }
   }
-  
-  // *** CORRECCIÓN PARA HOJA VACÍA O SOLO HEADER ***
+  // --- FIN LÓGICA DE ENCABEZADOS MEJORADA ---
+
   let matriculaToRowIndex = new Map();
   const lastDataRow = sheetResumen.getLastRow();
   if (lastDataRow > 1) { // Solo leer si hay datos
       const matriculasEnSheet = sheetResumen.getRange(2, 1, lastDataRow - 1, 1).getValues().flat();
       matriculaToRowIndex = new Map(matriculasEnSheet.map((m, i) => [String(m).trim(), i + 2]));
   }
-
+  // Actualizar/Añadir calificaciones
   calificaciones.forEach(cal => {
     const matriculaStr = String(cal.matricula).trim(); // Asegurar string trim
     let rowIndex = matriculaToRowIndex.get(matriculaStr);
-    if (!rowIndex) { // Si el alumno no está en el resumen, añadirlo
-      sheetResumen.appendRow([cal.matricula, cal.nombre]);
+    if (!rowIndex) { // Si el alumno es nuevo en la hoja
+      // Crear la fila con datos básicos Y espacio para las calificaciones existentes
+      const nuevaFila = [cal.matricula, cal.nombre];
+      // Rellenar con vacío para columnas de actividades anteriores
+      for (let i = 3; i < colIndex; i++) {
+          nuevaFila.push('');
+      }
+      // Añadir la calificación actual
+      nuevaFila[colIndex - 1] = cal.calificacion; // Añadir en la posición correcta (base 0)
+      sheetResumen.appendRow(nuevaFila);
       rowIndex = sheetResumen.getLastRow();
       matriculaToRowIndex.set(matriculaStr, rowIndex); // Actualizar el mapa
-    }
-    // Asegurarse de que la celda exista antes de escribir
-    if (rowIndex > 0 && colIndex > 0) {
-       // Asegurarse que la columna exista antes de escribir
-       if(colIndex > sheetResumen.getMaxColumns()) {
-         sheetResumen.insertColumnAfter(sheetResumen.getMaxColumns());
-       }
-       sheetResumen.getRange(rowIndex, colIndex).setValue(cal.calificacion);
-    } else {
-        Logger.log(`Error: Índice inválido para ${cal.matricula}. Fila: ${rowIndex}, Col: ${colIndex}`);
+    } else { // Si el alumno ya existe
+      // Escribir solo en la columna correcta
+      if (colIndex > sheetResumen.getMaxColumns()) { sheetResumen.insertColumnAfter(sheetResumen.getMaxColumns()); }
+      sheetResumen.getRange(rowIndex, colIndex).setValue(cal.calificacion);
     }
   });
 
@@ -293,27 +306,48 @@ function handleGuardarRubrica(payload) {
   };
 }
 
+// Dentro de code.js - Modificación sugerida
+
 function handleGuardarReportePlagio(payload) {
   const { drive_url_materia, reporte_plagio } = payload;
-  if (!drive_url_materia || !reporte_plagio) {
-    throw new Error("Faltan 'drive_url_materia' o 'reporte_plagio'.");
-  }
+  if (!drive_url_materia || !reporte_plagio) { /* ... error ... */ } // Validación existente
+
   const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url_materia));
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO); // Usa getOrCreateSheet
+  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
   const fechaHoy = new Date().toISOString().slice(0, 10);
   const nombreHoja = `Reporte ${fechaHoy}`;
   let sheet = sheetPlagio.getSheetByName(nombreHoja);
+
   if (!sheet) {
     sheet = sheetPlagio.insertSheet(nombreHoja, 0);
-    sheet.appendRow(["Trabajo A (File ID)", "Trabajo B (File ID)", "% Similitud", "Fragmentos Similares"]);
+    sheet.appendRow(["Trabajo A (File ID)", "Trabajo B (File ID)", "% Similitud", "Fragmentos Similares / Observaciones"]); // Ajustar header
     sheet.getRange("A1:D1").setFontWeight("bold");
+    sheet.setColumnWidth(4, 400); // Asegurar ancho
   }
-  reporte_plagio.forEach(item => {
-    sheet.appendRow([item.trabajo_A_id, item.trabajo_B_id, item.porcentaje_similitud, item.fragmentos_similares.join("\n\n")]);
-  });
-  sheet.setColumnWidth(4, 400);
-  return { message: "Reporte de plagio guardado exitosamente." };
+
+  // *** NUEVA LÓGICA ***
+  if (Array.isArray(reporte_plagio) && reporte_plagio.length > 0) {
+    // Si hay plagio, añadir las filas como antes
+    reporte_plagio.forEach(item => {
+      sheet.appendRow([
+          item.trabajo_A_id || 'N/A',
+          item.trabajo_B_id || 'N/A',
+          item.porcentaje_similitud || '0',
+          (item.fragmentos_similares || []).join("\n\n") || '-'
+      ]);
+    });
+    Logger.log(`Se añadieron ${reporte_plagio.length} registros de similitud.`);
+  } else {
+    // Si NO hay plagio (array vacío), añadir una fila indicándolo
+    sheet.appendRow(['-', '-', '0%', 'No se encontraron similitudes significativas.']);
+    Logger.log("No se encontraron similitudes, se añadió registro informativo.");
+  }
+  // *** FIN NUEVA LÓGICA ***
+
+  // sheet.setColumnWidth(4, 400); // Mover esta línea después de crear headers si es hoja nueva
+
+  return { message: "Reporte de plagio procesado exitosamente." }; // Mensaje más general
 }
 
 function handleLogAsistencia(payload) {

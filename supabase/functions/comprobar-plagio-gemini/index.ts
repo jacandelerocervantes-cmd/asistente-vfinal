@@ -81,20 +81,20 @@ serve(async (req: Request) => {
     const jsonString = geminiData.candidates[0].content.parts[0].text;
     const plagioReport = JSON.parse(jsonString);
 
-    if (plagioReport.reporte_plagio && plagioReport.reporte_plagio.length > 0) {
-      const saveReportResponse = await fetch(appsScriptUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'guardar_reporte_plagio',
-          drive_url_materia: materia.drive_url,
-          reporte_plagio: plagioReport.reporte_plagio
-        }),
-        headers: { 'Content-Type': 'application/json' },
-      });
+    // Llamar siempre a guardar el reporte. Apps Script manejará si el array está vacío.
+    const saveReportResponse = await fetch(appsScriptUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'guardar_reporte_plagio',
+        drive_url_materia: materia.drive_url,
+        // Asegurarse de enviar un array, incluso si la propiedad no existe en la respuesta de Gemini
+        reporte_plagio: plagioReport.reporte_plagio || [] 
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
 
-      if (!saveReportResponse.ok) {
-        console.error("Error al guardar el reporte de plagio. La respuesta no fue OK.");
-      }
+    if (!saveReportResponse.ok) {
+      console.error("Error al guardar el reporte de plagio. La respuesta no fue OK.");
     }
 
     return new Response(JSON.stringify(plagioReport), {
