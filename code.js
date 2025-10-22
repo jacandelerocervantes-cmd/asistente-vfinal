@@ -16,10 +16,6 @@ const NOMBRE_SHEET_PLAGIO = "Reportes de Plagio";
 // MANEJADORES DE PETICIONES WEB (PUNTO DE ENTRADA)
 // ==========================================================================================
 
-/**
- * Maneja las peticiones GET (acceso directo a la URL).
- * Previene el error "doGet not found" y confirma que el script está activo.
- */
 function doGet(e) {
   Logger.log("Petición GET recibida. Devolviendo mensaje informativo.");
   return ContentService.createTextOutput(
@@ -27,9 +23,6 @@ function doGet(e) {
   ).setMimeType(ContentService.MimeType.TEXT);
 }
 
-/**
- * Función principal que dirige todas las peticiones POST desde Supabase.
- */
 function doPost(e) {
   try {
     const payload = JSON.parse(e.postData.contents);
@@ -56,20 +49,17 @@ function doPost(e) {
       case 'get_folder_contents':
         return crearRespuestaExitosa({ archivos: handleGetFolderContents(payload) });
       case 'get_rubric_text':
-        return crearRespuestaExitosa({ texto_rubrica: handleGetRubricText(payload) });
+        return crearRespuestaExitosa(handleGetRubricText(payload));
       case 'get_rubric_data':
         return crearRespuestaExitosa(handleGetRubricData(payload));
       case 'get_student_work_text':
         return crearRespuestaExitosa(handleGetStudentWorkText(payload));
-      case 'write_justification':
-        return crearRespuestaExitosa(handleWriteJustification(payload));
       case 'get_justification_text':
         return crearRespuestaExitosa(handleGetJustificationText(payload));
-      case 'create_annotated_file':
-        return crearRespuestaExitosa(handleCreateAnnotatedFile(payload));
-      // --- ¡NUEVA ACCIÓN! ---
       case 'guardar_calificacion_detallada':
         return crearRespuestaExitosa(handleGuardarCalificacionDetallada(payload));
+      case 'create_annotated_file': // Aunque obsoleta, se deja por si acaso
+        return crearRespuestaExitosa(handleCreateAnnotatedFile(payload));
       default:
         throw new Error(`Acción desconocida: "${action}"`);
     }
@@ -80,24 +70,14 @@ function doPost(e) {
 }
 
 // ==========================================================================================
-// FUNCIONES AUXILIARES DE RESPUESTA JSON (LAS QUE FALTABAN)
+// FUNCIONES AUXILIARES DE RESPUESTA JSON
 // ==========================================================================================
 
-/**
- * Envuelve los datos de una operación exitosa en una respuesta JSON estandarizada.
- * @param {object} data - El objeto con los datos a devolver.
- * @return {ContentService.TextOutput} La respuesta en formato JSON.
- */
 function crearRespuestaExitosa(data) {
   return ContentService.createTextOutput(JSON.stringify({ status: "success", ...data }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * Envuelve un mensaje de error en una respuesta JSON estandarizada.
- * @param {string} message - El mensaje de error.
- * @return {ContentService.TextOutput} La respuesta en formato JSON.
- */
 function crearRespuestaError(message) {
   return ContentService.createTextOutput(JSON.stringify({ status: "error", message: message }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -121,8 +101,22 @@ function handleCreateMateriasBatch(payload) {
     for (const materia of materias) {
         const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
         const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
+        
         const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
         const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+        getOrCreateFolder(carpetaMateria, "Evaluaciones");
+        getOrCreateFolder(carpetaMateria, "Material Didáctico");
+        
+        // --- ¡CORRECCIÓN! Se crea el sheet de resumen DENTRO del bucle de unidades ---
+        if (materia.unidades && materia.unidades > 0) {
+          for (let i = 1; i <= materia.unidades; i++) {
+            const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
+            // Asegura la creación del sheet de resumen aquí
+            getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
+             // Asegura la creación de la carpeta de reportes detallados
+            getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+          }
+        }
         
         const alumnos = Array.isArray(materia.alumnos) ? materia.alumnos : [];
 
@@ -134,53 +128,58 @@ function handleCreateMateriasBatch(payload) {
         results.drive_urls[materia.id] = carpetaMateria.getUrl();
         results.rubricas_spreadsheet_ids[materia.id] = sheetRubricas.getId();
         results.plagio_spreadsheet_ids[materia.id] = sheetPlagio.getId();
+        // El ID principal de calificaciones ahora apunta al de asistencia, pero cada unidad tendrá su resumen
         results.calificaciones_spreadsheet_ids[materia.id] = sheetAsistencia.getId();
     }
     return results;
 }
 
 function handleCreateActivityFolder(payload) {
-  const { drive_url_materia, nombre_actividad, unidad } = payload;  if (!drive_url_materia || !nombre_actividad) {
+  const { drive_url_materia, nombre_actividad, unidad } = payload;
+  if (!drive_url_materia || !nombre_actividad) {
     throw new Error("Faltan datos para crear la carpeta de la actividad.");
   }
   
-  const carpetaId = extractDriveIdFromUrl(drive_url_materia);
-  if (!carpetaId) throw new Error(`No se pudo extraer un ID válido de la URL de Drive: ${drive_url_materia}`);
-  
-  const carpetaMateria = DriveApp.getFolderById(carpetaId);  
+  const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url_materia));
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
+  const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad || 'General'}`);
+  
+  getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+
   const carpetaActividad = carpetaUnidad.createFolder(nombre_actividad);
   const carpetaEntregas = carpetaActividad.createFolder("Entregas");
-  const carpetaCalificados = carpetaActividad.createFolder("Calificados");
   
   return { 
     drive_folder_id_actividad: carpetaActividad.getId(), 
-    drive_folder_id_entregas: carpetaEntregas.getId(),
-    drive_folder_id_calificados: carpetaCalificados.getId()
+    drive_folder_id_entregas: carpetaEntregas.getId()
   };
 }
 
-/**
- * ¡NUEVA FUNCIÓN!
- * 1. Crea/actualiza el sheet de reporte detallado para una actividad.
- * 2. Actualiza el sheet de resumen de la unidad con la nueva calificación.
- */
 function handleGuardarCalificacionDetallada(payload) {
   const { drive_url_materia, unidad, actividad, calificaciones } = payload;
   if (!drive_url_materia || !unidad || !actividad || !calificaciones) {
     throw new Error("Faltan datos para guardar las calificaciones.");
   }
 
+  // *** VALIDACIÓN AÑADIDA ***
+  if (!Array.isArray(calificaciones) || calificaciones.length === 0) {
+      Logger.log("Error: El array 'calificaciones' recibido está vacío. No se puede procesar.");
+      // Devolver un error claro a la función de Supabase
+      throw new Error("El array 'calificaciones' recibido por Apps Script estaba vacío.");
+  }
+
   const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url_materia));
+  // --- ¡CORRECCIÓN! Ruta correcta a la carpeta de la unidad ---
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
   const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
 
+
   // --- 1. Procesa el Reporte Detallado por Actividad ---
-  const carpetaReportes = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-  const reporteDetalladoSheet = getOrCreateSheet(carpetaReportes, actividad.nombre);
+  const carpetaReportesDetallados = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+  const reporteDetalladoSheet = getOrCreateSheet(carpetaReportesDetallados, actividad.nombre); // Nombre del sheet = nombre de actividad
   const sheetDetallado = reporteDetalladoSheet.getSheets()[0];
-  
+  sheetDetallado.setName("Detalle"); // Renombrar hoja principal si es nueva
+
   if (sheetDetallado.getLastRow() < 1) {
     sheetDetallado.appendRow(["Matricula", "Equipo", "Calificacion", "Retroalimentacion y observaciones"]);
     sheetDetallado.setFrozenRows(1);
@@ -192,74 +191,100 @@ function handleGuardarCalificacionDetallada(payload) {
   });
 
   // --- 2. Actualiza el Resumen de la Unidad ---
-  const resumenUnidadSheet = getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${unidad}`);
+  const nombreResumen = `Resumen Calificaciones - Unidad ${unidad}`;
+  const resumenUnidadSheet = getOrCreateSheet(carpetaUnidad, nombreResumen); // Se crea/obtiene en la carpeta de Unidad
   const sheetResumen = resumenUnidadSheet.getSheets()[0];
+  sheetResumen.setName("Resumen"); // Renombrar hoja principal si es nueva
   
   if (sheetResumen.getLastRow() < 1) {
     sheetResumen.appendRow(["Matricula", "Nombre"]);
     sheetResumen.setFrozenRows(1);
   }
 
-  // Busca o crea la columna para la actividad actual
-  const headers = sheetResumen.getRange(1, 1, 1, sheetResumen.getLastColumn()).getValues()[0];
-  let colIndex = headers.indexOf(actividad.nombre) + 1;
-  if (colIndex === 0) {
+  // Asegura que exista la columna para la actividad
+  const headers = sheetResumen.getRange(1, 1, 1, sheetResumen.getLastColumn() || 1).getValues()[0];
+  let colIndex = headers.indexOf(actividad.nombre);
+  if (colIndex === -1) { // Si no existe la columna
     colIndex = sheetResumen.getLastColumn() + 1;
-    sheetResumen.getRange(1, colIndex).setValue(actividad.nombre);
+    sheetResumen.getRange(1, colIndex).setValue(actividad.nombre).setFontWeight("bold");
+  } else {
+    colIndex += 1; // Ajuste porque indexOf es base 0 y las columnas son base 1
   }
   
-  // Actualiza la calificación para cada alumno
-  const matriculasEnSheet = sheetResumen.getRange(2, 1, sheetResumen.getLastRow(), 1).getValues().flat();
+  // Mapea matrículas existentes a sus filas
+  const matriculasEnSheet = sheetResumen.getRange(2, 1, sheetResumen.getLastRow() > 0 ? sheetResumen.getLastRow() - 1 : 1, 1).getValues().flat();
+  const matriculaToRowIndex = new Map(matriculasEnSheet.map((m, i) => [String(m).trim(), i + 2])); // Asegurar string trim
+
   calificaciones.forEach(cal => {
-    let rowIndex = matriculasEnSheet.indexOf(cal.matricula) + 2;
-    if (rowIndex === 1) { // Si no encuentra la matrícula, la añade
+    const matriculaStr = String(cal.matricula).trim(); // Asegurar string trim
+    let rowIndex = matriculaToRowIndex.get(matriculaStr);
+    if (!rowIndex) { // Si el alumno no está en el resumen, añadirlo
       sheetResumen.appendRow([cal.matricula, cal.nombre]);
       rowIndex = sheetResumen.getLastRow();
+      matriculaToRowIndex.set(matriculaStr, rowIndex); // Actualizar el mapa
     }
-    sheetResumen.getRange(rowIndex, colIndex).setValue(cal.calificacion);
+    // Asegurarse de que la celda exista antes de escribir
+    if (rowIndex > 0 && colIndex > 0) {
+       // Asegurarse que la columna exista antes de escribir
+       if(colIndex > sheetResumen.getMaxColumns()) {
+         sheetResumen.insertColumnAfter(sheetResumen.getMaxColumns());
+       }
+       sheetResumen.getRange(rowIndex, colIndex).setValue(cal.calificacion);
+    } else {
+        Logger.log(`Error: Índice inválido para ${cal.matricula}. Fila: ${rowIndex}, Col: ${colIndex}`);
+    }
   });
 
-  return { message: "Reportes de calificación generados y actualizados." };
+  // --- Devolver referencia a la celda (EJEMPLO SIMPLIFICADO) ---
+  // Esto asume que la primera calificación es representativa o que quieres esa celda.
+  // Podrías necesitar una lógica más compleja si quieres referencias para todos.
+  let justificacionCellRef = null;
+  if (calificaciones.length > 0) {
+      const firstMatricula = String(calificaciones[0].matricula).trim();
+      const firstRowIndex = matriculaToRowIndex.get(firstMatricula);
+      // Asumiendo que la justificación va en la columna 4 del sheet detallado
+      if (firstRowIndex) { // Podría no estar si solo se añadió en esta ejecución
+          // Corrección: La referencia debe ser a la hoja DETALLADA, no al resumen
+          const firstDetailRow = sheetDetallado.getLastRow(); // Obtener la última fila añadida en detallado
+           justificacionCellRef = `'Detalle'!D${firstDetailRow}`; // Columna D (4ta) de la última fila
+      }
+  }
+  Logger.log("Referencia de celda generada (ejemplo): " + justificacionCellRef);
+
+  return { message: "Reportes de calificación generados y actualizados.", justificacion_cell_ref: justificacionCellRef }; // Devolver la referencia
 }
+
 
 function handleGuardarRubrica(payload) {
   const { rubricas_spreadsheet_id, nombre_actividad, criterios } = payload;
   if (!rubricas_spreadsheet_id || !nombre_actividad || !criterios || !Array.isArray(criterios)) {
     throw new Error("Faltan datos para guardar la rúbrica.");
   }
-
   let spreadsheet;
   try {
     spreadsheet = SpreadsheetApp.openById(rubricas_spreadsheet_id);
   } catch (e) {
     throw new Error(`No se pudo abrir la hoja de cálculo de rúbricas con ID '${rubricas_spreadsheet_id}'.`);
   }
-
   let sheet = spreadsheet.getSheets()[0];
   if (!sheet) {
     sheet = spreadsheet.insertSheet(NOMBRE_SHEET_MAESTRO_RUBRICAS);
   } else {
     sheet.setName(NOMBRE_SHEET_MAESTRO_RUBRICAS);
   }
-
   const lastRow = sheet.getLastRow();
   const startRow = lastRow > 0 ? lastRow + 2 : 1;
-
   sheet.getRange(startRow, 1, 1, 2).merge().setValue(`Rúbrica para: ${nombre_actividad}`).setFontWeight("bold").setBackground("#cfe2f3");
   const headers = ["Criterio de Evaluación", "Puntos"];
   sheet.getRange(startRow + 1, 1, 1, 2).setValues([headers]).setFontWeight("bold");
-
   const filas = criterios.map(c => [c.descripcion, c.puntos]);
   if (filas.length > 0) {
     sheet.getRange(startRow + 2, 1, filas.length, headers.length).setValues(filas);
   }
-
   sheet.setColumnWidth(1, 400);
   sheet.setColumnWidth(2, 100);
-
   const endRow = startRow + 1 + filas.length;
   const rangoDatos = `'${sheet.getName()}'!A${startRow + 1}:B${endRow}`;
-  
   return { 
     rubrica_spreadsheet_id: spreadsheet.getId(),
     rubrica_sheet_range: rangoDatos 
@@ -271,12 +296,9 @@ function handleGuardarReportePlagio(payload) {
   if (!drive_url_materia || !reporte_plagio) {
     throw new Error("Faltan 'drive_url_materia' o 'reporte_plagio'.");
   }
-
-  const carpetaMateriaId = extractDriveIdFromUrl(drive_url_materia);
-  const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
+  const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url_materia));
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
-
+  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO); // Usa getOrCreateSheet
   const fechaHoy = new Date().toISOString().slice(0, 10);
   const nombreHoja = `Reporte ${fechaHoy}`;
   let sheet = sheetPlagio.getSheetByName(nombreHoja);
@@ -285,11 +307,9 @@ function handleGuardarReportePlagio(payload) {
     sheet.appendRow(["Trabajo A (File ID)", "Trabajo B (File ID)", "% Similitud", "Fragmentos Similares"]);
     sheet.getRange("A1:D1").setFontWeight("bold");
   }
-
   reporte_plagio.forEach(item => {
     sheet.appendRow([item.trabajo_A_id, item.trabajo_B_id, item.porcentaje_similitud, item.fragmentos_similares.join("\n\n")]);
   });
-  
   sheet.setColumnWidth(4, 400);
   return { message: "Reporte de plagio guardado exitosamente." };
 }
@@ -297,36 +317,27 @@ function handleGuardarReportePlagio(payload) {
 function handleLogAsistencia(payload) {
   const { drive_url, fecha, unidad, sesion, asistencias } = payload;
   if (!drive_url || !asistencias || !fecha || !unidad || !sesion) { throw new Error("Faltan datos para registrar la asistencia."); }
-  
-  const carpetaId = extractDriveIdFromUrl(drive_url);
-  const carpetaMateria = DriveApp.getFolderById(carpetaId);
+  const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url));
   const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
   const archivos = carpetaReportes.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
   if (!archivos.hasNext()) throw new Error(`No se encontró el archivo "${NOMBRE_SHEET_ASISTENCIA}".`);
-  
   const hojaDeCalculo = SpreadsheetApp.open(archivos.next());
   const hoja = hojaDeCalculo.getSheetByName(`Unidad ${unidad}`);
   if (!hoja) throw new Error(`No se encontró la pestaña "Unidad ${unidad}".`);
-  
   const hoy = new Date(fecha + 'T12:00:00Z');
   const textoEncabezado = `${('0' + hoy.getDate()).slice(-2)}/${('0' + (hoy.getMonth() + 1)).slice(-2)}-${sesion}`;
-  
   const primeraFila = hoja.getRange(1, 1, 1, hoja.getLastColumn() || 1).getValues()[0];
   let columnaParaHoy = primeraFila.indexOf(textoEncabezado) + 1;
   if (columnaParaHoy === 0) {
     columnaParaHoy = hoja.getLastColumn() + 1;
     hoja.getRange(1, columnaParaHoy).setValue(textoEncabezado);
   }
-  
   const rangoAlumnos = hoja.getRange(2, 1, hoja.getLastRow() > 1 ? hoja.getLastRow() - 1 : 1, 1).getValues();
-  const matriculaMap = new Map();
-  rangoAlumnos.forEach((fila, index) => { if (fila[0]) { matriculaMap.set(String(fila[0]).trim(), index + 2); } });
-  
+  const matriculaMap = new Map(rangoAlumnos.map((fila, index) => [String(fila[0]).trim(), index + 2]));
   asistencias.forEach(asistencia => {
     const fila = matriculaMap.get(String(asistencia.matricula).trim());
     if (fila) { hoja.getRange(fila, columnaParaHoy).setValue(asistencia.presente ? 1 : 0).setHorizontalAlignment("center"); }
   });
-  
   return `Se registraron ${asistencias.length} asistencias en la columna '${textoEncabezado}'.`;
 }
 
@@ -335,39 +346,30 @@ function handleCerrarUnidad(payload) {
   if (!drive_url || !unidad || !alumnos || !registros_asistencia) { 
     throw new Error("Faltan datos para cerrar la unidad."); 
   }
-
-  const carpetaId = extractDriveIdFromUrl(drive_url);
-  const carpetaMateria = DriveApp.getFolderById(carpetaId);
+  const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url));
   const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
   const archivos = carpetaReportes.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
   if (!archivos.hasNext()) throw new Error(`No se encontró el archivo "${NOMBRE_SHEET_ASISTENCIA}".`);
-  
   const hojaDeCalculo = SpreadsheetApp.open(archivos.next());
   const hoja = hojaDeCalculo.getSheetByName(`Unidad ${unidad}`);
   if (!hoja) throw new Error(`No se encontró la pestaña "Unidad ${unidad}".`);
-
   const totalSesiones = new Set(registros_asistencia.map(r => `${r.fecha}-${r.sesion}`)).size;
   const resumen = new Map();
   alumnos.forEach(alumno => {
     resumen.set(alumno.id, { asistencias: 0, matricula: alumno.matricula });
   });
-  
   registros_asistencia.forEach(registro => {
     if (registro.presente && resumen.has(registro.alumno_id)) {
       resumen.get(registro.alumno_id).asistencias++;
     }
   });
-  
   const ultimaColumna = hoja.getLastColumn();
   const colSumatoria = ultimaColumna + 1;
   const colPromedio = ultimaColumna + 2;
-  
   hoja.getRange(1, colSumatoria).setValue("Total Asistencias").setFontWeight("bold");
   hoja.getRange(1, colPromedio).setValue("% Asistencia").setFontWeight("bold");
-  
   const rangoMatriculas = hoja.getRange(2, 1, hoja.getLastRow() > 1 ? hoja.getLastRow() - 1 : 1, 1).getValues();
   const matriculaMap = new Map(rangoMatriculas.map((fila, index) => [String(fila[0]).trim(), index + 2]));
-
   for (const [id, datos] of resumen.entries()) {
       const fila = matriculaMap.get(String(datos.matricula).trim());
       if(fila){
@@ -376,7 +378,6 @@ function handleCerrarUnidad(payload) {
           hoja.getRange(fila, colPromedio).setValue(porcentaje).setNumberFormat("0.0%");
       }
   }
-
   const protection = hoja.protect().setDescription(`Unidad ${unidad} cerrada`);
   const me = Session.getEffectiveUser();
   protection.addEditor(me);
@@ -384,79 +385,37 @@ function handleCerrarUnidad(payload) {
   if (protection.canDomainEdit()) {
     protection.setDomainEdit(false);
   }
-  
   return `Resumen para la Unidad ${unidad} generado y la hoja ha sido protegida.`;
-}
-
-function handleWriteJustification(payload) {
-  const { drive_url_materia, justificacion, alumno_id, actividad_id, unidad } = payload;
-  if (!drive_url_materia || !justificacion || !actividad_id || !unidad) {
-    throw new Error("Faltan parámetros para escribir la justificación.");
-  }
-
-  const sheetName = `Calificaciones - Unidad ${unidad}`;
-
-  // Navega a la carpeta correcta: Materia -> Actividades -> Unidad X
-  const carpetaMateriaId = extractDriveIdFromUrl(drive_url_materia);
-  if (!carpetaMateriaId) throw new Error("URL de la materia no es válida.");
-
-  const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
-
-  // Obtiene o crea la hoja de cálculo específica para esta unidad
-  const spreadsheet = getOrCreateSheet(carpetaUnidad, sheetName);
-  let sheet = spreadsheet.getSheets()[0];
-  sheet.setName("Calificaciones");
-
-  // Añade encabezados si la hoja está vacía
-  if (sheet.getLastRow() < 1) {
-    sheet.appendRow(["ID Alumno/Grupo", "ID Actividad", "Retroalimentación"]);
-    sheet.setFrozenRows(1);
-  }
-  
-  sheet.appendRow([alumno_id, actividad_id, justificacion]);
-  const celda = `C${sheet.getLastRow()}`;
-  
-  return {
-    spreadsheet_id: spreadsheet.getId(),
-    justificacion_sheet_cell: `'${sheet.getName()}'!${celda}`
-  };
 }
 
 function handleGetRubricData(payload) {
   const { spreadsheet_id, rubrica_sheet_range } = payload;
   if (!spreadsheet_id || !rubrica_sheet_range) {
-    throw new Error("Faltan 'spreadsheet_id' o 'rubrica_sheet_range' para obtener los datos de la rúbrica.");
+    throw new Error("Faltan 'spreadsheet_id' o 'rubrica_sheet_range'.");
   }
-  
   const spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
   const range = spreadsheet.getRange(rubrica_sheet_range);
   const values = range.getValues();
-  
   const criterios = values.slice(1).map(row => ({
     descripcion: row[0],
     puntos: row[1]
   })).filter(c => c.descripcion && c.puntos !== '');
-
   return { criterios: criterios };
 }
 
 function handleGetRubricText(payload) {
   const { spreadsheet_id, rubrica_sheet_range } = payload;
   if (!spreadsheet_id || !rubrica_sheet_range) throw new Error("Faltan 'spreadsheet_id' o 'rubrica_sheet_range'.");
-  
   const spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
   const range = spreadsheet.getRange(rubrica_sheet_range);
   const values = range.getValues();
-  
   let textoRubrica = "RÚBRICA DE EVALUACIÓN:\n";
   values.forEach(row => {
     if(row[0] && row[1]) {
       textoRubrica += `- Criterio: "${row[0]}", Puntos Máximos: ${row[1]}\n`;
     }
   });
-  return textoRubrica;
+  return { texto_rubrica: textoRubrica };
 }
 
 function handleGetStudentWorkText(payload) {
@@ -464,12 +423,10 @@ function handleGetStudentWorkText(payload) {
   if (!drive_file_id) {
     throw new Error("Falta 'drive_file_id'.");
   }
-
   try {
     const file = DriveApp.getFileById(drive_file_id);
     const mimeType = file.getMimeType();
     let textContent = '';
-    
     if (mimeType === MimeType.GOOGLE_DOCS) {
       textContent = DocumentApp.openById(file.getId()).getBody().getText();
     } else if (
@@ -488,9 +445,7 @@ function handleGetStudentWorkText(payload) {
     } else {
       throw new Error(`El archivo '${file.getName()}' no es un formato de texto legible.`);
     }
-    
     return { texto_trabajo: textContent };
-    
   } catch (e) {
     throw new Error(`No se pudo leer el contenido del archivo con ID ${drive_file_id}: ${e.message}`);
   }
@@ -502,44 +457,14 @@ function handleGetJustificationText(payload) {
     throw new Error("Faltan 'spreadsheet_id' o 'justificacion_sheet_cell'.");
   }
   const spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
+  // Validar el formato de la celda antes de usarlo
+  if (typeof justificacion_sheet_cell !== 'string' || !justificacion_sheet_cell.includes('!')) {
+      throw new Error(`Formato de celda inválido: ${justificacion_sheet_cell}`);
+  }
   const range = spreadsheet.getRange(justificacion_sheet_cell);
   return { justificacion_texto: range.getValue() };
 }
 
-function handleCreateAnnotatedFile(payload) {
-  const { original_file_id, calificacion_obtenida, justificacion, carpeta_calificados_id } = payload;
-  if (!original_file_id || calificacion_obtenida === undefined || !justificacion || !carpeta_calificados_id) {
-    throw new Error("Faltan parámetros para crear el archivo anotado.");
-  }
-  try {
-    const originalFile = DriveApp.getFileById(original_file_id);
-    const carpetaCalificados = DriveApp.getFolderById(carpeta_calificados_id);
-    const nuevoNombre = `[CALIFICADO] ${originalFile.getName()}`;
-
-    const doc = DocumentApp.create(nuevoNombre);
-    const body = doc.getBody();
-    
-    body.appendParagraph(`Reporte de Calificación para: ${originalFile.getName()}`).setHeading(DocumentApp.ParagraphHeading.TITLE);
-    body.appendParagraph();
-    
-    const tableData = [['Calificación Obtenida', `${calificacion_obtenida} / 100`], ['Fecha de Evaluación', new Date().toLocaleDateString('es-MX')]];
-    body.appendTable(tableData);
-    body.appendParagraph();
-
-    body.appendParagraph('Retroalimentación Detallada').setHeading(DocumentApp.ParagraphHeading.HEADING1);
-    body.appendParagraph(justificacion);
-    
-    doc.saveAndClose();
-    
-    const docFile = DriveApp.getFileById(doc.getId());
-    docFile.moveTo(carpetaCalificados);
-    
-    return { annotated_file_id: docFile.getId(), annotated_file_url: docFile.getUrl() };
-
-  } catch (e) {
-    throw new Error(`No se pudo crear el archivo con anotaciones: ${e.message}`);
-  }
-}
 
 function handleGetMultipleFileContents(payload) {
   const { drive_file_ids } = payload;
@@ -582,8 +507,17 @@ function handleGetFolderContents(payload) {
 // ==========================================================================================
 
 function getOrCreateFolder(carpetaPadre, nombreSubcarpeta) {
-  const carpetas = carpetaPadre.getFoldersByName(nombreSubcarpeta);
-  return carpetas.hasNext() ? carpetas.next() : carpetaPadre.createFolder(nombreSubcarpeta);
+  const nombreNormalizado = nombreSubcarpeta.trim(); // Quitar espacios extra
+  const carpetas = carpetaPadre.getFoldersByName(nombreNormalizado); // Buscar por nombre normalizado
+
+  if (carpetas.hasNext()) {
+    Logger.log(`Carpeta encontrada: "${nombreNormalizado}"`);
+    return carpetas.next();
+  } else {
+    // Podrías añadir una búsqueda insensible a mayúsculas/minúsculas aquí si es necesario
+    Logger.log(`Creando carpeta: "${nombreNormalizado}" dentro de ${carpetaPadre.getName()}`);
+    return carpetaPadre.createFolder(nombreNormalizado);
+  }
 }
 
 function getOrCreateSheet(folder, sheetName) {
@@ -595,7 +529,7 @@ function getOrCreateSheet(folder, sheetName) {
     const file = DriveApp.getFileById(spreadsheet.getId());
     folder.addFile(file);
     DriveApp.getRootFolder().removeFile(file);
-    spreadsheet.getSheets()[0].setName("Hoja Principal");
+    spreadsheet.getSheets()[0].setName("Hoja Principal"); // Renombrar la hoja por defecto
     return spreadsheet;
   }
 }
@@ -605,11 +539,9 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
   if (archivosExistentes.hasNext()) {
     return SpreadsheetApp.open(archivosExistentes.next());
   }
-  
   const spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_ASISTENCIA);
   const headers = ["Matrícula", "Nombre Completo"];
-  const filasAlumnos = alumnos.map(a => [a.matricula, `${a.nombre} ${a.apellido}`.trim()]);
-
+  const filasAlumnos = Array.isArray(alumnos) ? alumnos.map(a => [a.matricula, `${a.nombre} ${a.apellido}`.trim()]) : [];
   for (let i = 1; i <= numeroDeUnidades; i++) {
     let hojaUnidad = (i === 1) ? spreadsheet.getSheets()[0].setName(`Unidad ${i}`) : spreadsheet.insertSheet(`Unidad ${i}`);
     hojaUnidad.appendRow(headers);
@@ -619,7 +551,6 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
     hojaUnidad.setFrozenRows(1);
     hojaUnidad.setFrozenColumns(2);
   }
-
   const file = DriveApp.getFileById(spreadsheet.getId());
   carpetaPadre.addFile(file);
   DriveApp.getRootFolder().removeFile(file);
@@ -632,9 +563,11 @@ function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
   const sheet = spreadsheet.getSheets()[0];
   sheet.setName("Alumnos");
   const headers = ["Matrícula", "Nombre", "Apellido"];
-  const filas = alumnos.map(a => [a.matricula, a.nombre, a.apellido]);
+  const filas = Array.isArray(alumnos) ? alumnos.map(a => [a.matricula, a.nombre, a.apellido]) : [];
   sheet.appendRow(headers);
-  if (filas.length > 0) { sheet.getRange(2, 1, filas.length, headers.length).setValues(filas); }
+  if (filas.length > 0) {
+    sheet.getRange(2, 1, filas.length, headers.length).setValues(filas);
+  }
   sheet.setFrozenRows(1);
   const file = DriveApp.getFileById(spreadsheet.getId());
   carpetaPadre.addFile(file);
@@ -642,7 +575,7 @@ function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
 }
 
 function extractDriveIdFromUrl(driveUrl) {
-  const match = driveUrl.match(/[-\w]{25,}/);
+  const match = driveUrl ? driveUrl.match(/[-\w]{25,}/) : null;
   return match ? match[0] : null;
 }
 
@@ -655,9 +588,20 @@ function handleGetOrCreateRubricSheet(payload) {
   if (!carpetaMateriaId) {
     throw new Error(`No se pudo extraer un ID de Drive válido de la URL: ${drive_url_materia}`);
   }
-
   const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
   const sheet = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
   return { rubricas_spreadsheet_id: sheet.getId() };
+}
+
+// --- FUNCIONES OBSOLETAS ---
+// Se marcan como obsoletas pero no se eliminan para evitar errores si alguna parte antigua del código las llama.
+function handleCreateAnnotatedFile(payload) {
+  Logger.log("ADVERTENCIA: La función 'handleCreateAnnotatedFile' está obsoleta y no debería ser llamada en el nuevo flujo.");
+  return { message: "Función obsoleta."};
+}
+
+function handleWriteJustification(payload) {
+  Logger.log("ADVERTENCIA: La función 'handleWriteJustification' está obsoleta y ha sido reemplazada por 'handleGuardarCalificacionDetallada'.");
+  return { message: "Función obsoleta."};
 }

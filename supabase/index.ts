@@ -1,6 +1,6 @@
 // supabase/functions/procesar-cola-guardar-resultados/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -105,31 +105,45 @@ serve(async (_req: Request) => {
     const { calificacion_total, justificacion_texto } = calificacion.respuesta_ia_json;
     let calificacionesParaReporte: { matricula: string; nombre: string; equipo: string; calificacion: number; retroalimentacion: string; }[] = [];
 
-    // Lógica para obtener detalles de alumnos/grupos
     if (calificacion.grupo_id) {
+      console.log(`[Trabajo ${trabajoId}] Obteniendo miembros del grupo ID: ${calificacion.grupo_id}`); // Log
       const { data: miembros, error: errorMiembros } = await supabaseAdmin
           .from('alumnos_grupos')
-          .select('alumnos(matricula, nombre, apellido), grupos(nombre)') // Selecciona datos relacionados
+          // Selecciona explícitamente las columnas de las tablas relacionadas
+          .select(`
+        alumno:alumnos (id, matricula, nombre, apellido),
+        grupo:grupos (id, nombre)
+      `)
           .eq('grupo_id', calificacion.grupo_id);
-      if (errorMiembros) throw errorMiembros;
+
+      // Loguea el resultado CRUDO de la consulta
+      console.log(`[Trabajo ${trabajoId}] Raw data 'miembros':`, JSON.stringify(miembros));
+      // Loguea si hubo error en la consulta
+      if (errorMiembros) {
+          console.error(`[Trabajo ${trabajoId}] Error consultando miembros:`, errorMiembros);
+          throw errorMiembros; // Lanza el error para que sea capturado por el catch principal
+      }
       if (!Array.isArray(miembros)) throw new Error("La consulta de miembros de grupo no devolvió un array.");
 
-      calificacionesParaReporte = miembros.map((m: any) => { // Usar 'any' temporalmente si la estructura es compleja
-         // Acceso seguro a datos anidados (Supabase puede devolver null si no hay match)
-         const alumno = m.alumnos; // Asumiendo relación uno a uno definida correctamente
-         const grupo = m.grupos;   // Asumiendo relación uno a uno definida correctamente
-         if (!alumno || !grupo) {
-             console.warn(`Miembro de grupo con datos incompletos para grupo_id ${calificacion.grupo_id}`);
+      calificacionesParaReporte = miembros.map((m: any) => {
+         const alumno = m.alumno; // Accede usando el alias 'alumno'
+         const grupo = m.grupo;   // Accede usando el alias 'grupo'
+         // Valida que ambos objetos y la matrícula existan
+         if (!alumno || !grupo || !alumno.matricula) {
+             console.warn(`[Trabajo ${trabajoId}] Datos incompletos para miembro del grupo ${calificacion.grupo_id}. Alumno: ${JSON.stringify(alumno)}, Grupo: ${JSON.stringify(grupo)}`);
              return null; // Marcar para filtrar luego
          }
          return {
              matricula: alumno.matricula,
              nombre: `${alumno.nombre || ''} ${alumno.apellido || ''}`.trim(),
              equipo: grupo.nombre,
-             calificacion: calificacion_total,
-             retroalimentacion: justificacion_texto
+             calificacion: calificacion_total, // Asegúrate que calificacion_total esté definida
+             retroalimentacion: justificacion_texto // Asegúrate que justificacion_texto esté definida
          };
-      }).filter(Boolean) as { matricula: string; nombre: string; equipo: string; calificacion: number; retroalimentacion: string; }[]; // Filtrar nulos y asegurar tipo
+      }).filter(Boolean) as any[]; // Filtrar los nulos
+
+      // Loguea el array ANTES de enviarlo
+      console.log(`[Trabajo ${trabajoId}] 'calificacionesParaReporte' (grupo) preparado:`, JSON.stringify(calificacionesParaReporte));
 
     } else if (calificacion.alumno_id) {
       const { data: alumno, error: errorAlumno } = await supabaseAdmin
@@ -147,12 +161,20 @@ serve(async (_req: Request) => {
         calificacion: calificacion_total,
         retroalimentacion: justificacion_texto
       });
+      console.log(`[Trabajo ${trabajoId}] 'calificacionesParaReporte' (individual) preparado:`, JSON.stringify(calificacionesParaReporte));
     } else {
         // Caso inesperado: ni alumno_id ni grupo_id
         throw new Error(`La calificación ID ${calificacionId} no tiene alumno_id ni grupo_id.`);
     }
 
+    // *** NUEVA VALIDACIÓN CRÍTICA ***
+    if (calificacionesParaReporte.length === 0) {
+        console.error(`[Trabajo ${trabajoId}] Error Crítico: 'calificacionesParaReporte' está vacío ANTES de llamar a Apps Script. No se llamará a Apps Script.`);
+        throw new Error("No se pudieron generar los datos de calificación para el reporte (array vacío)."); // Esto causará que el trabajo falle aquí con un error claro.
+    }
+
     // 4. Llamar a Google Apps Script para guardar en Sheets
+    console.log(`[Trabajo ${trabajoId}] Llamando a Apps Script 'guardar_calificacion_detallada'...`);
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
     if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
 
