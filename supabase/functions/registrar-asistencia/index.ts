@@ -1,10 +1,10 @@
 // supabase/functions/registrar-asistencia/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*', // O tu URL específica en producción
-  'Access-Control-Allow-Headers': 'apikey, content-type', // Solo lo necesario para una función pública
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', // <-- ADDED authorization, x-client-info
 };
 
 interface AsistenciaRequest {
@@ -39,7 +39,7 @@ serve(async (req: Request) => {
     const now = new Date().toISOString();
     const { data: sesionActiva, error: sesionError } = await supabaseAdmin
       .from('sesiones_activas')
-      .select('id')
+      .select('id, usado_por') // <-- OBTENER TAMBIÉN 'usado_por'
       .eq('materia_id', materia_id)
       .eq('unidad', unidad)
       .eq('sesion', sesion)
@@ -61,9 +61,11 @@ serve(async (req: Request) => {
         if (sesionExpirada) {
              throw new Error("El código QR ha expirado. Pide al docente que genere uno nuevo.");
         } else {
-             throw new Error("Código QR inválido o la sesión no coincide.");
+             throw new Error("Código QR inválido o expirado.");
         }
     }
+    const sesionId = sesionActiva.id;
+    const alumnosQueYaUsaron = sesionActiva.usado_por || []; // Array de IDs que ya usaron este token
 
     // 2. Buscar al alumno por matrícula y materia
     const { data: alumno, error: alumnoError } = await supabaseAdmin
@@ -79,7 +81,20 @@ serve(async (req: Request) => {
     const alumno_id = alumno.id;
     const fechaHoy = new Date().toISOString().slice(0, 10);
 
-    // 3. Registrar la asistencia (Upsert: inserta o actualiza si ya existía)
+    // --- 3. VERIFICAR SI ESTE ALUMNO YA USÓ ESTE TOKEN ---
+    if (alumnosQueYaUsaron.includes(alumno_id)) {
+        console.log(`Intento duplicado: Alumno ${alumno_id} ya usó el token para sesión ${sesionId}.`);
+        // Devolver un mensaje claro, pero podría ser un 200 OK para no confundir al alumno
+        // O un 409 Conflict si prefieres indicar el duplicado
+        return new Response(JSON.stringify({ message: `Asistencia ya registrada previamente para ${matricula}.` }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200, // O 409
+        });
+    }
+    // --- FIN VERIFICACIÓN ---
+
+
+    // 4. Registrar la asistencia (Upsert: inserta o actualiza si ya existía)
     const { error: upsertError } = await supabaseAdmin
       .from('asistencias')
       .upsert({
@@ -96,23 +111,84 @@ serve(async (req: Request) => {
 
     if (upsertError) throw new Error(`Error al guardar asistencia: ${upsertError.message}`);
 
-    // 4. (Opcional) Invalidar/Borrar token usado para evitar reutilización
-    // await supabaseAdmin.from('sesiones_activas').delete().eq('id', sesionActiva.id);
-    // O podrías marcarlo como usado en lugar de borrarlo.
+    // --- 5. AÑADIR alumno_id al array 'usado_por' de la sesión activa ---
+    // Usamos array_append para añadir el ID de forma segura (evita duplicados si hay condiciones de carrera)
+    // O podemos simplemente construir el nuevo array
+    const nuevosUsadoPor = [...alumnosQueYaUsaron, alumno_id];
+    const { error: updateSesionError } = await supabaseAdmin
+        .from('sesiones_activas')
+        .update({ usado_por: nuevosUsadoPor }) // Actualizar el array completo
+        .eq('id', sesionId); // Actualizar solo esta sesión
 
-    // 5. (Opcional) Enviar evento broadcast para UI en tiempo real del docente
-    // Nota: Necesita configuración de Realtime en la tabla 'asistencias' y canal adecuado
-    /*
-    const channel = supabaseAdmin.channel(`asistencias-materia-${materia_id}`);
-    await channel.send({
-        type: 'broadcast',
-        event: 'asistencia-registrada',
-        payload: { alumno_id, unidad, sesion, presente: true, fecha: fechaHoy },
-    });
-    supabaseAdmin.removeChannel(channel);
-    */
+    if (updateSesionError) {
+        // Loguear el error pero no fallar la respuesta al alumno, ya que la asistencia sí se guardó
+        console.error(`Error al actualizar 'usado_por' para sesión ${sesionId}:`, updateSesionError.message);
+    } else {
+        console.log(`Alumno ${alumno_id} añadido a 'usado_por' para sesión ${sesionId}.`);
+    }
+    // --- FIN ACTUALIZACIÓN 'usado_por' ---
 
-    // 6. Respuesta exitosa
+
+    // 6. (Opcional) Enviar evento broadcast
+    console.log(`Enviando broadcast a canal: asistencias-materia-${materia_id}`); // Log para verificar
+    try {
+        // Crear cliente *con clave de servicio* para enviar broadcast
+         const supabaseServiceRoleClient = createClient(
+            Deno.env.get('SUPABASE_URL')!,
+            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+         );
+        const channelName = `asistencias-materia-${materia_id}`;
+        const channel = supabaseServiceRoleClient.channel(channelName);
+
+        // Es importante hacer el 'subscribe' aunque solo vayas a enviar,
+        // para asegurar que el canal esté listo.
+        // Usamos una promesa para esperar a que la suscripción se confirme o falle.
+        const subscribePromise = new Promise((resolve, reject) => {
+            channel.subscribe((status, err) => {
+                if (status === 'SUBSCRIBED') {
+                    console.log(`Suscrito temporalmente a ${channelName} para enviar.`);
+                    resolve(status);
+                } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                    console.error(`Error al suscribir a ${channelName} para enviar:`, err || status);
+                    reject(new Error(`Fallo al suscribir al canal: ${err?.message || status}`));
+                }
+            });
+        });
+
+        // Esperar máximo 5 segundos por la suscripción
+        await Promise.race([
+            subscribePromise,
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout esperando suscripción para broadcast")), 5000))
+        ]);
+
+
+        // Una vez suscrito (o si ya estaba listo), enviar el evento
+        const status = await channel.send({
+            type: 'broadcast',
+            event: 'asistencia-registrada', // Nombre del evento que escuchará el frontend
+            payload: { // Datos que quieres enviar
+                alumno_id: alumno_id,
+                unidad: unidad,
+                sesion: sesion,
+                presente: true,
+                fecha: fechaHoy
+            },
+        });
+
+        console.log(`Estado del envío de broadcast: ${status}`); // Debería ser 'ok' o 'error'
+
+        if (status !== 'ok') {
+             console.warn("El envío de broadcast no retornó 'ok'. Puede que el mensaje no llegue.");
+        }
+
+    } catch (broadcastError) {
+         // Capturar errores específicos del broadcast y loguearlos, pero no detener la respuesta exitosa al alumno
+         console.error("Error durante el proceso de broadcast:", broadcastError);
+    }
+    // --- FIN SECCIÓN BROADCAST ---
+
+    // 7. Respuesta exitosa
+    console.log(`Asistencia registrada OK para ${matricula}.`);
     return new Response(JSON.stringify({ message: `¡Asistencia registrada con éxito para ${matricula}!` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
@@ -120,7 +196,7 @@ serve(async (req: Request) => {
 
   } catch (error) {
     // Manejo de errores
-    console.error("Error en registrar-asistencia:", error);
+    console.error("Error general en registrar-asistencia:", error);
     const errorMessage = error instanceof Error ? error.message : "Error desconocido.";
     return new Response(JSON.stringify({ message: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

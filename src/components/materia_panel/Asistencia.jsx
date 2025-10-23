@@ -65,39 +65,76 @@ const Asistencia = () => {
     }, [materia_id]);
 
     useEffect(() => {
+        // Solo configurar si no tenemos ya un canal activo
         if (!channelRef.current) {
+            // Crear canal específico para esta materia
             channelRef.current = supabase.channel(`asistencias-materia-${materia_id}`);
         }
         const channel = channelRef.current;
+
+        // Solo suscribirse si la sesión está activa en la UI del docente
         if (sesionActiva) {
+            console.log(`Suscribiendo a canal ${channel.topic} para sesión ${unidad}-${sesion}`);
             channel
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'asistencias' }, (payload) => {
-                    const registro = payload.new || payload.old;
-                    if (registro && String(registro.unidad) === String(unidad) && String(registro.sesion) === String(sesion)) {
-                        setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, payload.new ? payload.new.presente : false));
+                // Escuchar cambios directos en la BD (ej. si el docente cambia manualmente)
+                .on('postgres_changes',
+                    {
+                        event: '*', // Escuchar INSERT, UPDATE, DELETE
+                        schema: 'public',
+                        table: 'asistencias',
+                        // Filtrar por la sesión activa actual
+                        filter: `materia_id=eq.${materia_id}&unidad=eq.${unidad}&sesion=eq.${sesion}&fecha=eq.${new Date().toISOString().slice(0, 10)}`
+                    },
+                    (payload) => {
+                        console.log('postgres_changes payload:', payload);
+                        const registro = payload.new || payload.old; // Obtener datos del registro afectado
+                        if (registro?.alumno_id) {
+                             // Actualizar estado local (presente si es INSERT/UPDATE con presente=true, false si es DELETE o presente=false)
+                            const presente = (payload.eventType !== 'DELETE' && registro.presente === true);
+                            setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, presente));
+                        }
                     }
-                })
-                .on('broadcast', { event: 'asistencia-registrada' }, (message) => {
-                    const registro = message.payload;
-                    if (registro && String(registro.unidad) === String(unidad) && String(registro.sesion) === String(sesion)) {
-                         setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, registro.presente));
+                )
+                // Escuchar mensajes enviados explícitamente (broadcast desde la función del alumno)
+                .on('broadcast',
+                    {
+                        event: 'asistencia-registrada' // El mismo nombre de evento que envía la función
+                    },
+                    (message) => {
+                        console.log('broadcast payload:', message.payload);
+                        const registro = message.payload; // Los datos vienen en 'payload'
+                        // Validar que el mensaje sea para la sesión actual
+                        if (registro && String(registro.unidad) === String(unidad) && String(registro.sesion) === String(sesion)) {
+                             setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, registro.presente));
+                        }
                     }
-                })
+                )
+                // Suscribirse al canal
                 .subscribe((status, err) => {
-                    setRealtimeStatus(status);
+                    setRealtimeStatus(status); // Actualizar estado visual de conexión
                     if (status === 'SUBSCRIBED') {
-                        console.log("¡Suscripción a Realtime estable y exitosa!");
-                    } else if (status !== 'CLOSED') {
-                        console.error(`Estado de la suscripción: ${status}`, err);
+                        console.log("¡Suscripción a Realtime exitosa!");
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED'){
+                        console.error(`Estado de la suscripción Realtime: ${status}`, err);
                     }
                 });
+        } else if (channel && channel.state === 'joined') {
+            // Si la sesión del docente se desactiva, desuscribirse para ahorrar recursos
+            console.log(`Desuscribiendo de canal ${channel.topic}`);
+            supabase.removeChannel(channel);
+            channelRef.current = null; // Limpiar la referencia
+            setRealtimeStatus('DISCONNECTED');
         }
+
+        // Limpieza al desmontar el componente (importante)
         return () => {
-            if (channel) {
-                supabase.removeChannel(channel);
+            if (channelRef.current) {
+                console.log(`Limpieza: Desuscribiendo de canal ${channelRef.current.topic}`);
+                supabase.removeChannel(channelRef.current);
                 channelRef.current = null;
             }
         };
+    // Dependencias: estado de sesión activa, IDs de materia/unidad/sesión
     }, [sesionActiva, materia_id, unidad, sesion]);
     
     useEffect(() => {
