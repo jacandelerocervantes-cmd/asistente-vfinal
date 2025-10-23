@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Auth from './pages/Auth'; // <-- Asegúrate que Auth esté importado
@@ -18,6 +18,7 @@ function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false); // Estado para controlar sync
+  const syncInProgress = useRef(false); // Ref para control atómico y evitar race conditions
 
   useEffect(() => {
     // Obtener sesión inicial
@@ -63,6 +64,12 @@ function App() {
 
   // Función separada para llamar a la Edge Function
   const triggerSync = async () => {
+    // --- ¡CORRECCIÓN CLAVE! ---
+    // Usar una referencia para un chequeo síncrono inmediato y evitar race conditions.
+    if (syncInProgress.current) {
+      console.log("triggerSync: Sync already in progress, skipping call.");
+      return;
+    }
     setIsSyncing(true); // Marcar inicio
     console.log("triggerSync: Calling sync-drive-on-first-login...");
     try {
@@ -79,6 +86,7 @@ function App() {
     } finally {
        console.log("triggerSync: Setting isSyncing to false.");
        setIsSyncing(false); // Marcar fin (incluso si falló, para posible reintento)
+       syncInProgress.current = false; // Liberar el "lock"
     }
   };
 
