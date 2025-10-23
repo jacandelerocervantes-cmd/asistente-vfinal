@@ -421,31 +421,107 @@ function handleGuardarReportePlagio(payload) {
   return { message: "Reporte de plagio procesado exitosamente." }; // Mensaje más general
 }
 
+/**
+ * Registra las asistencias de una sesión específica en la hoja de cálculo.
+ * @param {object} payload Datos de la sesión y asistencias.
+ * @return {string} Mensaje de resultado.
+ */
 function handleLogAsistencia(payload) {
   const { drive_url, fecha, unidad, sesion, asistencias } = payload;
-  if (!drive_url || !asistencias || !fecha || !unidad || !sesion) { throw new Error("Faltan datos para registrar la asistencia."); }
+  Logger.log("Recibido en handleLogAsistencia: " + JSON.stringify(payload)); // Log inicial
+
+  if (!drive_url || !asistencias || !fecha || !unidad || !sesion) {
+    throw new Error("Faltan datos para registrar la asistencia (drive_url, fecha, unidad, sesion, asistencias).");
+  }
+  if (!Array.isArray(asistencias)) {
+    throw new Error("El campo 'asistencias' debe ser un array.");
+  }
+
   const carpetaMateria = DriveApp.getFolderById(extractDriveIdFromUrl(drive_url));
   const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
   const archivos = carpetaReportes.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
   if (!archivos.hasNext()) throw new Error(`No se encontró el archivo "${NOMBRE_SHEET_ASISTENCIA}".`);
+
   const hojaDeCalculo = SpreadsheetApp.open(archivos.next());
-  const hoja = hojaDeCalculo.getSheetByName(`Unidad ${unidad}`);
-  if (!hoja) throw new Error(`No se encontró la pestaña "Unidad ${unidad}".`);
-  const hoy = new Date(fecha + 'T12:00:00Z');
-  const textoEncabezado = `${('0' + hoy.getDate()).slice(-2)}/${('0' + (hoy.getMonth() + 1)).slice(-2)}-${sesion}`;
-  const primeraFila = hoja.getRange(1, 1, 1, hoja.getLastColumn() || 1).getValues()[0];
-  let columnaParaHoy = primeraFila.indexOf(textoEncabezado) + 1;
-  if (columnaParaHoy === 0) {
-    columnaParaHoy = hoja.getLastColumn() + 1;
-    hoja.getRange(1, columnaParaHoy).setValue(textoEncabezado);
+  const nombreHojaUnidad = `Unidad ${unidad}`;
+  const hoja = hojaDeCalculo.getSheetByName(nombreHojaUnidad);
+  if (!hoja) {
+    throw new Error(`No se encontró la pestaña "${nombreHojaUnidad}". Asegúrate de que exista.`);
   }
-  const rangoAlumnos = hoja.getRange(2, 1, hoja.getLastRow() > 1 ? hoja.getLastRow() - 1 : 1, 1).getValues();
-  const matriculaMap = new Map(rangoAlumnos.map((fila, index) => [String(fila[0]).trim(), index + 2]));
+
+  // --- Lógica para encontrar/crear la columna ---
+  const hoy = new Date(fecha + 'T12:00:00Z'); // Usar T12:00:00Z para evitar problemas de zona horaria al formatear
+  const textoEncabezado = `${('0' + hoy.getDate()).slice(-2)}/${('0' + (hoy.getMonth() + 1)).slice(-2)}-${sesion}`;
+  Logger.log("Buscando/Creando encabezado de columna: " + textoEncabezado);
+
+  const ultimaColumna = hoja.getLastColumn();
+  let columnaParaHoy = 0; // Inicializar a 0
+
+  if (ultimaColumna > 0) { // Solo buscar si hay columnas
+    const primeraFila = hoja.getRange(1, 1, 1, ultimaColumna).getValues()[0];
+    // Buscar la columna existente
+    for (let i = 0; i < primeraFila.length; i++) {
+      if (String(primeraFila[i]).trim() === textoEncabezado) {
+        columnaParaHoy = i + 1; // +1 porque los índices de columna son base 1
+        break;
+      }
+    }
+  }
+
+  // Si no se encontró, crearla
+  if (columnaParaHoy === 0) {
+    columnaParaHoy = (ultimaColumna || 0) + 1; // Nueva columna al final
+    hoja.getRange(1, columnaParaHoy).setValue(textoEncabezado).setFontWeight("bold"); // Poner en negrita al crear
+    Logger.log(`Columna "${textoEncabezado}" creada en la posición ${columnaParaHoy}.`);
+  } else {
+    Logger.log(`Columna "${textoEncabezado}" encontrada en la posición ${columnaParaHoy}.`);
+  }
+
+  // --- Lógica para mapear matrículas a filas ---
+  const primeraFilaDatos = 2; // Los datos de alumnos empiezan en la fila 2
+  const numFilasDatos = hoja.getLastRow() - primeraFilaDatos + 1;
+  let matriculaMap = new Map();
+
+  if (numFilasDatos > 0) {
+    // Leer todas las matrículas de la columna A (desde la fila 2)
+    const rangoMatriculas = hoja.getRange(primeraFilaDatos, 1, numFilasDatos, 1).getValues();
+    rangoMatriculas.forEach((fila, index) => {
+      const matriculaEnSheet = String(fila[0]).trim().toUpperCase(); // Normalizar: Trim + Mayúsculas
+      if (matriculaEnSheet) { // Evitar mapear celdas vacías
+        matriculaMap.set(matriculaEnSheet, index + primeraFilaDatos); // Mapear matrícula -> número de fila (base 1)
+      }
+    });
+    Logger.log(`Mapeadas ${matriculaMap.size} matrículas desde la hoja.`);
+  } else {
+    Logger.log("Advertencia: No se encontraron datos de alumnos en la hoja (después de la fila 1).");
+  }
+
+
+  // --- Escribir las asistencias ---
+  let registrosEscritos = 0;
   asistencias.forEach(asistencia => {
-    const fila = matriculaMap.get(String(asistencia.matricula).trim());
-    if (fila) { hoja.getRange(fila, columnaParaHoy).setValue(asistencia.presente ? 1 : 0).setHorizontalAlignment("center"); }
+    // Normalizar matrícula recibida
+    const matriculaRecibida = String(asistencia.matricula).trim().toUpperCase();
+    const fila = matriculaMap.get(matriculaRecibida); // Buscar fila en el mapa
+
+    if (fila) {
+      // Si se encontró la fila, escribir 1 (presente) o 0 (ausente)
+      const valor = asistencia.presente ? 1 : 0;
+      try {
+        hoja.getRange(fila, columnaParaHoy).setValue(valor).setHorizontalAlignment("center");
+        registrosEscritos++;
+        // Logger.log(`Asistencia (${valor}) escrita para ${matriculaRecibida} en fila ${fila}, col ${columnaParaHoy}.`); // Log detallado (opcional)
+      } catch (writeError) {
+         Logger.log(`Error al escribir en celda (${fila}, ${columnaParaHoy}) para ${matriculaRecibida}: ${writeError.message}`);
+      }
+    } else {
+      // Si la matrícula no se encontró en la hoja
+      Logger.log(`Advertencia: Matrícula "${matriculaRecibida}" recibida pero no encontrada en la columna A de la hoja "${nombreHojaUnidad}".`);
+    }
   });
-  return `Se registraron ${asistencias.length} asistencias en la columna '${textoEncabezado}'.`;
+
+  Logger.log(`Proceso completado. Se intentó escribir ${asistencias.length} registros, se escribieron ${registrosEscritos}.`);
+  return `Se ${registrosEscritos === 1 ? 'escribió' : 'escribieron'} ${registrosEscritos} de ${asistencias.length} asistencias en la columna '${textoEncabezado}'.`;
 }
 
 function handleCerrarUnidad(payload) {
@@ -648,44 +724,144 @@ function getOrCreateSheet(folder, sheetName) {
   }
 }
 
+/**
+ * Crea la hoja de cálculo "Reporte de Asistencia" y la llena. Optimizado.
+ * @param {Folder} carpetaPadre Carpeta "Reportes".
+ * @param {Array<object>} alumnos Array de alumnos.
+ * @param {number} numeroDeUnidades Número de unidades.
+ * @return {Spreadsheet | null} La hoja de cálculo o null si falla.
+ */
 function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
   const archivosExistentes = carpetaPadre.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
   if (archivosExistentes.hasNext()) {
+    Logger.log(`"${NOMBRE_SHEET_ASISTENCIA}" ya existe.`);
+    // Podríamos añadir lógica para verificar/añadir hojas de unidad o alumnos faltantes
     return SpreadsheetApp.open(archivosExistentes.next());
   }
+  Logger.log(`Creando y poblando "${NOMBRE_SHEET_ASISTENCIA}"...`);
   const spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_ASISTENCIA);
   const headers = ["Matrícula", "Nombre Completo"];
-  const filasAlumnos = Array.isArray(alumnos) ? alumnos.map(a => [a.matricula, `${a.nombre} ${a.apellido}`.trim()]) : [];
+
+  // Preparar datos de alumnos
+  const filasAlumnos = Array.isArray(alumnos) ? alumnos.map((a, index) => {
+    // Logger.log(`Asistencia - Alumno ${index}: ${JSON.stringify(a)}`); // Log detallado (descomentar si es necesario)
+    return [ a.matricula || '', `${a.nombre || ''} ${a.apellido || ''}`.trim() ];
+  }) : [];
+  Logger.log(`Asistencia - 'filasAlumnos' generadas: ${filasAlumnos.length} filas.`);
+
+  // Crear hojas por unidad
+  const numUnidadesReales = Math.max(1, numeroDeUnidades || 1); // Asegurar al menos 1 hoja
   for (let i = 1; i <= numeroDeUnidades; i++) {
-    let hojaUnidad = (i === 1) ? spreadsheet.getSheets()[0].setName(`Unidad ${i}`) : spreadsheet.insertSheet(`Unidad ${i}`);
-    hojaUnidad.appendRow(headers);
+    const nombreHoja = `Unidad ${i}`;
+    let hojaUnidad = (i === 1 && spreadsheet.getSheets().length > 0) ? spreadsheet.getSheets()[0].setName(nombreHoja) : spreadsheet.insertSheet(nombreHoja);
+
+    // Preparar datos para esta hoja (headers + alumnos)
+    const datosHoja = [headers];
     if (filasAlumnos.length > 0) {
-      hojaUnidad.getRange(2, 1, filasAlumnos.length, headers.length).setValues(filasAlumnos);
+      datosHoja.push(...filasAlumnos);
     }
-    hojaUnidad.setFrozenRows(1);
-    hojaUnidad.setFrozenColumns(2);
+
+    // Escribir todo de una vez
+    if (datosHoja.length > 0) {
+       try {
+            hojaUnidad.getRange(1, 1, datosHoja.length, headers.length).setValues(datosHoja);
+            // Aplicar formato
+            hojaUnidad.getRange(1, 1, 1, headers.length).setFontWeight("bold");
+            hojaUnidad.setFrozenRows(1);
+            hojaUnidad.setFrozenColumns(2);
+            hojaUnidad.setColumnWidth(2, 250);
+            Logger.log(`Hoja "${nombreHoja}" creada y poblada con ${filasAlumnos.length} alumnos.`);
+       } catch (e) {
+            Logger.log(`ERROR al escribir en ${nombreHoja}: ${e.message}`);
+       }
+    } else {
+        Logger.log(`No hay datos (ni headers?) para escribir en ${nombreHoja}.`);
+    }
   }
+
+  // Eliminar hoja inicial "Sheet1" si existe y creamos hojas de unidad
+  const sheet1 = spreadsheet.getSheetByName("Sheet1");
+  if (numUnidadesReales > 0 && sheet1 && spreadsheet.getSheets().length > numUnidadesReales) {
+    spreadsheet.deleteSheet(sheet1);
+  }
+
+  // Mover archivo
   const file = DriveApp.getFileById(spreadsheet.getId());
-  carpetaPadre.addFile(file);
-  DriveApp.getRootFolder().removeFile(file);
-  return spreadsheet;
+   try {
+    if (file.getParents().next().getId() !== carpetaPadre.getId()) {
+      DriveApp.getRootFolder().removeFile(file);
+      carpetaPadre.addFile(file);
+    }
+    Logger.log(`Archivo "${NOMBRE_SHEET_ASISTENCIA}" creado y movido.`);
+    return spreadsheet; // Devolver el objeto Spreadsheet
+  } catch(moveError) {
+      Logger.log(`Error al mover ${NOMBRE_SHEET_ASISTENCIA}: ${moveError.message}`);
+      return null; // Indicar fallo
+  }
 }
 
+/**
+ * Crea la hoja de cálculo "Lista de Alumnos" y la llena. Optimizado.
+ * @param {Folder} carpetaPadre Carpeta "Reportes".
+ * @param {Array<object>} alumnos Array de alumnos.
+ */
 function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
-  if (carpetaPadre.getFilesByName(NOMBRE_SHEET_LISTA_ALUMNOS).hasNext()) { return; }
-  const spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_LISTA_ALUMNOS);
-  const sheet = spreadsheet.getSheets()[0];
-  sheet.setName("Alumnos");
-  const headers = ["Matrícula", "Nombre", "Apellido"];
-  const filas = Array.isArray(alumnos) ? alumnos.map(a => [a.matricula, a.nombre, a.apellido]) : [];
-  sheet.appendRow(headers);
-  if (filas.length > 0) {
-    sheet.getRange(2, 1, filas.length, headers.length).setValues(filas);
+  const files = carpetaPadre.getFilesByName(NOMBRE_SHEET_LISTA_ALUMNOS);
+  if (files.hasNext()) {
+    Logger.log(`"${NOMBRE_SHEET_LISTA_ALUMNOS}" ya existe.`);
+    // Opcional: Podríamos actualizar aquí si fuera necesario
+    return; // Salir si ya existe
   }
-  sheet.setFrozenRows(1);
+  Logger.log(`Creando y poblando "${NOMBRE_SHEET_LISTA_ALUMNOS}"...`);
+  const spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_LISTA_ALUMNOS);
+  const sheet = spreadsheet.getSheets()[0].setName("Alumnos");
+  const headers = ["Matrícula", "Nombre", "Apellido"];
+
+  // Preparar datos (incluyendo headers)
+  const filasParaEscribir = [headers];
+  if (Array.isArray(alumnos)) {
+      alumnos.forEach((a, index) => {
+        // Logger.log(`Lista - Alumno ${index}: ${JSON.stringify(a)}`); // Log detallado (descomentar si es necesario)
+        filasParaEscribir.push([ a.matricula || '', a.nombre || '', a.apellido || '' ]);
+      });
+  } else {
+       Logger.log("Lista - 'alumnos' no es un array o está vacío.");
+  }
+
+  // Escribir TODO de una vez (headers + datos)
+  if (filasParaEscribir.length > 1) { // Si hay al menos un alumno
+    try {
+      // Ajustar rango dinámicamente
+      sheet.getRange(1, 1, filasParaEscribir.length, headers.length).setValues(filasParaEscribir);
+      // Aplicar formato DESPUÉS de escribir
+      sheet.getRange("A1:C1").setFontWeight("bold");
+      sheet.setFrozenRows(1);
+      sheet.setColumnWidth(1, 120); // Ancho matrícula
+      sheet.setColumnWidth(2, 200); // Ancho nombre
+      sheet.setColumnWidth(3, 200); // Ancho apellido
+      Logger.log(`Se escribieron ${filasParaEscribir.length - 1} alumnos en "${NOMBRE_SHEET_LISTA_ALUMNOS}".`);
+    } catch (e) {
+      Logger.log(`ERROR al escribir en ${NOMBRE_SHEET_LISTA_ALUMNOS}: ${e.message}`);
+    }
+  } else {
+    // Si solo están los headers (no alumnos), escribir solo headers
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.getRange("A1:C1").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    Logger.log(`No hay alumnos para escribir en "${NOMBRE_SHEET_LISTA_ALUMNOS}", solo encabezados.`);
+  }
+
+  // Mover archivo
   const file = DriveApp.getFileById(spreadsheet.getId());
-  carpetaPadre.addFile(file);
-  DriveApp.getRootFolder().removeFile(file);
+  // Usar try-catch para mover, por si falla
+  try {
+    if (file.getParents().next().getId() !== carpetaPadre.getId()) {
+      DriveApp.getRootFolder().removeFile(file); // Quitar de raíz si está ahí
+      carpetaPadre.addFile(file); // Añadir a la carpeta destino
+    }
+  } catch(moveError) {
+      Logger.log(`Error al mover ${NOMBRE_SHEET_LISTA_ALUMNOS}: ${moveError.message}`);
+  }
 }
 
 function extractDriveIdFromUrl(driveUrl) {

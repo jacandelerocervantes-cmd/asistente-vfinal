@@ -20,47 +20,67 @@ function App() {
   const [isSyncing, setIsSyncing] = useState(false); // Estado para controlar sync
 
   useEffect(() => {
-    // ... (lógica existente de getSession y onAuthStateChange sin cambios) ...
-    supabase.auth.getSession().then(({ data: { session } }) => {
-        setSession(session);
+    // Obtener sesión inicial
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      setSession(initialSession);
         setLoading(false);
+      // --- Llamada inicial si aplica ---
+      if (initialSession && !initialSession.user.user_metadata?.drive_synced && !isSyncing) {
+        console.log("App Mount: Initial session needs sync. Invoking...");
+        triggerSync();
+      } else if (initialSession) {
+          console.log("App Mount: Initial session already synced or sync in progress.");
+      }
+      // --- Fin llamada inicial ---
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        console.log("Auth state changed. Event:", _event);
-        if (_event === 'SIGNED_IN' && session) {
-            console.log("User has signed in. Checking if Drive sync is needed.");
-            if (!session.user.user_metadata?.drive_synced && !isSyncing) {
-                setIsSyncing(true);
-                console.log("Drive sync metadata not found. Invoking sync function...");
-                supabase.functions.invoke('sync-drive-on-first-login')
-                    .then(response => {
-                        console.log('Sync function response:', response);
-                        if (response.error) throw response.error;
-                    })
-                    .catch(error => {
-                        console.error("Error invoking sync-drive-on-first-login:", error);
-                        alert("Hubo un error al intentar sincronizar con Google Drive. Por favor, asegúrate de haber dado permisos en Google: " + error.message);
-                    })
-                    .finally(async () => {
-                        try {
-                            await supabase.auth.refreshSession();
-                            console.log('Session refreshed to update metadata.');
-                        } catch (e) {
-                            console.error('Error refreshing session in finally:', e);
-                        }
-                        setIsSyncing(false);
-                    });
-            } else {
-                console.log("Drive is already synced for this user or sync is in progress.");
-            }
-        }
-        setSession(session);
+    // Escuchar cambios
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      console.log(`Auth state changed. Event: ${_event}, Session User: ${currentSession?.user?.id}, Synced: ${currentSession?.user?.user_metadata?.drive_synced}`);
+
+      // Actualizar el estado de la sesión local
+      setSession(currentSession);
+
+      // --- Lógica de Sincronización Simplificada ---
+      // Solo llamar si:
+      // 1. Hay una sesión (SIGNED_IN o INITIAL_SESSION con datos)
+      // 2. Los metadatos NO indican que ya está sincronizado
+      // 3. NO estamos ya sincronizando (estado isSyncing)
+      if (currentSession && currentSession.user.user_metadata?.drive_synced !== true && !isSyncing) {
+        console.log(`onAuthStateChange (${_event}): Needs sync and not currently syncing. Invoking...`);
+        triggerSync();
+      } else if (currentSession && isSyncing) {
+          console.log(`onAuthStateChange (${_event}): Sync already in progress.`);
+      } else if (currentSession) {
+          console.log(`onAuthStateChange (${_event}): Already synced.`);
+      }
+      // --- Fin Lógica Sincronización ---
     });
 
     return () => subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // El array vacío es correcto aquí para que solo se ejecute al montar
+  }, [isSyncing]); // Añadir isSyncing como dependencia ayuda a re-evaluar si cambia
+
+  // Función separada para llamar a la Edge Function
+  const triggerSync = async () => {
+    setIsSyncing(true); // Marcar inicio
+    console.log("triggerSync: Calling sync-drive-on-first-login...");
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-drive-on-first-login');
+      console.log('triggerSync: Sync function response:', { data, error });
+      if (error) throw error;
+       console.log("triggerSync: Sync successful or already done. Refreshing session...");
+       await supabase.auth.refreshSession(); // Refresh para obtener metadata actualizada
+       console.log("triggerSync: Session refreshed after sync call.");
+
+    } catch (error) {
+      console.error("triggerSync: Error invoking sync function:", error);
+      alert("Hubo un error al intentar la sincronización inicial con Google Drive: " + error.message);
+    } finally {
+       console.log("triggerSync: Setting isSyncing to false.");
+       setIsSyncing(false); // Marcar fin (incluso si falló, para posible reintento)
+    }
+  };
 
   if (loading) {
     return <div>Cargando...</div>;
