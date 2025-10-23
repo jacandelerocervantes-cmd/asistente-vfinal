@@ -87,3 +87,77 @@
   align-items: center;
   gap: var(--spacing-sm);
 }
+/* Dentro de EvaluacionCard.css o MateriaCard.css */
+
+/* Estilos para pills de estado (similar a CalificacionPanel.css) */
+.status-pill {
+    display: inline-block; /* Para que el padding funcione bien */
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    text-transform: capitalize;
+    vertical-align: middle; /* Alinear con el texto */
+}
+.status-pill.borrador { background-color: #e2e8f0; color: #4a5568; }
+.status-pill.publicado { background-color: #c6f6d5; color: #22543d; }
+.status-pill.cerrado { background-color: #fed7d7; color: #742a2a; }
+/* Puedes añadir más estados si los usas */
+
+
+/* Nuevo pie de página con acciones */
+.card-footer-actions {
+  display: flex;
+  justify-content: space-around; /* O space-between si prefieres */
+  align-items: center;
+  padding: var(--spacing-sm) 0; /* Menos padding vertical */
+  border-top: 1px solid var(--color-background-light);
+}
+
+.btn-footer {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  border-radius: var(--border-radius);
+  text-decoration: none; /* Para el Link */
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.btn-footer:hover {
+  background-color: #e6f0ff; /* Un azul muy pálido */
+  color: #003366; /* Azul más oscuro */
+}
+.btn-footer:disabled {
+    color: #a0aec0; /* Gris */
+    cursor: not-allowed;
+    background-color: transparent;
+}
+.btn-footer svg { /* Estilo para los iconos en los botones */
+    font-size: 1.1em;
+}
+
+
+/* Animación para el spinner */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Ajuste opcional para el botón de sincronizar deshabilitado */
+.icon-btn:disabled {
+    color: #ccc;
+    cursor: not-allowed;
+}
+.icon-btn:disabled:hover {
+    background-color: transparent; /* Evitar hover en deshabilitado */
+}

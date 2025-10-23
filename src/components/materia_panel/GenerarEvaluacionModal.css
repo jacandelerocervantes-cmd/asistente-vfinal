@@ -1,0 +1,128 @@
+/* src/components/materia_panel/GenerarEvaluacionModal.css */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1050;
+    padding: 20px;
+}
+
+.modal-content {
+    background: white;
+    padding: var(--spacing-xl);
+    border-radius: var(--border-radius);
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    animation: fadeInModal 0.3s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.modal-header h3 {
+    color: var(--color-primary);
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 2.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: #888;
+    padding: 0;
+}
+.close-btn:hover {
+    color: #333;
+}
+
+/* Reutilizar estilos de .materia-form si es posible */
+.modal-body.materia-form {
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+    border: none;
+}
+
+.modal-body .form-group {
+    margin-bottom: var(--spacing-lg);
+}
+
+/* Estilos para grupo de checkboxes */
+.checkbox-group {
+    display: flex;
+    flex-direction: column; /* Apilados verticalmente */
+    gap: var(--spacing-md); /* Espacio entre checkboxes */
+    padding: var(--spacing-sm) 0; /* Un poco de espacio vertical */
+}
+.checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md); /* Espacio entre el check y el texto */
+    cursor: pointer;
+    font-weight: normal; /* Texto normal, no negrita */
+}
+.checkbox-group label:hover {
+    color: var(--color-primary); /* Resaltar al pasar el mouse */
+}
+.checkbox-group input[type="checkbox"] {
+    transform: scale(1.3); /* Checkbox un poco más grande */
+    margin: 0; /* Quitar margen por defecto */
+    cursor: pointer;
+}
+
+.modal-body .form-actions {
+    margin-top: var(--spacing-xl);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}
+
+/* Estilo para mensajes de error dentro del modal */
+.error-message {
+    color: #c53030; /* Rojo */
+    background-color: #fed7d7;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-lg);
+    text-align: center;
+    font-size: 0.9rem;
+    border: 1px solid #f56565;
+}
+/* Añadir a GenerarEvaluacionModal.css o similar */
+.modal-content.large {
+    max-width: 800px; /* O el ancho que prefieras */
+}
+
+/* Ajustar el body del modal para que no tenga padding extra si el panel ya lo tiene */
+.modal-body {
+    padding: 0; /* O ajusta según sea necesario */
+    margin: calc(var(--spacing-lg) * -1); /* Compensar padding del modal-content si es necesario */
+}
+.modal-body .banco-preguntas-panel {
+    padding: var(--spacing-md); /* Añadir padding interno al panel dentro del modal */
+    border: none; /* Quitar bordes si el panel los tiene por defecto */
+    box-shadow: none; /* Quitar sombras si el panel las tiene */
+}

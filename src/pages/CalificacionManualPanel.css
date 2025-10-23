@@ -1,0 +1,64 @@
+/* src/pages/CalificacionManualPanel.css */
+.calificacion-manual-panel {
+    width: 100%;
+    padding: var(--spacing-lg);
+}
+
+.calificacion-manual-panel h2 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.calificacion-manual-panel > p {
+    color: #666;
+    margin-bottom: var(--spacing-xl);
+}
+
+.filtros-calificacion {
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-md);
+    background-color: #f9fafb;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.filtros-calificacion label {
+    font-weight: bold;
+}
+
+.filtros-calificacion select {
+    padding: 8px 12px;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+}
+
+.intentos-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.intento-card {
+    padding: var(--spacing-lg); /* Menos padding que el panel principal */
+}
+
+.intento-card h4 {
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--color-background-light);
+    padding-bottom: var(--spacing-sm);
+}
+.intento-card > p { /* Estado del intento */
+    font-size: 0.9rem;
+    color: #555;
+    margin-bottom: var(--spacing-lg);
+}
+
+.respuestas-abiertas-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}

@@ -7,9 +7,11 @@ import MateriasDashboard from './pages/MateriasDashboard';
 import MateriaPanel from './pages/MateriaPanel';
 import RegistroAsistencia from './pages/RegistroAsistencia';
 import CalificacionPanel from './pages/CalificacionPanel';
+import CalificacionManualPanel from './pages/CalificacionManualPanel'; // <-- Nueva página
 import AlumnoPortal from './pages/AlumnoPortal';      // <-- Rutas de Alumno
 import AlumnoDashboard from './pages/AlumnoDashboard';  // <-- Rutas de Alumno
 import ExamenAlumno from './pages/ExamenAlumno';      // <-- Rutas de Alumno
+import RevisionExamenAlumno from './pages/RevisionExamenAlumno'; // <-- Nueva página
 import { supabase } from './supabaseClient';
 
 function App() {
@@ -76,6 +78,12 @@ function App() {
           <Route path="/alumno/evaluaciones" element={<AlumnoDashboard />} />
           <Route path="/alumno/examen/:evaluacionId" element={<ExamenAlumno />} />
 
+          {/* --- Nueva Ruta para Revisión del Alumno --- */}
+          <Route
+            path="/alumno/revision/:intentoId" // Usaremos el ID del intento
+            element={<RevisionExamenAlumno />}   // <-- Nueva ruta
+          />
+
           {/* --- Rutas Privadas Docente --- */}
           <Route
             path="/"
@@ -85,6 +93,12 @@ function App() {
           <Route path="/dashboard" element={session ? <MateriasDashboard session={session} /> : <Navigate to="/" />} />
           <Route path="/materia/:id" element={session ? <MateriaPanel session={session} /> : <Navigate to="/" />} />
           <Route path="/actividad/:id" element={session ? <CalificacionPanel /> : <Navigate to="/" />} />
+
+          {/* --- Nueva Ruta para Calificación Manual de Evaluaciones --- */}
+          <Route
+            path="/evaluacion/:evaluacionId/calificar"
+            element={session ? <CalificacionManualPanel /> : <Navigate to="/" />} // <-- Nueva ruta
+          />
 
           {/* ¡CORREGIDO! Ruta comodín o 404 */}
           <Route path="*" element={<Navigate to={session ? "/dashboard" : "/"} />} />

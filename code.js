@@ -58,6 +58,9 @@ function doPost(e) {
         return crearRespuestaExitosa(handleGetJustificationText(payload));
       case 'guardar_calificacion_detallada':
         return crearRespuestaExitosa(handleGuardarCalificacionDetallada(payload));
+      // --- NUEVO CASE ---
+      case 'guardar_calificaciones_evaluacion':
+        return crearRespuestaExitosa(handleGuardarCalificacionesEvaluacion(payload));
       case 'create_annotated_file': // Aunque obsoleta, se deja por si acaso
         return crearRespuestaExitosa(handleCreateAnnotatedFile(payload));
       default:
@@ -81,6 +84,71 @@ function crearRespuestaExitosa(data) {
 function crearRespuestaError(message) {
   return ContentService.createTextOutput(JSON.stringify({ status: "error", message: message }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+
+// ==========================================================================================
+// NUEVA FUNCIÓN PARA GUARDAR CALIFICACIONES DE EVALUACIONES
+// ==========================================================================================
+
+/**
+ * Recibe las calificaciones finales de una evaluación y las registra
+ * en una hoja específica dentro del archivo maestro de calificaciones de la materia.
+ * @param {object} payload Datos de la evaluación y calificaciones.
+ * @param {string} payload.calificaciones_spreadsheet_id ID del Spreadsheet maestro de reportes (antes asistencia).
+ * @param {string} payload.nombre_evaluacion Nombre de la evaluación.
+ * @param {number} payload.unidad Unidad a la que pertenece la evaluación.
+ * @param {Array<object>} payload.calificaciones Array de objetos, cada uno con { matricula, nombre, calificacion_final }.
+ * @return {object} Mensaje de éxito.
+ */
+function handleGuardarCalificacionesEvaluacion(payload) {
+  const { calificaciones_spreadsheet_id, nombre_evaluacion, unidad, calificaciones } = payload;
+
+  if (!calificaciones_spreadsheet_id || !nombre_evaluacion || !calificaciones || !Array.isArray(calificaciones)) {
+    throw new Error("Faltan datos para guardar las calificaciones de la evaluación (spreadsheet_id, nombre_evaluacion, calificaciones).");
+  }
+  if (calificaciones.length === 0) {
+    Logger.log("No se recibieron calificaciones para guardar para la evaluación: " + nombre_evaluacion);
+    return { message: "No había calificaciones para registrar." }; // No es un error, pero no hace nada.
+  }
+
+  let spreadsheet;
+  try {
+    spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
+  } catch (e) {
+    throw new Error(`No se pudo abrir el Spreadsheet de Reportes con ID '${calificaciones_spreadsheet_id}'. Verifica que el ID sea correcto.`);
+  }
+
+  // Usar o crear una hoja específica para el reporte de evaluaciones
+  const nombreHojaReporte = "Reporte Evaluaciones";
+  let sheet = spreadsheet.getSheetByName(nombreHojaReporte);
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(nombreHojaReporte);
+    // Configurar encabezados si es la primera vez
+    sheet.appendRow(["Matrícula", "Nombre Alumno", "Evaluación", "Unidad", "Calificación Final"]);
+    sheet.getRange("A1:E1").setFontWeight("bold");
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(2, 250); // Ancho para nombre
+    sheet.setColumnWidth(3, 250); // Ancho para nombre evaluación
+  }
+
+  // Preparamos los datos para añadir (Matrícula, Nombre, Evaluación, Unidad, Calificación)
+  const filasParaAnadir = calificaciones.map(cal => [
+    cal.matricula || '',
+    cal.nombre || '',
+    nombre_evaluacion,
+    unidad || '', // Añadir unidad si existe
+    cal.calificacion_final !== null && cal.calificacion_final !== undefined ? cal.calificacion_final : '' // Manejar nulos/undefined
+  ]);
+
+  // Escribir los datos al final de la hoja
+  if (filasParaAnadir.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, filasParaAnadir.length, filasParaAnadir[0].length)
+         .setValues(filasParaAnadir);
+    Logger.log(`Se añadieron ${filasParaAnadir.length} calificaciones para la evaluación "${nombre_evaluacion}" en la hoja "${nombreHojaReporte}".`);
+  }
+
+  return { message: `Se registraron ${filasParaAnadir.length} calificaciones en Google Sheets.` };
 }
 
 

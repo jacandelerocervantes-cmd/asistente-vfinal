@@ -1,0 +1,96 @@
+/* src/components/materia_panel/RespuestaAbiertaCard.css */
+
+.respuesta-abierta-card {
+    border: 1px solid #e2e8f0;
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    background-color: #f8fafc; /* Fondo ligeramente distinto */
+}
+
+.respuesta-abierta-card > p:first-of-type { /* El enunciado de la pregunta */
+    margin-bottom: var(--spacing-md);
+    font-weight: bold;
+    color: var(--color-text-dark);
+    line-height: 1.5;
+}
+
+.respuesta-alumno {
+    margin-bottom: var(--spacing-lg);
+    background-color: #fff; /* Fondo blanco para la respuesta */
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid #e2e8f0;
+    border-radius: var(--border-radius);
+}
+
+.respuesta-alumno strong {
+    display: block;
+    margin-bottom: var(--spacing-sm);
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.respuesta-alumno p {
+    white-space: pre-wrap; /* Conservar saltos de línea */
+    line-height: 1.6;
+}
+
+.calificacion-controles {
+    display: flex;
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+    flex-wrap: wrap; /* Para pantallas pequeñas */
+}
+
+.calificacion-controles .form-group {
+    flex: 1; /* Ocupar espacio disponible */
+    min-width: 150px; /* Ancho mínimo */
+}
+
+.calificacion-controles .form-group label {
+    font-size: 0.9rem;
+    margin-bottom: 4px; /* Menos espacio en label */
+}
+
+.calificacion-controles input[type="number"] {
+    width: 100px; /* Ancho más ajustado */
+    padding: 8px;
+}
+
+.calificacion-controles textarea {
+    padding: 8px;
+    min-height: 60px; /* Más bajo que el formulario principal */
+    font-size: 0.95rem;
+}
+
+.sugerencia-ia {
+    background-color: #ebf8ff; /* Azul muy claro */
+    border: 1px solid #90cdf4;
+    color: #2c5282;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-md);
+    font-size: 0.9rem;
+}
+
+.card-actions {
+    display: flex;
+    justify-content: flex-end; /* Botones a la derecha */
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-sm);
+}
+
+.card-actions button {
+    padding: 8px 16px; /* Botones un poco más pequeños */
+    font-size: 0.9rem;
+}
+
+/* Reutilizar error-message del modal o definir uno específico */
+.respuesta-abierta-card .error-message {
+    color: #c53030;
+    background-color: #fed7d7;
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius);
+    margin-top: var(--spacing-sm);
+    text-align: center;
+    font-size: 0.85rem;
+}

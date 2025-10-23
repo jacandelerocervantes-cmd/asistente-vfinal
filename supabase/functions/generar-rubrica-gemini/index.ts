@@ -1,6 +1,6 @@
 // supabase/functions/generar-rubrica-gemini/index.ts
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { serve } from "std/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,7 +18,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { descripcion_actividad, objetivos_aprendizaje }: RubricRequest = await req.json();
+    const { descripcion_actividad, objetivos_aprendizaje: _objetivos_aprendizaje }: RubricRequest = await req.json();
     if (!descripcion_actividad) {
       throw new Error("La 'descripcion_actividad' es requerida.");
     }

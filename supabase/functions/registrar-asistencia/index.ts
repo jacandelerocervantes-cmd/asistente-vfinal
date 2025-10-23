@@ -1,72 +1,130 @@
-// supabase/functions/sync-drive-on-first-login/index.ts
+// supabase/functions/registrar-asistencia/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Origin': '*', // O tu URL específica en producción
+  'Access-Control-Allow-Headers': 'apikey, content-type', // Solo lo necesario para una función pública
 };
 
+interface AsistenciaRequest {
+    matricula: string;
+    materia_id: number;
+    unidad: number;
+    sesion: number;
+    token: string;
+}
+
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
+  // Manejo de CORS pre-flight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
   try {
-    const supabaseClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_ANON_KEY")!,
-        { global: { headers: { Authorization: req.headers.get("Authorization")! } } }
+    const { matricula, materia_id, unidad, sesion, token }: AsistenciaRequest = await req.json();
+
+    // Validar inputs básicos
+    if (!matricula || !materia_id || !unidad || !sesion || !token) {
+        throw new Error("Faltan datos requeridos (matrícula, materia, unidad, sesión, token).");
+    }
+
+    // Usar cliente Admin para validar token y buscar alumno (bypass RLS)
+    const supabaseAdmin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado.");
 
-    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+    // 1. Validar el token y la sesión activa
+    const now = new Date().toISOString();
+    const { data: sesionActiva, error: sesionError } = await supabaseAdmin
+      .from('sesiones_activas')
+      .select('id')
+      .eq('materia_id', materia_id)
+      .eq('unidad', unidad)
+      .eq('sesion', sesion)
+      .eq('token', token)
+      .gte('expires_at', now) // Asegurarse que no haya expirado
+      .maybeSingle(); // Puede que no exista o haya expirado
 
-    const { data: materias, error: materiasError } = await supabaseAdmin
-        .from('materias')
-        .select(`*`)
-        .eq('user_id', user.id);
-    if (materiasError) throw materiasError;
-
-    if (!materias || materias.length === 0) {
-      return new Response(JSON.stringify({ success: true, message: "No hay materias para sincronizar." }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
-    }
-    
-    const googleScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
-    if (!googleScriptUrl) throw new Error("El secreto GOOGLE_SCRIPT_CREATE_MATERIA_URL no está definido.");
-
-    const payload = { action: 'create_materias_batch', docente: { id: user.id, nombre: user.user_metadata?.full_name || user.email, email: user.email }, materias };
-    
-    const response = await fetch(googleScriptUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    const responseText = await response.text();
-    if (!response.ok) throw new Error(`Apps Script devolvió un error de red: ${responseText}`);
-
-    const scriptResponse = JSON.parse(responseText);
-    if (scriptResponse.status === 'error') throw new Error(`Error reportado por Google Script: ${scriptResponse.message}`);
-
-    const { drive_urls, rubricas_spreadsheet_ids, plagio_spreadsheet_ids, calificaciones_spreadsheet_ids } = scriptResponse;
-    
-    // --- ¡ESTA ES LA LÓGICA CORREGIDA Y COMPLETA! ---
-    if (drive_urls && rubricas_spreadsheet_ids && plagio_spreadsheet_ids && calificaciones_spreadsheet_ids) {
-        for (const materiaId in drive_urls) {
-            const { error: updateError } = await supabaseAdmin.from('materias').update({ 
-                drive_url: drive_urls[materiaId],
-                rubricas_spreadsheet_id: rubricas_spreadsheet_ids[materiaId],
-                plagio_spreadsheet_id: plagio_spreadsheet_ids[materiaId],
-                calificaciones_spreadsheet_id: calificaciones_spreadsheet_ids[materiaId]
-            }).eq('id', materiaId);
-
-            if (updateError) {
-                throw new Error(`Error al guardar en Supabase para la materia ${materiaId}: ${updateError.message}`);
-            }
+    if (sesionError) throw new Error(`Error al validar sesión: ${sesionError.message}`);
+    if (!sesionActiva) {
+        // Intentar buscar si existe pero ya expiró para dar mensaje más claro
+        const { data: sesionExpirada } = await supabaseAdmin
+            .from('sesiones_activas')
+            .select('id')
+            .eq('materia_id', materia_id)
+            .eq('unidad', unidad)
+            .eq('sesion', sesion)
+            .eq('token', token)
+            .single();
+        if (sesionExpirada) {
+             throw new Error("El código QR ha expirado. Pide al docente que genere uno nuevo.");
+        } else {
+             throw new Error("Código QR inválido o la sesión no coincide.");
         }
-    } else {
-        throw new Error("La respuesta de Apps Script fue exitosa pero no contenía todos los IDs necesarios.");
     }
 
-    await supabaseAdmin.auth.admin.updateUserById(user.id, { user_metadata: { ...user.user_metadata, drive_synced: true } });
+    // 2. Buscar al alumno por matrícula y materia
+    const { data: alumno, error: alumnoError } = await supabaseAdmin
+      .from('alumnos')
+      .select('id') // Solo necesitamos el ID del alumno
+      .eq('matricula', matricula.toUpperCase()) // Asegurar mayúsculas
+      .eq('materia_id', materia_id)
+      .single(); // Esperamos encontrar un solo alumno
 
-    return new Response(JSON.stringify({ success: true, message: `Sincronización completada.` }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 });
-  
+    if (alumnoError) throw new Error(`Error al buscar alumno: ${alumnoError.message}`);
+    if (!alumno) throw new Error(`Matrícula "${matricula}" no encontrada para esta materia.`);
+
+    const alumno_id = alumno.id;
+    const fechaHoy = new Date().toISOString().slice(0, 10);
+
+    // 3. Registrar la asistencia (Upsert: inserta o actualiza si ya existía)
+    const { error: upsertError } = await supabaseAdmin
+      .from('asistencias')
+      .upsert({
+          fecha: fechaHoy,
+          unidad: unidad,
+          sesion: sesion,
+          alumno_id: alumno_id,
+          materia_id: materia_id,
+          presente: true, // Marcar como presente
+          // user_id: null // No aplica user_id aquí, es registro del alumno
+      }, {
+          onConflict: 'fecha,unidad,sesion,alumno_id' // Clave única para evitar duplicados
+      });
+
+    if (upsertError) throw new Error(`Error al guardar asistencia: ${upsertError.message}`);
+
+    // 4. (Opcional) Invalidar/Borrar token usado para evitar reutilización
+    // await supabaseAdmin.from('sesiones_activas').delete().eq('id', sesionActiva.id);
+    // O podrías marcarlo como usado en lugar de borrarlo.
+
+    // 5. (Opcional) Enviar evento broadcast para UI en tiempo real del docente
+    // Nota: Necesita configuración de Realtime en la tabla 'asistencias' y canal adecuado
+    /*
+    const channel = supabaseAdmin.channel(`asistencias-materia-${materia_id}`);
+    await channel.send({
+        type: 'broadcast',
+        event: 'asistencia-registrada',
+        payload: { alumno_id, unidad, sesion, presente: true, fecha: fechaHoy },
+    });
+    supabaseAdmin.removeChannel(channel);
+    */
+
+    // 6. Respuesta exitosa
+    return new Response(JSON.stringify({ message: `¡Asistencia registrada con éxito para ${matricula}!` }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200,
+    });
+
   } catch (error) {
-    return new Response(JSON.stringify({ message: error.message }), { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 });
+    // Manejo de errores
+    console.error("Error en registrar-asistencia:", error);
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido.";
+    return new Response(JSON.stringify({ message: errorMessage }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400, // Usar 400 para errores de cliente (ej. token inválido, matrícula no encontrada)
+    });
   }
 });

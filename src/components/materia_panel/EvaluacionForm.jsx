@@ -1,7 +1,9 @@
 // src/components/materia_panel/EvaluacionForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import PreguntaForm from './PreguntaForm'; // Componente para gestionar preguntas individuales
+import PreguntaForm from './PreguntaForm';
+import BancoPreguntasPanel from '../banco_preguntas/BancoPreguntasPanel'; // <-- 1. Importar el panel del banco
+import GenerarEvaluacionModal from './GenerarEvaluacionModal';
 import './EvaluacionForm.css';
 
 // Estilos pueden ser similares a ActividadForm/MateriaForm
@@ -17,6 +19,8 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
     const [preguntas, setPreguntas] = useState([]); // Almacenará las preguntas de esta evaluación
     const [loading, setLoading] = useState(false);
     const [loadingPreguntas, setLoadingPreguntas] = useState(false);
+    const [showGenerarModal, setShowGenerarModal] = useState(false);
+    const [showBancoModal, setShowBancoModal] = useState(false); // <-- 2. Estado para el modal del banco
     const isEditing = Boolean(evaluacionToEdit);
 
     // Cargar datos de la evaluación si estamos editando
@@ -71,14 +75,20 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
 
     // --- Manejadores para Preguntas ---
     const handleAddPregunta = () => {
+        // Calcular puntos sugeridos para mantener total cerca de 100
+        const preguntasVisibles = preguntas.filter(p => !p.toBeDeleted);
+        const puntosSugeridos = preguntasVisibles.length > 0
+           ? Math.max(1, Math.round(100 / (preguntasVisibles.length + 1)))
+           : 100;
+
         setPreguntas([...preguntas, {
             // Valores iniciales para una nueva pregunta
             id: `temp-${Date.now()}`, // ID temporal para el key en React
             texto_pregunta: '',
-            tipo_pregunta: 'opcion_multiple_unica',
-            puntos: 10,
+            tipo_pregunta: 'opcion_multiple_unica', // Sugerir puntos
+            puntos: puntosSugeridos,
             opciones: [{ id: `temp-opt-${Date.now()}`, texto_opcion: '', es_correcta: true }], // Empezar con una opción correcta
-            orden: preguntas.length,
+            orden: preguntas.filter(p => !p.toBeDeleted).length, // Orden basado en visibles
             isNew: true // Flag para indicar que es nueva
         }]);
     };
@@ -93,17 +103,45 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
          if (typeof preguntaId === 'string' && preguntaId.startsWith('temp-')) {
             setPreguntas(preguntas.filter(p => p.id !== preguntaId));
          } else {
-             // Marcar para borrado (o borrar directamente si prefieres, pero puede ser complejo manejar errores)
-             // Por simplicidad ahora, la quitaremos visualmente, pero deberías manejar el borrado real en handleSubmit
-             if(window.confirm("¿Eliminar esta pregunta? (Se borrará al guardar la evaluación)")) {
-                // Opción 1: Marcar para borrado (más seguro)
-                // setPreguntas(preguntas.map(p => p.id === preguntaId ? { ...p, toBeDeleted: true } : p));
-                // Opción 2: Eliminar del estado (más simple visualmente)
-                setPreguntas(preguntas.filter(p => p.id !== preguntaId));
-                // **Importante:** Necesitarás lógica en handleSubmit para borrarla de la BD si eliges Opción 2.
+             if(window.confirm("¿Eliminar esta pregunta de la base de datos al guardar?")) {
+                 // Marcar para borrado en el backend
+                 setPreguntas(preguntas.map(p => p.id === preguntaId ? { ...p, toBeDeleted: true } : p));
              }
          }
     };
+
+    // --- NUEVA FUNCIÓN PARA RECIBIR PREGUNTAS DE IA ---
+    const handlePreguntasGeneradas = (preguntasGeneradas) => {
+        // Opción 2: Preguntar al usuario
+        if (preguntas.filter(p => !p.toBeDeleted).length > 0 && !window.confirm("Ya tienes preguntas definidas. ¿Deseas reemplazar las preguntas actuales con las generadas por la IA?")) {
+             // Añadir al final si el usuario cancela el reemplazo
+            const nuevasPreguntasOrdenadas = preguntasGeneradas.map((p, index) => ({
+                ...p,
+                orden: preguntas.filter(p => !p.toBeDeleted).length + index // Reajustar orden
+            }));
+             setPreguntas(prev => [...prev.filter(p => !p.toBeDeleted), ...nuevasPreguntasOrdenadas]); // Añadir al final de las existentes no marcadas para borrar
+        } else {
+             // Reemplazar (o si no había preguntas antes)
+             setPreguntas(preguntasGeneradas);
+        }
+    };
+    // --- FIN NUEVA FUNCIÓN ---
+
+    // --- 4. NUEVA FUNCIÓN: Manejar la selección de una pregunta del banco ---
+    const handleSeleccionarPreguntaBanco = (preguntaSeleccionada) => {
+        // Asignar orden correcto basado en las preguntas visibles actuales
+        const ordenNuevo = preguntas.filter(p => !p.toBeDeleted).length;
+        const preguntaConOrden = { ...preguntaSeleccionada, orden: ordenNuevo };
+
+        // Añadir la pregunta seleccionada al estado 'preguntas'
+        setPreguntas(prev => [...prev, preguntaConOrden]);
+
+        // Cerrar el modal del banco
+        setShowBancoModal(false);
+    };
+    // --- FIN NUEVA FUNCIÓN ---
+
+
 
 
     // --- Guardar Evaluación y sus Preguntas ---
@@ -147,60 +185,68 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                 savedEvaluacion = data;
             }
 
-            // 2. Guardar/Actualizar/Borrar Preguntas y Opciones
-            for (const pregunta of preguntas) {
+            // 2. Gestionar Preguntas (MODIFICADO para reasignar orden)
+            const preguntasParaGuardar = preguntas.filter(p => !p.toBeDeleted); // Solo procesar las visibles
+            // Obtener IDs originales si estamos editando (para saber qué borrar)
+            const preguntasOriginalesIds = isEditing ? (await supabase.from('preguntas').select('id').eq('evaluacion_id', evaluacionToEdit.id)).data?.map(p => p.id) || [] : [];
+            const idsPreguntasActuales = new Set(preguntasParaGuardar.filter(p => typeof p.id === 'number').map(p => p.id)); // IDs de BD en el estado actual
+
+            // Borrar preguntas que ya no están (las marcadas para borrar o las que se quitaron de la lista)
+            const idsParaBorrar = preguntasOriginalesIds.filter(id => !idsPreguntasActuales.has(id));
+             if (idsParaBorrar.length > 0) {
+                console.log("Borrando preguntas:", idsParaBorrar);
+                await supabase.from('preguntas').delete().in('id', idsParaBorrar);
+            }
+
+
+             // Upsert (Insertar/Actualizar) preguntas actuales
+            for (const [index, pregunta] of preguntasParaGuardar.entries()) {
                 const preguntaData = {
                     evaluacion_id: savedEvaluacion.id,
                     user_id: user.id,
                     texto_pregunta: pregunta.texto_pregunta,
                     tipo_pregunta: pregunta.tipo_pregunta,
-                    puntos: pregunta.puntos,
-                    orden: pregunta.orden,
-                    datos_extra: pregunta.datos_extra || null, // Asegurar que sea null si no hay datos extra
+                    puntos: pregunta.puntos || 0,
+                    orden: index, // Reasignar orden basado en la posición actual
+                    datos_extra: pregunta.datos_extra || null,
                 };
-
                 let savedPreguntaId;
 
-                if (pregunta.isNew) { // Pregunta nueva
+                if (pregunta.isNew) { // Insertar
                     const { data: newP, error: insertPError } = await supabase
-                        .from('preguntas')
-                        .insert(preguntaData)
-                        .select('id')
-                        .single();
+                    .from('preguntas')
+                    .insert(preguntaData)
+                    .select('id')
+                    .single();
                     if (insertPError) throw insertPError;
                     savedPreguntaId = newP.id;
-                } else if (!pregunta.toBeDeleted) { // Actualizar pregunta existente (si no está marcada para borrar)
+                } else if (typeof pregunta.id === 'number') { // Actualizar
                     const { error: updatePError } = await supabase
                         .from('preguntas')
                         .update(preguntaData)
                         .eq('id', pregunta.id);
                     if (updatePError) throw updatePError;
                     savedPreguntaId = pregunta.id;
-                } else { // Borrar pregunta (si la marcaste con toBeDeleted)
-                    const { error: deletePError } = await supabase
-                        .from('preguntas')
-                        .delete()
-                        .eq('id', pregunta.id);
-                    if (deletePError) console.warn(`No se pudo borrar la pregunta ${pregunta.id}:`, deletePError); // Advertir pero continuar
-                    continue; // Saltar al siguiente ciclo si se borró
                 }
 
 
                 // 3. Gestionar Opciones (solo para tipos que las usan)
-                if (pregunta.tipo_pregunta.startsWith('opcion_multiple') && savedPreguntaId && !pregunta.toBeDeleted) {
-                     // Obtener IDs de opciones existentes en el estado
-                    const opcionesActualesIds = (pregunta.opciones || []).map(opt => opt.id).filter(id => typeof id === 'number');
+                if (pregunta.tipo_pregunta.startsWith('opcion_multiple') && savedPreguntaId) {
+                    // Obtener IDs de opciones existentes en el estado que no son nuevas
+                    const opcionesExistentesIds = (pregunta.opciones || []).map(opt => opt.id).filter(id => typeof id === 'number');
 
                     // Borrar opciones que ya no están en el estado
-                    const { error: deleteOptError } = await supabase
-                        .from('opciones')
-                        .delete()
-                        .eq('pregunta_id', savedPreguntaId)
-                        .not('id', 'in', `(${opcionesActualesIds.join(',') || 0})`); // Borra si no está en la lista actual
-                    if (deleteOptError) console.warn(`Error borrando opciones antiguas para pregunta ${savedPreguntaId}:`, deleteOptError);
+                    if (isEditing) { // Solo tiene sentido borrar si estamos editando
+                        const { error: deleteOptError } = await supabase
+                            .from('opciones')
+                            .delete()
+                            .eq('pregunta_id', savedPreguntaId)
+                            .not('id', 'in', `(${opcionesExistentesIds.join(',') || 0})`);
+                        if (deleteOptError) console.warn(`Error borrando opciones antiguas para pregunta ${savedPreguntaId}:`, deleteOptError);
+                    }
 
                     // Upsert (Insertar o Actualizar) opciones del estado
-                     const opcionesParaUpsert = (pregunta.opciones || []).map((opt, index) => ({
+                    const opcionesParaUpsert = (pregunta.opciones || []).map((opt, index) => ({
                         id: (typeof opt.id === 'number' ? opt.id : undefined), // Solo pasa ID si es numérico (existente)
                         pregunta_id: savedPreguntaId,
                         user_id: user.id,
@@ -213,8 +259,12 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                         const { error: upsertOptError } = await supabase
                             .from('opciones')
                             .upsert(opcionesParaUpsert);
-                         if (upsertOptError) throw upsertOptError;
+                        if (upsertOptError) throw upsertOptError;
                     }
+                } else if (savedPreguntaId) {
+                    // Si el tipo de pregunta cambió y ya no usa opciones, borrarlas
+                    const { error: deleteOptError } = await supabase.from('opciones').delete().eq('pregunta_id', savedPreguntaId);
+                    if (deleteOptError) console.warn(`Error limpiando opciones para pregunta ${savedPreguntaId}:`, deleteOptError);
                 }
             } // Fin del bucle de preguntas
 
@@ -233,6 +283,12 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
     // Renderizado del Formulario
     return (
         <div className="evaluacion-form-container">
+            {/* --- RENDERIZAR MODAL --- */}
+            <GenerarEvaluacionModal
+                show={showGenerarModal}
+                onClose={() => setShowGenerarModal(false)}
+                onGenerar={handlePreguntasGeneradas}
+            />
             <form onSubmit={handleSubmit} className="materia-form">
                 <h3>{isEditing ? 'Editar Evaluación' : 'Nueva Evaluación'}</h3>
 
@@ -280,20 +336,43 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
 
 
                 {/* Sección de Preguntas */}
-                <h4>Preguntas</h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--spacing-xl)', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--spacing-sm)', marginBottom: 'var(--spacing-lg)'}}>
+                    <h4>Preguntas</h4>
+                    <div style={{ display: 'flex', gap: 'var(--spacing-md)'}}> {/* Contenedor para botones */}
+                        {/* Botón Generar IA */}
+                        <button
+                            type="button"
+                            onClick={() => setShowGenerarModal(true)}
+                            className="btn-secondary" // O el estilo que prefieras
+                            disabled={loading || loadingPreguntas}
+                            title="Generar preguntas automáticamente usando Inteligencia Artificial"
+                        >
+                            ✨ Crear con IA
+                        </button>
+                         {/* --- 3. Botón para abrir el modal del Banco --- */}
+                        <button type="button" onClick={() => setShowBancoModal(true)} className="btn-secondary" disabled={loading || loadingPreguntas}>
+                            🏦 Añadir desde Banco
+                        </button>
+                    </div>
+                </div>
                 {loadingPreguntas ? <p>Cargando preguntas...</p> : (
                     <div className="preguntas-list">
-                        {preguntas.map((pregunta, index) => (
-                             !pregunta.toBeDeleted && // No renderizar si está marcada para borrar
+                        {preguntas.filter(p => !p.toBeDeleted).length === 0 && ( // Mensaje si no hay preguntas visibles
+                             <p style={{textAlign: 'center', color: '#666', margin: 'var(--spacing-lg) 0'}}>No hay preguntas. Añade manualmente, genera con IA o importa desde el banco.</p>
+                        )}
+                        {preguntas
+                            .filter(p => !p.toBeDeleted) // Filtrar las marcadas para borrar
+                            .sort((a, b) => a.orden - b.orden) // Ordenar por el campo 'orden'
+                            .map((pregunta, indexVisual) => (
                             <PreguntaForm
-                                key={pregunta.id || `new-${index}`} // Usa ID real o temporal
+                                key={pregunta.id} // Usa ID real o temporal
                                 pregunta={pregunta}
-                                index={index}
+                                index={indexVisual} // Índice visual basado en el array ordenado y filtrado
                                 onUpdate={handleUpdatePregunta}
                                 onDelete={handleDeletePregunta}
                             />
                         ))}
-                        <button type="button" onClick={handleAddPregunta} className="btn-secondary">＋ Añadir Pregunta</button>
+                        <button type="button" onClick={handleAddPregunta} className="btn-secondary" style={{ alignSelf: 'center', marginTop: 'var(--spacing-md)'}}>＋ Añadir Pregunta Manualmente</button>
                     </div>
                 )}
 

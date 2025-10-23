@@ -93,3 +93,74 @@
     font-size: 0.9rem; /* Tamaño normalizado */
     padding: 5px 10px;
 }
+/* src/components/materia_panel/PreguntaForm.css */
+
+/* ... (estilos existentes para .pregunta-form-item, .opciones-section, etc.) ... */
+
+/* Estilos para los contenedores de configuración de Sopa y Crucigrama */
+.config-didactica {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px dashed var(--color-border); /* Separador similar a opciones */
+}
+
+.config-didactica h4 {
+  color: var(--color-secondary); /* Verde */
+  margin-bottom: var(--spacing-md);
+}
+
+/* Ajustes específicos para Sopa de Letras */
+.config-didactica textarea { /* Textarea para palabras */
+  width: 100%;
+  min-height: 100px;
+  font-family: monospace; /* Mejor para listas de palabras */
+  text-transform: uppercase; /* Forzar mayúsculas visualmente */
+  padding: var(--spacing-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+.config-didactica input[type="number"] { /* Input para tamaño */
+    padding: var(--spacing-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    width: 80px; /* Ancho fijo */
+}
+
+
+/* Ajustes específicos para Crucigrama */
+.crucigrama-entrada {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--color-background-light);
+  padding-bottom: var(--spacing-md);
+}
+.crucigrama-entrada span { /* Número de entrada */
+    font-weight: bold;
+    min-width: 20px; /* Espacio para números */
+}
+.crucigrama-entrada input {
+    padding: 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+}
+.crucigrama-palabra {
+    flex-basis: 150px; /* Ancho base para palabra */
+    flex-shrink: 0;
+    text-transform: uppercase;
+    font-family: monospace;
+}
+.crucigrama-pista {
+    flex-grow: 1; /* Ocupa el resto del espacio */
+}
+.crucigrama-entrada .btn-danger {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+.config-didactica .btn-secondary { /* Botón Añadir Palabra/Pista */
+    margin-top: var(--spacing-sm);
+    font-size: 0.9rem;
+    padding: 5px 10px;
+}

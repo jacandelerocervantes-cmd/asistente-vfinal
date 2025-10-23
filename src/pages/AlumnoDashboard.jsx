@@ -1,6 +1,6 @@
 // src/pages/AlumnoDashboard.jsx
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import './AlumnoDashboard.css'; // <--- AÑADIR ESTA LÍNEA
 
@@ -48,24 +48,25 @@ const AlumnoDashboard = () => {
          navigate(`/alumno/examen/${evaluacionId}`);
     };
 
+    // --- MODIFICAR handleRevisarIntento ---
      const handleRevisarIntento = (intentoId) => {
-         // Navegar a la pantalla de revisión (Fase 3)
-         // navigate(`/alumno/revision/${intentoId}`);
-         alert("Modo de revisión aún no implementado.");
+         // Navegar a la pantalla de revisión
+         navigate(`/alumno/revision/${intentoId}`);
      };
+     // --- FIN MODIFICACIÓN ---
 
     const formatDate = (dateString) => dateString ? new Date(dateString).toLocaleString('es-MX') : 'N/A';
 
     if (loading) return <div className="container">Cargando tus evaluaciones...</div>;
 
     return (
-        <div className="alumno-dashboard-container container">
+        <div className="container alumno-dashboard-container" style={{paddingTop: '2rem'}}>
             <h2>Mis Evaluaciones</h2>
-            <p>Bienvenido, <strong>{alumnoInfo?.matricula}</strong></p>
+            <p>Bienvenido, {alumnoInfo?.matricula}</p>
             {evaluaciones.length === 0 ? (
                 <p>No tienes evaluaciones disponibles en este momento.</p>
             ) : (
-                <ul className="evaluaciones-list">
+                <ul className="evaluaciones-list" style={{ listStyle: 'none', padding: 0 }}>
                     {evaluaciones.map(ev => {
                         const ahora = new Date();
                         const apertura = ev.fecha_apertura ? new Date(ev.fecha_apertura) : null;
@@ -73,17 +74,30 @@ const AlumnoDashboard = () => {
                         const isActiva = ev.estado_evaluacion === 'publicado' &&
                                          (!apertura || ahora >= apertura) &&
                                          (!cierre || ahora <= cierre);
-                        const puedeIniciar = isActiva && !ev.intento_id; // Activa y sin intento previo
-                        const puedeRevisar = ev.estado_intento === 'calificado'; // O 'completado' si muestras antes de calificar
+                        const puedeIniciar = isActiva && !ev.intento_id;
+
+                        // --- LÓGICA PARA 'PUEDE REVISAR' ---
+                        // Puede revisar si:
+                        // 1. El intento está 'calificado' O ('completado'/'bloqueado' Y el cierre ya pasó O se permite ver respuestas antes)
+                        // 2. La evaluación permite mostrar respuestas (e.mostrar_respuestas en SQL)
+                        const intentoTerminado = ev.estado_intento === 'calificado' || ev.estado_intento === 'completado' || ev.estado_intento === 'bloqueado';
+                        const periodoTerminado = cierre && ahora > cierre;
+                        const puedeRevisar = intentoTerminado && ev.mostrar_respuestas && (ev.estado_intento === 'calificado' || periodoTerminado);
+                        // --- FIN LÓGICA REVISAR ---
+
 
                         return (
-                            <li key={ev.evaluacion_id} className="evaluacion-list-item card">
+                            <li key={ev.evaluacion_id} className="card evaluacion-list-item">
                                 <div className="evaluacion-info">
                                     <h4>{ev.titulo}</h4>
                                     <p>Unidad: {ev.unidad || 'N/A'}</p>
                                     <p>Disponible: {formatDate(ev.fecha_apertura)} - {formatDate(ev.fecha_cierre)}</p>
                                     <p>Límite: {ev.tiempo_limite ? `${ev.tiempo_limite} min` : 'Sin límite'}</p>
-                                    {ev.intento_id && <p>Estado: <strong>{ev.estado_intento}</strong> {ev.calificacion_final !== null ? `(${ev.calificacion_final}/100)` : ''}</p>}
+                                    {ev.intento_id && <p>Estado Intento: {ev.estado_intento} {ev.calificacion_final !== null ? `(${ev.calificacion_final}/100)` : ''}</p>}
+                                    {/* Mostrar si se pueden ver respuestas */}
+                                    {intentoTerminado && <p style={{fontSize: '0.8em', color: ev.mostrar_respuestas ? 'green' : 'orange'}}>
+                                        {ev.mostrar_respuestas ? 'Revisión habilitada' : 'Revisión deshabilitada por el docente'}
+                                    </p>}
                                 </div>
                                 <div className="evaluacion-actions">
                                     {puedeIniciar && (
@@ -92,11 +106,19 @@ const AlumnoDashboard = () => {
                                     {ev.intento_id && ev.estado_intento === 'en_progreso' && (
                                          <button onClick={() => handleIniciarIntento(ev.evaluacion_id)} className="btn-secondary">Continuar Evaluación</button>
                                     )}
+                                    {/* --- Botón Revisar (actualizado) --- */}
                                     {puedeRevisar && (
-                                        <button onClick={() => handleRevisarIntento(ev.intento_id)} className="btn-tertiary">Revisar Intento</button>
+                                        <button onClick={() => handleRevisarIntento(ev.intento_id)} className="btn-secondary">Revisar Intento</button>
                                     )}
-                                     {!isActiva && !ev.intento_id && <span>No disponible</span>}
-                                     {isActiva && ev.intento_id && ev.estado_intento !== 'en_progreso' && !puedeRevisar && <span>Intento finalizado</span>}
+                                    {/* Mostrar mensaje si no puede revisar aún */}
+                                    {intentoTerminado && !puedeRevisar && ev.mostrar_respuestas && (
+                                        <span style={{color: 'grey', fontSize: '0.9em'}}>Revisión disponible después del {formatDate(ev.fecha_cierre)}</span>
+                                    )}
+                                    {intentoTerminado && !ev.mostrar_respuestas && (
+                                         <span style={{color: 'grey', fontSize: '0.9em'}}>Revisión no habilitada</span>
+                                    )}
+
+                                     {!isActiva && !ev.intento_id && <span style={{color: 'grey'}}>No disponible</span>}
                                 </div>
                             </li>
                         );

@@ -125,3 +125,46 @@
     font-weight: bold;
     margin-bottom: var(--spacing-lg);
 }
+/* ... (estilos existentes de ExamenAlumno.css) ... */
+
+/* Estilos para cuando el examen está bloqueado */
+.examen-container.examen-bloqueado {
+  position: relative; /* Necesario para el posicionamiento absoluto del overlay */
+  /* Podrías añadir un estilo visual sutil al contenedor, ej. un borde rojo tenue */
+  /* border: 2px solid rgba(229, 62, 62, 0.3); */
+}
+
+.examen-bloqueado-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(230, 230, 230, 0.75); /* Gris semitransparente */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #718096; /* Gris oscuro */
+  z-index: 1000; /* Por encima del contenido del examen */
+  border-radius: var(--border-radius); /* Mismo borde que el contenedor */
+  text-align: center;
+  padding: 20px;
+}
+
+/* Opcional: Deshabilitar visualmente los inputs cuando el examen está bloqueado */
+.examen-bloqueado textarea,
+.examen-bloqueado input[type="radio"],
+.examen-bloqueado input[type="checkbox"],
+.examen-bloqueado label { /* Cambiar cursor en labels */
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+/* Opcional: Asegurar que los botones de navegación también se vean deshabilitados */
+.examen-bloqueado .examen-navigation button:disabled {
+    background-color: #ccc;
+    border-color: #ccc;
+    color: #888;
+    cursor: not-allowed;
+}

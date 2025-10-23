@@ -1,0 +1,118 @@
+/* src/components/examen/CrucigramaPlayer.css */
+
+.crucigrama-player {
+    width: 100%;
+    margin-top: var(--spacing-md);
+}
+
+.crucigrama-area {
+    display: flex;
+    gap: var(--spacing-xl);
+    flex-wrap: wrap; /* Para que las pistas pasen abajo si no caben */
+    justify-content: center;
+}
+
+.crucigrama-cuadricula {
+    display: grid;
+    /* grid-template-columns: repeat(15, 1fr); */ /* Establecido inline */
+    gap: 1px; /* Separación mínima */
+    border: 2px solid var(--color-primary);
+    background-color: var(--color-primary); /* Fondo para los gaps */
+    width: fit-content;
+    max-width: 100%; /* Evitar desborde */
+    aspect-ratio: 1 / 1; /* Intentar mantener cuadrado */
+    margin-bottom: var(--spacing-lg); /* Espacio si las pistas van debajo */
+}
+
+.crucigrama-celda {
+    background-color: #fff;
+    aspect-ratio: 1 / 1; /* Celdas cuadradas */
+    position: relative; /* Para números de pista */
+    display: flex; /* Para centrar input */
+    justify-content: center;
+    align-items: center;
+}
+
+.crucigrama-celda.negra {
+    background-color: var(--color-text-dark); /* Celdas negras */
+}
+
+.crucigrama-celda.numero {
+    font-size: clamp(0.5rem, 1.5vw, 0.7rem); /* Número pequeño */
+    font-weight: bold;
+    color: var(--color-primary);
+    /* Posicionamiento del número (puede variar) */
+    position: absolute;
+    top: 1px;
+    left: 2px;
+}
+
+/* Celda que contiene un input */
+.crucigrama-celda.letra input {
+    width: 90%;
+    height: 90%;
+    border: none;
+    text-align: center;
+    font-size: clamp(1rem, 2.5vw, 1.5rem); /* Tamaño de letra adaptable */
+    font-weight: bold;
+    text-transform: uppercase;
+    padding: 0;
+    margin: 0;
+    background-color: transparent; /* Heredar fondo */
+    outline: none; /* Quitar borde al enfocar */
+}
+.crucigrama-celda.letra input:focus {
+    background-color: #e6f0ff; /* Resaltar celda activa */
+}
+
+
+.crucigrama-pistas {
+    display: flex;
+    gap: var(--spacing-xl);
+    flex-basis: 300px; /* Ancho mínimo para pistas */
+    flex-grow: 1; /* Ocupar espacio restante */
+    font-size: 0.9rem;
+}
+
+.pistas-columna {
+    flex: 1; /* Cada columna ocupa mitad del espacio de pistas */
+}
+
+.pistas-columna h4 {
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-sm);
+}
+
+.pistas-columna ol {
+    list-style: none;
+    padding: 0;
+}
+
+.pistas-columna li {
+    margin-bottom: var(--spacing-md);
+    line-height: 1.5;
+}
+.pistas-columna li span { /* Número de pista */
+    font-weight: bold;
+    margin-right: var(--spacing-sm);
+    color: var(--color-primary);
+}
+
+/* Responsive básico */
+@media (max-width: 768px) {
+    .crucigrama-area {
+        flex-direction: column; /* Apilar cuadrícula y pistas */
+        align-items: center; /* Centrar cuadrícula */
+    }
+    .crucigrama-cuadricula {
+        max-width: 90vw; /* Ajustar ancho */
+    }
+    .crucigrama-pistas {
+        flex-direction: column; /* Apilar columnas de pistas */
+        flex-basis: auto; /* Ancho automático */
+        width: 100%;
+        max-width: 500px; /* Ancho máximo para pistas en móvil */
+    }
+}

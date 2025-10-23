@@ -1,6 +1,6 @@
 // supabase/functions/procesar-cola-evaluacion/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
 
 // Encabezados CORS
 const corsHeaders = {
@@ -44,6 +44,12 @@ interface TrabajoCola {
     user_id: string; // Dueño del trabajo en cola
     calificaciones: Calificacion | null; // Relación directa a la calificación a procesar
 }
+interface MiembroGrupo {
+    alumno: { id: number; matricula: string; nombre: string; apellido: string; } | null;
+    grupo: { id: number; nombre: string; } | null;
+}
+
+
 
 // --- Función auxiliar para extraer JSON (Respaldo) ---
 function extractJson(text: string): Record<string, unknown> | null {
@@ -55,8 +61,11 @@ function extractJson(text: string): Record<string, unknown> | null {
         console.log("extractJson: Parseo exitoso.");
         return parsed;
     } catch (e) {
-        const error = e as any; // Tratar como 'any' para acceder a message
-        console.error("extractJson: Fallo al parsear JSON:", error?.message);
+        if (e instanceof Error) {
+            console.error("extractJson: Fallo al parsear JSON:", e.message);
+        } else {
+            console.error("extractJson: Fallo al parsear JSON:", String(e));
+        }
         console.error("extractJson: JSON problemático:", potentialJson);
         return null;
     }
@@ -198,7 +207,12 @@ serve(async (req: Request) => {
 
     // Parseo y validación del JSON
     let parsedJson = extractJson(rawGeminiText); // Respaldo
-    if (!parsedJson) { try { parsedJson = JSON.parse(rawGeminiText); } catch (e) { const pe = e as any; throw new Error(`Respuesta IA no pudo ser parseada como JSON. Crudo: ${rawGeminiText}. Error: ${pe.message}`); }}
+    if (!parsedJson) { 
+        try { 
+            parsedJson = JSON.parse(rawGeminiText); 
+        } catch (e) { 
+            throw new Error(`Respuesta IA no pudo ser parseada como JSON. Crudo: ${rawGeminiText}. Error: ${e instanceof Error ? e.message : String(e)}`); 
+        }}
     if (parsedJson === null || typeof parsedJson.calificacion_total !== 'number' || typeof parsedJson.justificacion_texto !== 'string') { console.error("JSON parseado inválido:", parsedJson); throw new Error(`JSON de IA inválido o faltan claves. Recibido: ${JSON.stringify(parsedJson)}`); }
     const { calificacion_total, justificacion_texto } = parsedJson;
     console.log(`Calificación IA: ${calificacion_total}. JSON Validado.`);
@@ -212,16 +226,16 @@ serve(async (req: Request) => {
     // Obtener detalles alumnos/grupos
     if (calificacion.grupo_id) {
       console.log(`Obteniendo miembros grupo ID: ${calificacion.grupo_id}`);
-      const { data: miembros, error: errorMiembros } = await supabaseAdmin.from('alumnos_grupos').select(`alumno:alumnos(id, matricula, nombre, apellido), grupo:grupos(id, nombre)`).eq('grupo_id', calificacion.grupo_id);
+      const { data: miembros, error: errorMiembros } = await supabaseAdmin.from('alumnos_grupos').select(`alumno:alumnos!inner(id, matricula, nombre, apellido), grupo:grupos!inner(id, nombre)`).eq('grupo_id', calificacion.grupo_id);
       console.log("Raw data 'miembros':", JSON.stringify(miembros)); // LOG CRUDO
       if (errorMiembros) { console.error("Error consultando miembros:", errorMiembros); throw errorMiembros; }
       if (!Array.isArray(miembros)) throw new Error("Consulta miembros no devolvió array.");
 
-      calificacionesParaReporte = miembros.map((m: any) => {
+      calificacionesParaReporte = (miembros as unknown as MiembroGrupo[]).map((m) => {
          const alumno = m.alumno; const grupo = m.grupo;
          if (!alumno || !grupo || !alumno.matricula) { console.warn(`Datos incompletos miembro grupo ${calificacion.grupo_id}. Alumno: ${JSON.stringify(alumno)}, Grupo: ${JSON.stringify(grupo)}`); return null; }
          return { matricula: alumno.matricula, nombre: `${alumno.nombre || ''} ${alumno.apellido || ''}`.trim(), equipo: grupo.nombre, calificacion: calificacion_total, retroalimentacion: justificacion_texto };
-      }).filter(Boolean) as any[];
+      }).filter((item): item is NonNullable<typeof item> => item !== null);
 
     } else if (calificacion.alumno_id) {
       console.log(`Obteniendo alumno ID: ${calificacion.alumno_id}`);
@@ -311,8 +325,11 @@ serve(async (req: Request) => {
         }
         console.log(`[Catch Bloque SINGLE] Trabajo ${trabajoId} marcado como 'fallido'.`);
       } catch (dbError) {
-        const dbe = dbError as any;
-        console.error(`[Catch Bloque SINGLE] Error ADICIONAL al marcar como fallido: ${dbe?.message}`);
+        if (dbError instanceof Error) {
+            console.error(`[Catch Bloque SINGLE] Error ADICIONAL al marcar como fallido: ${dbError.message}`);
+        } else {
+            console.error(`[Catch Bloque SINGLE] Error ADICIONAL al marcar como fallido: ${String(dbError)}`);
+        }
       }
     } else { console.warn("[Catch Bloque SINGLE] trabajoId nulo, no se pudo actualizar estado."); }
 

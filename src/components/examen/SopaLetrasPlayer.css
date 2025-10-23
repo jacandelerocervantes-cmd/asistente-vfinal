@@ -1,0 +1,98 @@
+/* src/components/examen/SopaLetrasPlayer.css */
+
+.sopa-letras-player {
+    width: 100%;
+    margin-top: var(--spacing-md);
+}
+
+.instrucciones-pregunta {
+    margin-bottom: var(--spacing-lg);
+    font-style: italic;
+    color: #555;
+}
+
+.sopa-area {
+    display: flex;
+    gap: var(--spacing-xl);
+    flex-wrap: wrap; /* Para pantallas pequeñas */
+    justify-content: center; /* Centrar elementos */
+}
+
+.sopa-cuadricula {
+    display: grid;
+    /* grid-template-columns: repeat(10, 1fr); */ /* Se establece inline */
+    gap: 2px;
+    border: 2px solid var(--color-primary);
+    background-color: var(--color-primary); /* Fondo para los gaps */
+    width: fit-content; /* Ajustar al contenido */
+    max-width: 100%; /* Evitar desborde */
+    user-select: none; /* Evitar selección de texto */
+    aspect-ratio: 1 / 1; /* Mantener cuadrado */
+}
+
+.sopa-celda {
+    background-color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: clamp(1rem, 2.5vw, 1.5rem); /* Tamaño de letra adaptable */
+    font-weight: bold;
+    cursor: pointer;
+    text-transform: uppercase;
+    aspect-ratio: 1 / 1; /* Celdas cuadradas */
+    transition: background-color 0.1s ease;
+}
+
+.sopa-celda.selected {
+    background-color: #a0d1ff; /* Azul claro para selección */
+    color: var(--color-primary);
+}
+
+.sopa-lista-palabras {
+    flex-basis: 200px; /* Ancho base para la lista */
+    flex-shrink: 0;
+    padding-left: var(--spacing-md);
+    border-left: 1px solid var(--color-border);
+}
+
+.sopa-lista-palabras h4 {
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-md);
+}
+
+.sopa-lista-palabras ul {
+    list-style: none;
+    padding: 0;
+}
+
+.sopa-lista-palabras li {
+    margin-bottom: var(--spacing-sm);
+    font-family: monospace;
+    font-size: 1.1rem;
+    color: #555;
+    transition: color 0.3s, text-decoration 0.3s;
+}
+
+.sopa-lista-palabras li.encontrada {
+    color: #a0aec0; /* Gris claro */
+    text-decoration: line-through;
+}
+
+/* Responsive básico */
+@media (max-width: 600px) {
+    .sopa-area {
+        flex-direction: column;
+        align-items: center;
+    }
+    .sopa-lista-palabras {
+        border-left: none;
+        border-top: 1px solid var(--color-border);
+        padding-left: 0;
+        padding-top: var(--spacing-md);
+        width: 100%;
+        text-align: center;
+    }
+     .sopa-cuadricula {
+        max-width: 90vw; /* Ajustar ancho máximo en móviles */
+    }
+}

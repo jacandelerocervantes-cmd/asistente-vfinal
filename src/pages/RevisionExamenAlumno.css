@@ -1,0 +1,143 @@
+/* src/pages/RevisionExamenAlumno.css */
+.revision-examen-container {
+    width: 100%;
+    padding: var(--spacing-lg);
+}
+
+.revision-examen-container h2 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-md);
+}
+
+.resumen-intento {
+    background-color: #f9fafb; /* Fondo ligero */
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+}
+.resumen-intento h3 {
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-md);
+}
+.resumen-intento p {
+    margin-bottom: var(--spacing-sm);
+    font-size: 1.1rem;
+}
+.resumen-intento strong {
+    font-size: 1.3rem;
+    color: var(--color-primary);
+}
+
+.revision-examen-container h3 { /* Título "Detalle de Preguntas" */
+    margin-top: var(--spacing-xl);
+    margin-bottom: var(--spacing-lg);
+    color: var(--color-primary);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-sm);
+}
+
+.preguntas-revision-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+/* Estilos para PreguntaRevision Card */
+.pregunta-revision-card {
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    background-color: #fff;
+    border-left-width: 5px;
+    border-left-style: solid;
+    border-left-color: #e2e8f0; /* Gris por defecto */
+}
+.pregunta-revision-card.correcta { border-left-color: #48bb78; } /* Verde */
+.pregunta-revision-card.incorrecta { border-left-color: #f56565; } /* Rojo */
+.pregunta-revision-card.parcial { border-left-color: #f6ad55; } /* Naranja */
+
+.pregunta-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-md);
+}
+.pregunta-header p {
+    flex-grow: 1;
+    margin-right: var(--spacing-md);
+}
+.pregunta-header span { /* Puntos */
+    font-weight: bold;
+    color: var(--color-primary);
+    background-color: #e6f0ff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+}
+
+.respuesta-area {
+    padding-left: var(--spacing-sm); /* Indentación leve */
+}
+.respuesta-revision strong,
+.opciones-revision strong {
+    display: block;
+    margin-bottom: var(--spacing-sm);
+    color: #555;
+    font-size: 0.9rem;
+}
+.texto-respuesta {
+    background-color: #f9fafb;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    white-space: pre-wrap;
+    border: 1px solid #e2e8f0;
+}
+
+/* Estilos para opciones */
+.opciones-revision {
+    list-style: none;
+    padding: 0;
+}
+.opciones-revision li {
+    margin-bottom: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius);
+}
+.opciones-revision li.seleccion-correcta { /* Seleccionada y correcta */
+    background-color: #c6f6d5; /* Verde claro */
+    font-weight: bold;
+}
+.opciones-revision li.seleccion-incorrecta { /* Seleccionada pero incorrecta */
+    background-color: #fed7d7; /* Rojo claro */
+    text-decoration: line-through;
+}
+.opciones-revision li.era-correcta { /* No seleccionada pero era la correcta */
+    border: 1px dashed #48bb78; /* Borde verde discontinuo */
+}
+
+
+/* Comentario del docente */
+.comentario-docente {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-sm);
+    border-top: 1px dashed var(--color-border);
+}
+.comentario-docente strong {
+    color: var(--color-accent);
+}
+.comentario-docente p {
+    background-color: #fffbeb; /* Amarillo muy pálido */
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    white-space: pre-wrap;
+    border: 1px solid #f6e05e;
+}
+
+/* Mensaje de error */
+.error-message {
+    color: #c53030;
+    background-color: #fed7d7;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    text-align: center;
+    border: 1px solid #f56565;
+}
