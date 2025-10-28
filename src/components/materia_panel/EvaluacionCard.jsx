@@ -2,6 +2,7 @@
 import React, { useState } from 'react'; // <-- Importar useState
 import { Link } from 'react-router-dom'; // <-- Importar Link
 import { supabase } from '../../supabaseClient'; // <-- Importar supabase
+import EstadisticasModal from './EstadisticasModal'; // <-- Importar el nuevo modal
 import { FaEdit, FaTrash, FaSync, FaChartBar, FaWpforms, FaSpinner } from 'react-icons/fa'; // <-- Añadir FaSync, FaChartBar, FaWpforms
 
 // Estilos similares a ActividadCard.css o MateriaCard.css pueden aplicarse
@@ -9,6 +10,7 @@ import './EvaluacionCard.css'; // Si creas un CSS específico
 
 const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
     const [syncing, setSyncing] = useState(false); // <-- Estado para el botón de sincronizar
+    const [showStatsModal, setShowStatsModal] = useState(false); // Estado para el modal
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
@@ -45,10 +47,8 @@ const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
     const handleVerEstadisticas = (e) => {
         e.stopPropagation();
         e.preventDefault();
-        // Aquí iría la lógica para mostrar las estadísticas
-        // Por ahora, un simple alert:
-        alert(`Funcionalidad 'Ver Estadísticas' para "${evaluacion.titulo}" pendiente.\nAquí podrías abrir un modal o navegar a una ruta con los resultados.`);
-        // Ejemplo futuro: navigate(`/evaluacion/${evaluacion.id}/estadisticas`);
+        // Mostrar el modal de estadísticas
+        setShowStatsModal(true);
     };
     // --- FIN NUEVO ---
 
@@ -60,6 +60,14 @@ const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
     return (
         // Quitar Link si las acciones se hacen con botones dentro
         // <Link to={`/evaluacion/${evaluacion.id}/editar`} className="materia-card-link">
+        <>
+            {showStatsModal && (
+                <EstadisticasModal
+                    evaluacion={evaluacion}
+                    onClose={() => setShowStatsModal(false)}
+                />
+            )}
+
         <div className="materia-card evaluacion-card" > {/* Añadir clase específica si se creó EvaluacionCard.css */}
             <div className="card-header">
                 <h3 className="materia-nombre">{evaluacion.titulo}</h3>
@@ -106,6 +114,7 @@ const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
                )}
             </div>
         </div>
+        </>
         // </Link>
     );
 };

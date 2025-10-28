@@ -1,0 +1,90 @@
+/* src/components/materia_panel/EstadisticasModal.css */
+
+/* Estilos base del modal (consistentes con otros modales de la plataforma) */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    padding: 20px;
+}
+
+.modal-content {
+    background: white;
+    padding: var(--spacing-xl);
+    border-radius: var(--border-radius);
+    width: 100%;
+    max-width: 500px; /* Un ancho adecuado para estadísticas */
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    animation: fadeInModal 0.3s ease-out;
+}
+
+@keyframes fadeInModal {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.modal-header h3 {
+    color: var(--color-primary);
+    margin: 0;
+    font-size: 1.4rem;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 2.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: #888;
+    padding: 0;
+}
+
+/* Estilos específicos para la cuadrícula de estadísticas */
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr; /* Una columna por defecto */
+    gap: var(--spacing-md);
+    text-align: center;
+}
+
+.stat-item {
+    background-color: #f8fafc;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-background-light);
+}
+
+.stat-item span {
+    display: block;
+    color: #555;
+    font-size: 0.9rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+.stat-item strong {
+    font-size: 1.8rem;
+    color: var(--color-secondary); /* Usamos el color secundario para resaltar */
+}
+
+.modal-body p {
+    text-align: center;
+    color: #666;
+}

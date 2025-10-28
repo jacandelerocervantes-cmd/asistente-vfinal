@@ -84,6 +84,15 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  // --- VERIFICACIÓN DE SEGURIDAD ---
+  // Esta función solo debe ser invocada por otra función del backend (como submit-attempt)
+  // o por un trigger de base de datos, usando la SERVICE_ROLE_KEY.
+  // Una forma simple de verificar es chequear un header secreto.
+  const internalAuthHeader = req.headers.get('X-Internal-Authorization');
+  if (internalAuthHeader !== Deno.env.get('INTERNAL_FUNCTIONS_SECRET')) {
+    return new Response(JSON.stringify({ message: 'Acceso no autorizado.' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
+
   try {
     // 1. Obtener intento_id del cuerpo de la solicitud
     const { intento_id } = await req.json();

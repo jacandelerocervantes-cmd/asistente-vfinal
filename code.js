@@ -132,100 +132,99 @@ function crearRespuestaError(message) {
  * @return {object} IDs y URLs de los elementos creados.
  */
 function handleCreateMateriasBatch(payload) {
-    Logger.log("--- Iniciando handleCreateMateriasBatch ---");
-    const startTime = new Date().getTime(); // Medir tiempo de ejecución
+  Logger.log("--- Iniciando handleCreateMateriasBatch ---");
+  const startTime = new Date().getTime(); // Medir tiempo de ejecución
 
-    // Validar payload de entrada
-    if (!payload.docente || !payload.docente.email || !payload.materias || !Array.isArray(payload.materias)) {
-        throw new Error("Payload inválido: faltan 'docente' (con email) o 'materias' (debe ser array).");
-    }
-    const { docente, materias } = payload;
-    Logger.log(`Docente: ${docente.email}. Materias a procesar: ${materias.length}`);
+  // Validar payload de entrada
+  if (!payload.docente || !payload.docente.email || !payload.materias || !Array.isArray(payload.materias)) {
+      throw new Error("Payload inválido: faltan 'docente' (con email) o 'materias' (debe ser array).");
+  }
+  const { docente, materias } = payload;
+  Logger.log(`Docente: ${docente.email}. Materias a procesar: ${materias.length}`);
 
-    // Obtener carpeta raíz y carpeta del docente (o crearla)
-    const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
-    const nombreCarpetaDocente = docente.nombre || docente.email; // Usar email si no hay nombre
-    const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
+  // --- IMPLEMENTACIÓN DE BLOQUEO ---
+  const lock = LockService.getScriptLock();
+  const lockAcquired = lock.tryLock(15000); // Esperar hasta 15 segundos
+  if (!lockAcquired) {
+    Logger.log("No se pudo obtener el bloqueo. Otra instancia de sincronización podría estar en ejecución. Saliendo.");
+    throw new Error("El proceso de sincronización ya está en ejecución. Por favor, espera un momento y recarga la página.");
+  }
+  Logger.log("Bloqueo adquirido. Procediendo con la sincronización.");
 
-    // Asegurar permisos de edición para el docente en su carpeta
-    try {
-      // Verificar si ya tiene permisos antes de intentar añadir para evitar errores
-      const editores = carpetaDocente.getEditors().map(u => u.getEmail());
-      if (!editores.includes(docente.email)) {
-        carpetaDocente.addEditor(docente.email);
-        Logger.log(`Permisos añadidos para ${docente.email} en "${carpetaDocente.getName()}"`);
-      } else {
-        // Logger.log(`Permisos ya existentes para ${docente.email} en "${carpetaDocente.getName()}"`);
+  try {
+      // Obtener carpeta raíz y carpeta del docente (o crearla)
+      const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
+      const nombreCarpetaDocente = docente.nombre || docente.email; // Usar email si no hay nombre
+      const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
+
+      // Asegurar permisos de edición para el docente en su carpeta
+      try {
+        const editores = carpetaDocente.getEditors().map(u => u.getEmail());
+        if (!editores.includes(docente.email)) {
+          carpetaDocente.addEditor(docente.email);
+          Logger.log(`Permisos añadidos para ${docente.email} en "${carpetaDocente.getName()}"`);
+        }
+      } catch(permError) {
+        Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
       }
-    } catch(permError) {
-      // Loguear advertencia si falla (ej. si el script no tiene permisos para compartir)
-      Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
-    }
 
-    // Objeto para almacenar los resultados (URLs e IDs)
-    const results = { drive_urls: {}, rubricas_spreadsheet_ids: {}, plagio_spreadsheet_ids: {}, calificaciones_spreadsheet_ids: {} };
+      const results = { drive_urls: {}, rubricas_spreadsheet_ids: {}, plagio_spreadsheet_ids: {}, calificaciones_spreadsheet_ids: {} };
 
-    // Iterar sobre cada materia enviada en el payload
-    for (const materia of materias) {
-        const materiaStartTime = new Date().getTime(); // Medir tiempo por materia
-        // Validar datos básicos de la materia actual
-        if (!materia || typeof materia !== 'object' || !materia.id || !materia.nombre || !materia.semestre) {
-            Logger.log(`Advertencia: Datos incompletos para una materia, saltando. Datos: ${JSON.stringify(materia)}`);
-            continue; // Saltar a la siguiente materia si faltan datos esenciales
-        }
-        Logger.log(`Procesando materia ID ${materia.id}: ${materia.nombre} (${materia.semestre})`);
-
-        // Crear/Obtener carpeta para la materia
-        const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
-        const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
-
-        // Crear/Obtener carpetas principales dentro de la materia
-        const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
-        const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-        getOrCreateFolder(carpetaMateria, "Evaluaciones");
-        getOrCreateFolder(carpetaMateria, "Material Didáctico");
-
-        // Crear estructura de Unidades DENTRO de la carpeta "Actividades"
-        const numeroDeUnidades = parseInt(materia.unidades, 10) || 0; // Asegurar que sea número (0 si no es válido)
-        if (numeroDeUnidades > 0) {
-          Logger.log(`Creando estructura para ${numeroDeUnidades} unidades...`);
-          for (let i = 1; i <= numeroDeUnidades; i++) {
-            const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
-            // Sheet Resumen Calificaciones DENTRO de la carpeta de unidad
-            getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
-            // Carpeta Reportes Detallados DENTRO de la carpeta de unidad
-            getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+      for (const materia of materias) {
+          const materiaStartTime = new Date().getTime();
+          if (!materia || typeof materia !== 'object' || !materia.id || !materia.nombre || !materia.semestre) {
+              Logger.log(`Advertencia: Datos incompletos para una materia, saltando. Datos: ${JSON.stringify(materia)}`);
+              continue;
           }
-        } else {
-            Logger.log("Advertencia: La materia no tiene un número válido de unidades definidas.");
-        }
+          Logger.log(`Procesando materia ID ${materia.id}: ${materia.nombre} (${materia.semestre})`);
 
-        // Obtener la lista de alumnos (asegurando que sea un array)
-        const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
-        Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos recibidos en payload.`);
+          const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
+          const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
 
-        // Crear y poblar las hojas de cálculo en la carpeta "Reportes"
-        crearListaDeAlumnosSheet(carpetaReportes, alumnosDeMateria); // Llama a la versión optimizada
-        const sheetAsistencia = crearAsistenciasSheet(carpetaReportes, alumnosDeMateria, numeroDeUnidades); // Llama a la versión optimizada
+          const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
+          const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+          getOrCreateFolder(carpetaMateria, "Evaluaciones");
+          getOrCreateFolder(carpetaMateria, "Material Didáctico");
 
-        // Crear/Obtener las hojas de cálculo maestras en la carpeta "Actividades"
-        const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
-        const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
+          const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
+          if (numeroDeUnidades > 0) {
+            Logger.log(`Creando estructura para ${numeroDeUnidades} unidades...`);
+            for (let i = 1; i <= numeroDeUnidades; i++) {
+              const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
+              getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
+              getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+            }
+          } else {
+              Logger.log("Advertencia: La materia no tiene un número válido de unidades definidas.");
+          }
 
-        // Almacenar los resultados (URLs e IDs) para esta materia
-        results.drive_urls[materia.id] = carpetaMateria.getUrl();
-        results.rubricas_spreadsheet_ids[materia.id] = sheetRubricas ? sheetRubricas.getId() : null; // Guardar ID o null si falló
-        results.plagio_spreadsheet_ids[materia.id] = sheetPlagio ? sheetPlagio.getId() : null; // Guardar ID o null si falló
-        results.calificaciones_spreadsheet_ids[materia.id] = sheetAsistencia ? sheetAsistencia.getId() : null; // Guardar ID o null si falló
+          const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
+          Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos recibidos en payload.`);
 
-        const materiaEndTime = new Date().getTime();
-        Logger.log(`Materia ID ${materia.id} procesada en ${(materiaEndTime - materiaStartTime) / 1000}s`);
-        try { SpreadsheetApp.flush(); } catch(e) { Logger.log(`Flush falló (puede ignorarse): ${e.message}`);} // Intentar forzar escritura
-    } // Fin del bucle for materias
+          crearListaDeAlumnosSheet(carpetaReportes, alumnosDeMateria);
+          const sheetAsistencia = crearAsistenciasSheet(carpetaReportes, alumnosDeMateria, numeroDeUnidades);
 
-    const endTime = new Date().getTime();
-    Logger.log(`--- Fin handleCreateMateriasBatch en ${(endTime - startTime) / 1000}s ---`);
-    return results; // Devolver el objeto con todos los resultados
+          const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
+          const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
+
+          results.drive_urls[materia.id] = carpetaMateria.getUrl();
+          results.rubricas_spreadsheet_ids[materia.id] = sheetRubricas ? sheetRubricas.getId() : null;
+          results.plagio_spreadsheet_ids[materia.id] = sheetPlagio ? sheetPlagio.getId() : null;
+          results.calificaciones_spreadsheet_ids[materia.id] = sheetAsistencia ? sheetAsistencia.getId() : null;
+
+          const materiaEndTime = new Date().getTime();
+          Logger.log(`Materia ID ${materia.id} procesada en ${(materiaEndTime - materiaStartTime) / 1000}s`);
+          try { SpreadsheetApp.flush(); } catch(e) { Logger.log(`Flush falló (puede ignorarse): ${e.message}`);}
+      }
+
+      const endTime = new Date().getTime();
+      Logger.log(`--- Fin handleCreateMateriasBatch en ${(endTime - startTime) / 1000}s ---`);
+      return results;
+  } finally {
+      // --- LIBERAR EL BLOQUEO ---
+      lock.releaseLock();
+      Logger.log("Bloqueo liberado.");
+  }
 }
 
 /**
@@ -1322,7 +1321,6 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
   for (let i = 1; i <= numUnidadesReales; i++) {
     const nombreHoja = `Unidad ${i}`;
     let hojaUnidad;
-    // Intentar obtener/crear la hoja
     try {
         hojaUnidad = spreadsheet.insertSheet(nombreHoja);
         Logger.log(`Hoja "${nombreHoja}" creada.`);
@@ -1334,7 +1332,7 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
     // Preparar datos para esta hoja (headers + alumnos)
     const datosParaEscribir = [headers];
     if (filasAlumnos.length > 0) {
-      datosParaEscribir.push(...filasAlumnos);
+      datosParaEscribir.push(...filasAlumnos); // Añadir todas las filas de alumnos
     }
 
     // Escribir todo de una vez
@@ -1346,11 +1344,12 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
             hojaUnidad.setFrozenRows(1);
             hojaUnidad.setFrozenColumns(2);
             hojaUnidad.setColumnWidth(2, 250); // Ancho para Nombre Completo
-            Logger.log(`Hoja "${nombreHoja}" poblada con encabezados y ${filasAlumnos.length} alumnos.`);
+            Logger.log(`Hoja "${nombreHoja}" (re)poblada con encabezados y ${filasAlumnos.length} alumnos.`);
        } catch (e) {
             Logger.log(`ERROR al escribir datos en ${nombreHoja}: ${e.message}`);
        }
     } else {
+        // Esto no debería ocurrir si headers está presente
         Logger.log(`Advertencia: No hay datos (ni siquiera headers?) para escribir en ${nombreHoja}.`);
     }
   } // Fin for unidades

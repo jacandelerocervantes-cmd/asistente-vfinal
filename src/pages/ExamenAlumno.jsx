@@ -47,10 +47,16 @@ const ExamenAlumno = () => {
 
     // 1. Bloqueo de Copiar, Pegar y Menú Contextual
     useEffect(() => {
-        const preventActions = (e) => {
+        const handlePreventAndLog = (e) => {
              // Solo bloquear si el examen no está bloqueado
              if (!examenBloqueado) {
                 e.preventDefault();
+                // Enviar evento silencioso al backend
+                if (intento?.id) {
+                    supabase.functions.invoke('log-focus-change', {
+                        body: { intento_id: intento.id, tipo_evento: `intento_${e.type}` } // ej. 'intento_copy'
+                    }).catch(err => console.error("Error al loguear acción:", err));
+                }
              }
         };
 
@@ -58,15 +64,15 @@ const ExamenAlumno = () => {
         // Es mejor adjuntar al documento para asegurar la captura global
         const target = document;
 
-        target.addEventListener('copy', preventActions);
-        target.addEventListener('paste', preventActions);
-        target.addEventListener('contextmenu', preventActions);
+        target.addEventListener('copy', handlePreventAndLog);
+        target.addEventListener('paste', handlePreventAndLog);
+        target.addEventListener('contextmenu', handlePreventAndLog);
 
         // Limpieza al desmontar
         return () => {
-            target.removeEventListener('copy', preventActions);
-            target.removeEventListener('paste', preventActions);
-            target.removeEventListener('contextmenu', preventActions);
+            target.removeEventListener('copy', handlePreventAndLog);
+            target.removeEventListener('paste', handlePreventAndLog);
+            target.removeEventListener('contextmenu', handlePreventAndLog);
         };
     }, [examenBloqueado]); // Depende de examenBloqueado
 
@@ -82,6 +88,12 @@ const ExamenAlumno = () => {
              // Solo actuar si el examen aún no está bloqueado
             if (document.hidden && !examenBloqueado) {
                 console.log("Cambio de foco detectado (visibilitychange)");
+                // Loguear el evento en el backend
+                if (intento?.id) {
+                    supabase.functions.invoke('log-focus-change', {
+                        body: { intento_id: intento.id, tipo_evento: 'cambio_foco' }
+                    }).catch(err => console.error("Error al loguear cambio de foco:", err));
+                }
                 focusChangeCount += 1;
                 setCambiosFoco(focusChangeCount); // Actualiza el estado de React
                 handleFocusChangeAction(focusChangeCount); // Ejecuta la acción (advertencia/bloqueo)
@@ -118,16 +130,16 @@ const ExamenAlumno = () => {
             clearTimeout(advertenciaTimeoutRef.current);
          }
 
-         if (count === 1) {
-            // Primer cambio: Mostrar advertencia
+         if (count === 1 || count === 2) {
+            // Primer y segundo cambio: Mostrar advertencia
             setMostrarAdvertencia(true);
             // Ocultarla después de 5 segundos
             advertenciaTimeoutRef.current = setTimeout(() => {
                 setMostrarAdvertencia(false);
                 advertenciaTimeoutRef.current = null; // Limpiar ref
             }, 5000);
-         } else if (count >= 2) {
-             // Segundo cambio o más: Bloquear examen
+         } else if (count >= 3) {
+             // Tercer cambio o más: Bloquear examen
              setMostrarAdvertencia(false); // Ocultar advertencia si estaba visible
              advertenciaTimeoutRef.current = null; // Limpiar ref del timeout
              setExamenBloqueado(true); // Bloquea la UI
@@ -600,8 +612,7 @@ const ExamenAlumno = () => {
 
             {/* Mensaje de advertencia por cambio de foco */}
             {mostrarAdvertencia && (
-                <div style={warningStyles}>
-                    ⚠️ Advertencia: Has salido de la ventana del examen. Al siguiente cambio, el examen se bloqueará.
+                <div style={warningStyles} dangerouslySetInnerHTML={{ __html: `⚠️ Advertencia ${cambiosFoco}/2: Has salido de la ventana del examen. Al tercer incidente, el examen se bloqueará.` }}>
                 </div>
             )}
 

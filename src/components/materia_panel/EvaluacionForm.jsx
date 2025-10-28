@@ -147,10 +147,14 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
     // --- Guardar Evaluación y sus Preguntas ---
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setLoading(true);
+        setLoading(true); // Bloquear UI al inicio
+        console.log("Iniciando guardado de evaluación...");
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("Usuario no autenticado");
+
+            // Preparar datos de la evaluación (sin cambios)
             const evaluacionData = {
                 materia_id: materia.id,
                 user_id: user.id,
@@ -164,8 +168,8 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
             };
 
             let savedEvaluacion;
-
-            // 1. Guardar/Actualizar la Evaluación Principal
+            // 1. Guardar/Actualizar Evaluación (sin cambios)
+            console.log("Guardando/Actualizando datos de la evaluación...");
             if (isEditing) {
                 const { data, error } = await supabase
                     .from('evaluaciones')
@@ -184,98 +188,142 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                 if (error) throw error;
                 savedEvaluacion = data;
             }
+            console.log("Evaluación guardada/actualizada con ID:", savedEvaluacion.id);
 
-            // 2. Gestionar Preguntas (MODIFICADO para reasignar orden)
-            const preguntasParaGuardar = preguntas.filter(p => !p.toBeDeleted); // Solo procesar las visibles
+            // 2. Gestionar Preguntas (Borrar las eliminadas)
+            const preguntasParaGuardar = preguntas.filter(p => !p.toBeDeleted);
             // Obtener IDs originales si estamos editando (para saber qué borrar)
             const preguntasOriginalesIds = isEditing ? (await supabase.from('preguntas').select('id').eq('evaluacion_id', evaluacionToEdit.id)).data?.map(p => p.id) || [] : [];
-            const idsPreguntasActuales = new Set(preguntasParaGuardar.filter(p => typeof p.id === 'number').map(p => p.id)); // IDs de BD en el estado actual
-
-            // Borrar preguntas que ya no están (las marcadas para borrar o las que se quitaron de la lista)
+            const idsPreguntasActuales = new Set(preguntasParaGuardar.filter(p => typeof p.id === 'number').map(p => p.id));
             const idsParaBorrar = preguntasOriginalesIds.filter(id => !idsPreguntasActuales.has(id));
              if (idsParaBorrar.length > 0) {
                 console.log("Borrando preguntas:", idsParaBorrar);
                 await supabase.from('preguntas').delete().in('id', idsParaBorrar);
             }
 
+            // 3. Procesar y Guardar/Actualizar Preguntas Actuales (CON GENERACIÓN DE LAYOUT)
+            console.log(`Procesando ${preguntasParaGuardar.length} preguntas para guardar/actualizar...`);
+            const upsertPromises = []; // Array para guardar promesas de upsert
 
-             // Upsert (Insertar/Actualizar) preguntas actuales
             for (const [index, pregunta] of preguntasParaGuardar.entries()) {
+                console.log(`Procesando pregunta ${index + 1} (ID temporal/real: ${pregunta.id}, Tipo: ${pregunta.tipo_pregunta})...`);
+                let datosExtraFinales = pregunta.datos_extra || null; // Datos extra por defecto
+
+                // --- LLAMADA A FUNCIONES DE GENERACIÓN DE LAYOUT ---
+                try {
+                    if (pregunta.tipo_pregunta === 'sopa_letras' && pregunta.datos_extra?.palabras?.length > 0) {
+                        console.log("Llamando a generar-layout-sopa...");
+                        const { data: layoutSopa, error: sopaError } = await supabase.functions.invoke('generar-layout-sopa', {
+                            body: {
+                                palabras: pregunta.datos_extra.palabras,
+                                tamano: pregunta.datos_extra.tamano || 10 // Usar tamaño o default
+                            }
+                        });
+                        if (sopaError) throw new Error(`Error generando layout Sopa: ${sopaError.message}`);
+                        // Fusionar layout generado con datos existentes (palabras, tamaño)
+                        datosExtraFinales = { ...pregunta.datos_extra, ...layoutSopa };
+                        console.log("Layout Sopa generado:", datosExtraFinales);
+
+                    } else if (pregunta.tipo_pregunta === 'crucigrama' && pregunta.datos_extra?.entradas?.length > 0 && pregunta.datos_extra.entradas[0].palabra) { // Validar que haya al menos una palabra
+                        console.log("Llamando a generar-layout-crucigrama...");
+                        const { data: layoutCrucigrama, error: crucigramaError } = await supabase.functions.invoke('generar-layout-crucigrama', {
+                            body: {
+                                entradas: pregunta.datos_extra.entradas // Enviar {palabra, pista}
+                            }
+                        });
+                        if (crucigramaError) throw new Error(`Error generando layout Crucigrama: ${crucigramaError.message}`);
+                        // Fusionar layout (entradas con pos, num_filas, num_cols) con datos existentes
+                        datosExtraFinales = { ...pregunta.datos_extra, ...layoutCrucigrama };
+                         console.log("Layout Crucigrama generado:", datosExtraFinales);
+                    }
+                     // Añadir 'else if' para 'relacionar_columnas' si necesita pre-procesamiento
+                } catch (layoutError) {
+                     // Si falla la generación del layout, ¿qué hacer?
+                     // Opción A: Fallar todo el guardado
+                     console.error(`Error al generar layout para pregunta tipo ${pregunta.tipo_pregunta}: ${layoutError.message}`);
+                     throw new Error(`No se pudo generar la estructura para la pregunta ${index + 1} (${pregunta.tipo_pregunta}). ${layoutError.message}`);
+                }
+                // --- FIN LLAMADA A FUNCIONES DE GENERACIÓN ---
+
+
+                // Preparar datos de la pregunta para Supabase
                 const preguntaData = {
+                    // ID se maneja en el upsert
                     evaluacion_id: savedEvaluacion.id,
                     user_id: user.id,
                     texto_pregunta: pregunta.texto_pregunta,
                     tipo_pregunta: pregunta.tipo_pregunta,
-                    puntos: pregunta.puntos || 0,
-                    orden: index, // Reasignar orden basado en la posición actual
-                    datos_extra: pregunta.datos_extra || null,
+                    puntos: pregunta.puntos || 0, // Asegurar valor numérico
+                    orden: index, // Orden secuencial
+                    datos_extra: datosExtraFinales, // USAR LOS DATOS FINALES (con layout si aplica)
+                    banco_pregunta_id: pregunta.banco_pregunta_id || null // Guardar referencia al banco si viene de ahí
                 };
-                let savedPreguntaId;
 
-                if (pregunta.isNew) { // Insertar
-                    const { data: newP, error: insertPError } = await supabase
-                    .from('preguntas')
-                    .insert(preguntaData)
-                    .select('id')
-                    .single();
-                    if (insertPError) throw insertPError;
-                    savedPreguntaId = newP.id;
-                } else if (typeof pregunta.id === 'number') { // Actualizar
-                    const { error: updatePError } = await supabase
-                        .from('preguntas')
-                        .update(preguntaData)
-                        .eq('id', pregunta.id);
-                    if (updatePError) throw updatePError;
-                    savedPreguntaId = pregunta.id;
+                // Añadir ID solo si estamos actualizando una existente
+                if (typeof pregunta.id === 'number') {
+                     preguntaData.id = pregunta.id;
                 }
 
+                // --- GUARDAR PREGUNTA (Usaremos upsert para simplificar) ---
+                 upsertPromises.push(
+                    supabase.from('preguntas').upsert(preguntaData).select().single().then(async ({ data: savedPregunta, error: upsertError }) => {
+                        if (upsertError) {
+                             console.error(`Error en upsert pregunta ${index + 1}:`, upsertError);
+                             throw new Error(`Error guardando pregunta ${index + 1}: ${upsertError.message}`);
+                         }
+                         const savedPreguntaId = savedPregunta.id;
+                         console.log(`Pregunta ${index + 1} guardada/actualizada con ID: ${savedPreguntaId}`);
 
-                // 3. Gestionar Opciones (solo para tipos que las usan)
-                if (pregunta.tipo_pregunta.startsWith('opcion_multiple') && savedPreguntaId) {
-                    // Obtener IDs de opciones existentes en el estado que no son nuevas
-                    const opcionesExistentesIds = (pregunta.opciones || []).map(opt => opt.id).filter(id => typeof id === 'number');
+                         // --- Gestionar Opciones (si aplica) ---
+                         if (pregunta.tipo_pregunta.startsWith('opcion_multiple') && savedPreguntaId) {
+                            // Borrar opciones antiguas que ya no están (excepto las del banco?)
+                            const opcionesActualesIds = pregunta.opciones.map(opt => opt.id).filter(id => typeof id === 'number');
+                            await supabase.from('opciones').delete()
+                                .eq('pregunta_id', savedPreguntaId)
+                                .not('id', 'in', `(${opcionesActualesIds.join(',') || 0})`);
 
-                    // Borrar opciones que ya no están en el estado
-                    if (isEditing) { // Solo tiene sentido borrar si estamos editando
-                        const { error: deleteOptError } = await supabase
-                            .from('opciones')
-                            .delete()
-                            .eq('pregunta_id', savedPreguntaId)
-                            .not('id', 'in', `(${opcionesExistentesIds.join(',') || 0})`);
-                        if (deleteOptError) console.warn(`Error borrando opciones antiguas para pregunta ${savedPreguntaId}:`, deleteOptError);
-                    }
+                             // Upsert opciones actuales
+                             const opcionesParaUpsert = pregunta.opciones.map((opt, optIndex) => {
+                                 const opcionData = {
+                                     pregunta_id: savedPreguntaId,
+                                     user_id: user.id,
+                                     texto_opcion: opt.texto_opcion,
+                                     es_correcta: opt.es_correcta || false,
+                                     orden: optIndex,
+                                     banco_opcion_id: opt.banco_opcion_id || null
+                                 };
+                                 // Solo añadir el ID si es una opción existente (numérico)
+                                 if (typeof opt.id === 'number') {
+                                     opcionData.id = opt.id;
+                                 }
+                                 return opcionData;
+                             });
+                              if (opcionesParaUpsert.length > 0) {
+                                  const { error: optUpsertError } = await supabase.from('opciones').upsert(opcionesParaUpsert);
+                                  if (optUpsertError) console.error(`Error upsert opciones para pregunta ${savedPreguntaId}:`, optUpsertError);
+                              }
+                         } else if (savedPreguntaId) {
+                              // Borrar opciones si el tipo ya no es opción múltiple
+                              await supabase.from('opciones').delete().eq('pregunta_id', savedPreguntaId);
+                         }
+                         // --- Fin Gestionar Opciones ---
+                         return savedPreguntaId; // Devolver ID para posible referencia futura
+                     }) // Fin .then()
+                 ); // Fin upsertPromises.push
+            } // Fin for preguntasParaGuardar
 
-                    // Upsert (Insertar o Actualizar) opciones del estado
-                    const opcionesParaUpsert = (pregunta.opciones || []).map((opt, index) => ({
-                        id: (typeof opt.id === 'number' ? opt.id : undefined), // Solo pasa ID si es numérico (existente)
-                        pregunta_id: savedPreguntaId,
-                        user_id: user.id,
-                        texto_opcion: opt.texto_opcion,
-                        es_correcta: opt.es_correcta || false,
-                        orden: index
-                    }));
+            // Esperar a que todas las operaciones de upsert de preguntas y opciones terminen
+            await Promise.all(upsertPromises);
+            console.log("Todas las preguntas y opciones procesadas.");
 
-                    if(opcionesParaUpsert.length > 0) {
-                        const { error: upsertOptError } = await supabase
-                            .from('opciones')
-                            .upsert(opcionesParaUpsert);
-                        if (upsertOptError) throw upsertOptError;
-                    }
-                } else if (savedPreguntaId) {
-                    // Si el tipo de pregunta cambió y ya no usa opciones, borrarlas
-                    const { error: deleteOptError } = await supabase.from('opciones').delete().eq('pregunta_id', savedPreguntaId);
-                    if (deleteOptError) console.warn(`Error limpiando opciones para pregunta ${savedPreguntaId}:`, deleteOptError);
-                }
-            } // Fin del bucle de preguntas
-
-            alert(`Evaluación "${savedEvaluacion.titulo}" ${isEditing ? 'actualizada' : 'creada'} exitosamente.`);
+            alert(`Evaluación ${isEditing ? 'actualizada' : 'creada'} exitosamente.`);
             onSave();
 
         } catch (error) {
-            console.error("Error guardando evaluación:", error);
-            alert("Error al guardar la evaluación: " + error.message);
+            console.error("Error GRAVE durante handleSubmit de Evaluación:", error);
+            alert("Error al guardar la evaluación: " + (error instanceof Error ? error.message : String(error)));
         } finally {
-            setLoading(false);
+            setLoading(false); // Desbloquear UI al final (éxito o error)
         }
     };
 
@@ -283,6 +331,8 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
     // Renderizado del Formulario
     return (
         <div className="evaluacion-form-container">
+            {/* ... (Modal Generar IA) ... */}
+            {/* ... (Modal Banco Preguntas) ... */}
             {/* --- RENDERIZAR MODAL --- */}
             <GenerarEvaluacionModal
                 show={showGenerarModal}
