@@ -25,7 +25,7 @@ const MateriaPanel = ({ session }) => {
         const fetchMateria = async () => {
             // Validar el ID numérico
             if (!materiaIdNumerico || isNaN(materiaIdNumerico)) {
-                 setError("ID de materia inválido.");
+                 setError("ID de materia inválido en la URL.");
                  setLoading(false);
                  return;
             }
@@ -40,7 +40,7 @@ const MateriaPanel = ({ session }) => {
                     .maybeSingle();
 
                 if (fetchError) throw fetchError;
-                if (!data) throw new Error("Materia no encontrada.");
+                if (!data) throw new Error("Materia no encontrada o no tienes permiso para verla.");
                 setMateria(data);
 
             } catch (err) {

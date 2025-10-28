@@ -23,9 +23,9 @@
 
 /* Barra de acciones masivas */
 .bulk-actions-bar {
-  background-color: var(--color-primary-lighter); /* Azul muy claro */
-  border: 1px solid var(--color-primary-light);
-  color: var(--color-primary-dark);
+  background-color: var(--color-primary-light, #e0f2fe);
+  border: 1px solid var(--color-primary-lighter, #bae6fd);
+  color: var(--color-primary-dark, #0c4a6e);
   padding: var(--spacing-md);
   margin-bottom: var(--spacing-lg);
   border-radius: var(--border-radius);
@@ -63,7 +63,6 @@
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
     background-color: #fff; /* Fondo blanco */
-    box-shadow: var(--shadow-light);
 }
 .grupo-header {
     display: flex;
@@ -84,15 +83,6 @@
     font-size: 1.1rem;
     transition: transform 0.2s;
 }
-/* Rotación del icono */
-/* .grupo-header[aria-expanded="false"] .grupo-toggle-icon { */
-    /* Asumiendo que FaAngleRight es el icono por defecto */
-    /* transform: rotate(0deg); */
-/* } */
-/* .grupo-header[aria-expanded="true"] .grupo-toggle-icon { */
-     /* Asumiendo que FaAngleDown es el icono expandido */
-    /* transform: rotate(0deg); */
-/* } */
 .grupo-header h4 {
     margin: 0;
     margin-left: 0.5rem;
@@ -146,6 +136,9 @@
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  position: sticky; /* Cabecera pegajosa si la tabla es scrollable */
+  top: 0;
+  z-index: 1;
 }
 /* Cabecera de la tabla interna */
 .alumnos-table.inside-group th {
@@ -160,7 +153,7 @@
 }
 /* Fila seleccionada */
 .alumnos-table tbody tr.selected-row {
-  background-color: var(--color-primary-light, #e0f2fe) !important;
+  background-color: var(--color-primary-lighter, #e0f2fe) !important;
 }
 .alumnos-table tbody tr.selected-row:hover {
   background-color: var(--color-primary-lighter, #bae6fd) !important;

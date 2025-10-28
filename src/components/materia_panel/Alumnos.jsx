@@ -8,14 +8,55 @@ import GrupoForm from './GrupoForm';
 import './Alumnos.css';
 import {
     FaKey, FaUserPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle,
-    FaSpinner, FaUsers, FaFolderPlus, FaAngleDown, FaAngleRight
+    FaSpinner, FaUsers, FaFolderPlus, FaAngleDown, FaAngleRight, FaUsersCog
 } from 'react-icons/fa';
+
+// Componente de Fila de Alumno (para limpiar el renderizado)
+const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error }) => {
+    const { id, matricula, apellido, nombre, email, grupos, user_id } = alumno;
+    
+    const accountState = creatingState;
+    const hasUserId = !!user_id;
+    // Se puede crear acceso si tiene email, matrícula, y no tiene ya un user_id
+    const canCreate = email && matricula && !hasUserId && accountState !== 'loading' && accountState !== 'success' && accountState !== 'exists';
+
+    return (
+        <tr className={isSelected ? 'selected-row' : ''}>
+            <td>
+                <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onSelect(id)}
+                />
+            </td>
+            <td>{matricula}</td>
+            <td>{apellido || ''}</td>
+            <td>{nombre || ''}</td>
+            <td>{email || '-'}</td>
+            <td>{grupos?.nombre || '-'}</td>
+            <td style={{ textAlign: 'center' }}>
+                {hasUserId || accountState === 'exists' || accountState === 'success' ? (
+                    <FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso de alumno activado"/>
+                ) : accountState === 'loading' ? (
+                    <FaSpinner className="spinner" />
+                ) : accountState === 'error' ? (
+                    <FaTimesCircle style={{ color: 'var(--color-danger)'}} title={error || "Error al crear cuenta"}/>
+                ) : canCreate ? (
+                    <button onClick={() => onCrearAcceso(alumno)} className="btn-secondary btn-small icon-button" title={`Crear acceso (Pass: ${matricula})`} disabled={accountState === 'loading'}><FaKey /></button>
+                ) : (<span title={!email ? "Requiere correo" : (!matricula ? "Requiere matrícula" : "N/A")}>-</span>)}
+            </td>
+            <td>
+                <button onClick={() => onEdit(alumno)} className="btn-secondary btn-small icon-button" title="Editar Alumno"><FaEdit /></button>
+                <button onClick={() => onDelete(id, user_id)} className="btn-danger btn-small icon-button" title="Eliminar Alumno" style={{marginLeft:'5px'}}><FaTrash /></button>
+            </td>
+        </tr>
+    );
+};
 
 const Alumnos = ({ materiaId, nombreMateria }) => {
     const [alumnos, setAlumnos] = useState([]);
     const [grupos, setGrupos] = useState([]);
-    const [loadingAlumnos, setLoadingAlumnos] = useState(true);
-    const [loadingGrupos, setLoadingGrupos] = useState(true);
+    const [loading, setLoading] = useState(true);
     const [editingAlumno, setEditingAlumno] = useState(null);
     const [editingGrupo, setEditingGrupo] = useState(null);
     const [showAlumnoForm, setShowAlumnoForm] = useState(false);
@@ -26,12 +67,12 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     const [creatingAccountStates, setCreatingAccountStates] = useState({});
     const [selectedAlumnos, setSelectedAlumnos] = useState(new Set());
     const [showAssignGroupModal, setShowAssignGroupModal] = useState(false);
-    const [expandedGroups, setExpandedGroups] = useState(new Set(['sin_grupo'])); // Inicia con "Sin Grupo" expandido
+    const [expandedSections, setExpandedSections] = useState(new Set(['lista_alumnos', 'gestion_grupos'])); // Ambas expandidas por defecto
 
     // --- Carga de Datos ---
     const fetchGrupos = useCallback(async () => {
         if (!materiaId) return;
-        setLoadingGrupos(true);
+        setLoading(true);
         try {
             const { data, error: grupoError } = await supabase
                 .from('grupos')
@@ -40,16 +81,14 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                 .order('nombre');
             if (grupoError) throw grupoError;
             setGrupos(data || []);
-        } catch (err) {
-            console.error("Error cargando grupos:", err);
-            setError(prev => prev + " Error al cargar grupos.");
-        } finally { setLoadingGrupos(false); }
+        } catch (err) { setError(prev => (prev ? prev + " | " : "") + "Error al cargar grupos."); }
+        finally { setLoading(false); }
     }, [materiaId]);
 
     const fetchAlumnos = useCallback(async () => {
         // Guarda para evitar ejecución sin materiaId
         if (!materiaId || typeof materiaId !== 'number' || isNaN(materiaId)) {
-            setLoadingAlumnos(false); setAlumnos([]);
+            setLoading(false); setAlumnos([]);
             return;
         }
         setLoadingAlumnos(true); setError('');
@@ -62,39 +101,25 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
             if (fetchError) throw fetchError;
             setAlumnos(data || []);
-        } catch (err) {
-            console.error("Error cargando alumnos:", err);
-            setError("No se pudieron cargar los alumnos: " + err.message);
-            setAlumnos([]);
-        } finally {
-            setLoadingAlumnos(false);
-        }
+        } catch (err) { setError("No se pudieron cargar los alumnos: " + err.message); setAlumnos([]); }
+        finally { setLoading(false); }
     }, [materiaId]);
 
     useEffect(() => {
         if (materiaId) {
             fetchGrupos();
             fetchAlumnos();
-        } else {
-            setAlumnos([]); setGrupos([]); setLoadingAlumnos(false); setLoadingGrupos(false);
-        }
+        } else { setAlumnos([]); setGrupos([]); setLoading(false); }
     }, [materiaId, fetchAlumnos, fetchGrupos]);
 
-    // --- Agrupar Alumnos ---
-    const alumnosAgrupados = useMemo(() => {
-        const grouped = { sin_grupo: [] }; // Clave para alumnos sin grupo
-        grupos.forEach(g => grouped[g.id] = []); // Claves para grupos existentes
-
-        alumnos.filter(alumno => // Filtrar por búsqueda
+    // --- Filtrar Alumnos (para la lista principal) ---
+    const filteredAlumnos = useMemo(() => {
+        return alumnos.filter(alumno =>
             `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''} ${alumno.grupos?.nombre || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
-        ).forEach(alumno => {
-            const grupoKey = alumno.grupo_id || 'sin_grupo';
-            (grouped[grupoKey] = grouped[grupoKey] || []).push(alumno);
-        });
-        return grouped;
-    }, [alumnos, grupos, searchTerm]);
+        );
+    }, [alumnos, searchTerm]);
 
-    const visibleAlumnoIds = useMemo(() => Object.values(alumnosAgrupados).flat().map(a => a.id), [alumnosAgrupados]);
+    const visibleAlumnoIds = useMemo(() => filteredAlumnos.map(a => a.id), [filteredAlumnos]);
 
     // --- Handlers Formularios y CRUD Individual ---
     const handleEditAlumno = (alumno) => {
@@ -105,13 +130,13 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     };
 
     const handleDeleteAlumno = async (alumnoId, alumnoUserId) => {
-        if (window.confirm("¿Estás seguro de eliminar este alumno? (La cuenta de acceso, si existe, no se borrará)")) {
+        if (window.confirm("¿Seguro que quieres eliminar este alumno?")) {
              setError('');
             try {
                 const { error: deleteError } = await supabase.from('alumnos').delete().eq('id', alumnoId);
                 if (deleteError) throw deleteError;
                 if (alumnoUserId) console.warn(`Alumno ${alumnoId} borrado, cuenta Auth ${alumnoUserId} permanece.`);
-                setAlumnos(prev => prev.filter(a => a.id !== alumnoId)); // Actualiza UI
+                fetchAlumnos(); // Recargar
             } catch (err) {
                 setError("Error al eliminar alumno: " + err.message);
             }
@@ -119,7 +144,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     };
 
     const handleSaveAlumno = () => { // Se llama al guardar/actualizar
-        setShowAlumnoForm(false); setEditingAlumno(null); fetchAlumnos();
+        setShowAlumnoForm(false); setEditingAlumno(null); fetchAlumnos(); 
     };
     const handleCancelAlumno = () => { // Se llama al cancelar
         setShowAlumnoForm(false); setEditingAlumno(null);
@@ -135,7 +160,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
          if (alumnosEnGrupo > 0) confirmMessage += ` ${alumnosEnGrupo} alumno(s) quedarán sin asignar.`;
 
         if (window.confirm(confirmMessage)) {
-             setLoadingGrupos(true); setError('');
+             setLoading(true); setError('');
              try {
                 await supabase.from('alumnos').update({ grupo_id: null }).eq('grupo_id', grupoId); // Desasignar alumnos
                  const { error } = await supabase.from('grupos').delete().eq('id', grupoId);
@@ -143,11 +168,11 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                  fetchGrupos(); fetchAlumnos(); // Recargar ambos
              } catch (err) {
                  setError("Error al eliminar grupo: " + err.message);
-             } finally { setLoadingGrupos(false); }
+             } finally { setLoading(false); }
          }
      };
     const handleSaveGrupo = () => {
-        setShowGrupoForm(false); setEditingGrupo(null); fetchGrupos(); // Recargar grupos
+        setShowGrupoForm(false); setEditingGrupo(null); fetchGrupos(); fetchAlumnos(); // Recargar ambos
     };
     const handleCancelGrupo = () => {
         setShowGrupoForm(false); setEditingGrupo(null);
@@ -160,6 +185,10 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             next.has(alumnoId) ? next.delete(alumnoId) : next.add(alumnoId);
             return next;
         });
+    };
+
+    const handleSelectAllVisible = (event) => {
+        setSelectedAlumnos(event.target.checked ? new Set(visibleAlumnoIds) : new Set());
     };
 
     const isAllVisibleSelected = visibleAlumnoIds.length > 0 && selectedAlumnos.size >= visibleAlumnoIds.length &&
