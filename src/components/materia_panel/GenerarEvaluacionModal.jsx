@@ -3,16 +3,30 @@ import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import './GenerarEvaluacionModal.css'; // Asegúrate de crear este archivo CSS
 
+// --- INICIO CORRECCIÓN: Añadir todos los tipos de pregunta ---
 const TIPOS_PREGUNTA = [
     { value: 'opcion_multiple_unica', label: 'Opción Múltiple (Única)' },
+    { value: 'opcion_multiple_multiple', label: 'Opción Múltiple (Varias)' }, // Añadido
     { value: 'abierta', label: 'Pregunta Abierta' },
-    // Añadir más tipos si la función los soporta
+    { value: 'sopa_letras', label: 'Sopa de Letras' }, // Añadido
+    { value: 'crucigrama', label: 'Crucigrama' }, // Añadido
+    { value: 'relacionar_columnas', label: 'Relacionar Columnas' }, // Añadido
 ];
+// --- FIN CORRECCIÓN ---
 
 const GenerarEvaluacionModal = ({ show, onClose, onGenerar }) => {
     const [tema, setTema] = useState('');
     const [numPreguntas, setNumPreguntas] = useState(10);
-    const [tiposSeleccionados, setTiposSeleccionados] = useState(['opcion_multiple_unica', 'abierta']);
+    // --- CORRECCIÓN: Incluir todos los tipos por defecto (o los que prefieras) ---
+    const [tiposSeleccionados, setTiposSeleccionados] = useState([
+        'opcion_multiple_unica',
+        'opcion_multiple_multiple',
+        'abierta',
+        'sopa_letras',
+        'crucigrama',
+        'relacionar_columnas'
+    ]);
+    // --- FIN CORRECCIÓN ---
     const [instrucciones, setInstrucciones] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -44,35 +58,32 @@ const GenerarEvaluacionModal = ({ show, onClose, onGenerar }) => {
             }
 
 
+            // Llamada a la función Edge (sin cambios aquí)
             const { data, error: invokeError } = await supabase.functions.invoke('generar-evaluacion-gemini', {
                 body: {
                     tema,
-                    num_preguntas: numPreguntasInt, // Enviar como número
-                    tipos_preguntas: tiposSeleccionados,
+                    num_preguntas: numPreguntasInt,
+                    tipos_preguntas: tiposSeleccionados, // Ya incluye todos los seleccionados
                     instrucciones_adicionales: instrucciones
                 }
             });
 
-            // Manejo de errores de la función Edge
             if (invokeError) {
-                 // Intenta obtener un mensaje más útil del error
                  const detail = invokeError.context?.details || invokeError.message;
                  throw new Error(`Error al invocar la función: ${detail}`);
             }
-             // Validar la respuesta de la función
             if (!data || !Array.isArray(data.preguntas)) {
-                 console.error("Respuesta inesperada de la función Edge:", data);
-                 throw new Error("La respuesta de la IA no tuvo el formato esperado (faltan 'preguntas' o no es array).");
+                 console.error("Respuesta inesperada:", data);
+                 throw new Error("La respuesta de la IA no tuvo el formato esperado.");
             }
 
-            console.log("Preguntas generadas recibidas:", data.preguntas);
-            onGenerar(data.preguntas); // Llama al callback con las preguntas generadas
-            onClose(); // Cierra el modal
+            console.log("Preguntas generadas:", data.preguntas);
+            onGenerar(data.preguntas);
+            onClose();
 
         } catch (err) {
-            console.error("Error generando evaluación con IA:", err);
-            // Mostrar el mensaje de error específico
-            setError(err.message || 'Ocurrió un error desconocido al generar el examen.');
+            console.error("Error generando evaluación:", err);
+            setError(err.message || 'Ocurrió un error desconocido.');
         } finally {
             setLoading(false);
         }
@@ -80,9 +91,10 @@ const GenerarEvaluacionModal = ({ show, onClose, onGenerar }) => {
 
     // Resetea el formulario al cerrar (opcional pero buena UX)
     const handleClose = () => {
+        // Resetear estado al cerrar (sin cambios)
         setTema('');
         setNumPreguntas(10);
-        setTiposSeleccionados(['opcion_multiple_unica', 'abierta']);
+        setTiposSeleccionados(['opcion_multiple_unica', 'opcion_multiple_multiple', 'abierta', 'sopa_letras', 'crucigrama', 'relacionar_columnas']); // Resetear a todos
         setInstrucciones('');
         setError('');
         setLoading(false);
@@ -97,9 +109,10 @@ const GenerarEvaluacionModal = ({ show, onClose, onGenerar }) => {
                     <h3>✨ Generar Evaluación con IA</h3>
                     <button onClick={handleClose} className="close-btn">&times;</button>
                 </div>
-                <form onSubmit={handleSubmit} className="modal-body materia-form"> {/* Reutiliza clase materia-form */}
+                <form onSubmit={handleSubmit} className="modal-body materia-form">
                     {error && <p className="error-message">{error}</p>}
 
+                    {/* Campos Tema, Num Preguntas (sin cambios) */}
                     <div className="form-group">
                         <label htmlFor="temaIA">Tema Principal del Examen</label>
                         <input
@@ -108,16 +121,16 @@ const GenerarEvaluacionModal = ({ show, onClose, onGenerar }) => {
                             placeholder="Ej: Fundamentos de React, Derivadas, La Célula" required
                         />
                     </div>
-
                     <div className="form-group">
                         <label htmlFor="numPreguntasIA">Número de Preguntas</label>
                         <input
                             id="numPreguntasIA" type="number" value={numPreguntas}
                             onChange={(e) => setNumPreguntas(e.target.value)}
-                            min="1" max="50" required // Limitar para evitar prompts muy largos
+                            min="1" max="50" required
                         />
                     </div>
 
+                    {/* Tipos de Pregunta (ahora mostrará todos los definidos en TIPOS_PREGUNTA) */}
                     <div className="form-group">
                         <label>Tipos de Pregunta a Incluir</label>
                         <div className="checkbox-group">
@@ -135,17 +148,19 @@ const GenerarEvaluacionModal = ({ show, onClose, onGenerar }) => {
                         </div>
                     </div>
 
+                    {/* Campo Instrucciones Adicionales (sin cambios) */}
                     <div className="form-group">
                         <label htmlFor="instruccionesIA">Instrucciones Adicionales (Opcional)</label>
                         <textarea
                             id="instruccionesIA" value={instrucciones}
                             onChange={(e) => setInstrucciones(e.target.value)}
                             rows="3"
-                            placeholder="Ej: Enfócate en la sintaxis de hooks, Incluye preguntas sobre la historia de México, Nivel de dificultad: Introductorio"
+                            placeholder="Ej: Enfócate en la sintaxis de hooks, Nivel: Introductorio"
                         />
                     </div>
 
-                    <div className="form-actions"> {/* Reutiliza clase form-actions */}
+                    {/* Botones de Acción (sin cambios) */}
+                    <div className="form-actions">
                         <button type="button" onClick={handleClose} className="btn-tertiary" disabled={loading}>Cancelar</button>
                         <button type="submit" className="btn-primary" disabled={loading}>
                             {loading ? 'Generando...' : 'Generar Examen'}

@@ -45,7 +45,7 @@ const ConfigSopaLetras = ({ datos, onDatosChange }) => {
                     rows="5"
                     value={palabrasTexto}
                     onChange={handlePalabrasChange}
-                    placeholder="REACT\nJAVASCRIPT\nCOMPONENTE..." // Placeholder de ejemplo
+                    placeholder={"REACT\nJAVASCRIPT\nCOMPONENTE..."} // Usar \n real
                 />
             </div>
              <div className="form-group">
