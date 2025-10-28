@@ -10,7 +10,7 @@ import { FaKey, FaUserPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle } from
 
 const Alumnos = ({ materiaId, nombreMateria }) => {
     const [alumnos, setAlumnos] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(true); // Mantener true inicialmente
     const [editingAlumno, setEditingAlumno] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [showCSVUploader, setShowCSVUploader] = useState(false);
@@ -19,20 +19,33 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     const [creatingAccountStates, setCreatingAccountStates] = useState({}); // Estado para manejar la carga por botón
 
     const fetchAlumnos = useCallback(async () => {
+        // --- INICIO CORRECCIÓN ---
+        // Solo ejecutar si materiaId es un número válido
+        if (!materiaId || typeof materiaId !== 'number' || isNaN(materiaId)) {
+            console.warn("fetchAlumnos: materiaId no es válido aún:", materiaId);
+            // Opcional: Puedes poner loading en false aquí si no quieres que muestre "Cargando..."
+            // setLoading(false);
+            // Opcional: Limpiar lista de alumnos si cambia la materia
+            // setAlumnos([]);
+            return; // No hacer la petición si no hay ID
+        }
+        // --- FIN CORRECCIÓN ---
+
+        console.log("Fetching alumnos for materiaId:", materiaId); // Log para confirmar ID
         setLoading(true);
         setError('');
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
-                .select('*') // Seleccionar todas las columnas, incluyendo user_id
-                .eq('materia_id', materiaId)
+                .select('*')
+                .eq('materia_id', materiaId) // Ahora materiaId debería ser válido
                 .order('apellido', { ascending: true });
 
             if (fetchError) throw fetchError;
             setAlumnos(data || []);
         } catch (err) {
             console.error("Error cargando alumnos:", err);
-            setError("No se pudieron cargar los alumnos.");
+            setError("No se pudieron cargar los alumnos: " + err.message); // Mostrar mensaje
         } finally {
             setLoading(false);
         }
@@ -40,8 +53,9 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
     useEffect(() => {
         fetchAlumnos();
-    }, [fetchAlumnos]);
+    }, [fetchAlumnos]); // La dependencia es fetchAlumnos (que a su vez depende de materiaId)
 
+    // ... (resto de las funciones: handleEdit, handleDelete, handleSave, handleCancel, handleCrearAcceso) ...
     const handleEdit = (alumno) => {
         setEditingAlumno(alumno);
         setShowForm(true);
@@ -144,6 +158,11 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         `${alumno.nombre} ${alumno.apellido} ${alumno.matricula}`.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    // --- RENDERIZADO (con condición inicial si no hay materiaId) ---
+    if (!materiaId) {
+         return <div className="alumnos-container section-container"><p>Selecciona una materia para ver los alumnos.</p></div>;
+    }
+
     return (
         <div className="alumnos-container section-container">
             <h3>Gestión de Alumnos <span className='section-subtitle'>({nombreMateria})</span></h3>
@@ -167,14 +186,14 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                 </div>
             </div>
 
-            {error && <p className="error-message" style={{marginTop:'1rem'}}>{error}</p>}
+            {error && <p className="error-message">{error}</p>}
 
             {/* Formularios Modales */}
             {showForm && <AlumnoForm alumno={editingAlumno} materiaId={materiaId} onSave={handleSave} onCancel={handleCancel} />}
             {showCSVUploader && <CSVUploader materiaId={materiaId} onUploadComplete={handleSave} onCancel={handleCancel} />}
 
 
-            {loading && !showForm && !showCSVUploader ? <p>Cargando alumnos...</p> : (
+            {loading && !showForm && !showCSVUploader ? <p>Cargando alumnos...</p> : ( !showForm && !showCSVUploader && ( // Añadir condición para no mostrar tabla si modales están abiertos
             <div className='table-responsive'>
                 <table className="alumnos-table">
                     <thead>
@@ -191,7 +210,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                         {filteredAlumnos.length > 0 ? filteredAlumnos.map(alumno => {
                              const accountState = creatingAccountStates[alumno.id];
                              const hasUserId = !!alumno.user_id && alumno.user_id !== 'pending_refresh';
-                             const canCreate = alumno.email && !hasUserId;
+                             const canCreate = alumno.email && alumno.matricula && !hasUserId; // Añadir chequeo de matrícula
 
                             return (
                                 <tr key={alumno.id}>
@@ -217,7 +236,8 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 <FaKey /> Crear
                                             </button>
                                         ) : (
-                                            <span title={!alumno.email ? "Se requiere correo para crear acceso" : ""}>-</span>
+                                            // Tooltip más específico
+                                            <span title={!alumno.email ? "Se requiere correo" : (!alumno.matricula ? "Se requiere matrícula" : "Acceso ya activo o procesando")}>-</span>
                                         )}
                                     </td>
                                     {/* --- Fin Celda Estado --- */}
@@ -233,12 +253,13 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                             );
                         }) : (
                             <tr>
-                                <td colSpan="6">No se encontraron alumnos.</td>
+                                <td colSpan="6">No se encontraron alumnos{searchTerm && ' que coincidan con la búsqueda'}.</td>
                             </tr>
                         )}
                     </tbody>
                 </table>
              </div>
+             ) // Fin condición !showForm && !showCSVUploader
             )}
         </div>
     );
