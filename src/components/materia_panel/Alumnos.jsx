@@ -253,10 +253,10 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         }
      };
 
-     const toggleGroupExpansion = (grupoKey) => {
-         setExpandedGroups(prev => {
+     const toggleSectionExpansion = (sectionKey) => {
+         setExpandedSections(prev => {
              const next = new Set(prev);
-             next.has(grupoKey) ? next.delete(grupoKey) : next.add(grupoKey);
+             next.has(sectionKey) ? next.delete(sectionKey) : next.add(sectionKey);
              return next;
          });
      };
@@ -264,23 +264,14 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
     return (
         <div className="alumnos-container section-container">
-            {/* Título y Botón Crear Grupo */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                 <h3>Gestión de Alumnos <span className='section-subtitle'>({nombreMateria})</span></h3>
-                 <button onClick={() => { setEditingGrupo(null); setShowGrupoForm(true); }} className="btn-secondary icon-button" title="Crear Nuevo Grupo">
-                     <FaFolderPlus /> Crear Grupo
-                 </button>
-            </div>
-
-            {/* Barra Búsqueda y Añadir/Subir */}
             <div className="table-actions">
                 <input type="text" placeholder="Buscar alumno por nombre, matrícula o grupo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="search-input" />
-                <div>
+                <div className='table-actions-buttons'>
                      {/* CORRECCIÓN: Asegurar setEditingAlumno(null) */}
                      <button onClick={() => { setEditingAlumno(null); setShowAlumnoForm(true); setShowCSVUploader(false); setShowGrupoForm(false); }} className="btn-primary icon-button">
                         <FaUserPlus /> Añadir Alumno
                     </button>
-                    <button onClick={() => { setEditingAlumno(null); setShowCSVUploader(true); setShowAlumnoForm(false); setShowGrupoForm(false); }} className="btn-secondary icon-button" style={{marginLeft: '10px'}}>
+                    <button onClick={() => { setEditingAlumno(null); setShowCSVUploader(true); setShowAlumnoForm(false); setShowGrupoForm(false); }} className="btn-secondary icon-button">
                         Subir CSV
                     </button>
                 </div>
@@ -289,20 +280,19 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             {/* Barra Acciones Masivas */}
             {selectedAlumnos.size > 0 && (
                 <div className="bulk-actions-bar">
-                    <span>{selectedAlumnos.size} seleccionado(s)</span>
+                    <span className="selected-count">{selectedAlumnos.size} seleccionado(s)</span>
                     <button onClick={handleOpenAssignGroupModal} className="btn-secondary icon-button btn-small">
-                        <FaUsers /> Asignar Grupo
+                        <FaUsersCog /> Asignar Grupo
                     </button>
                     <button onClick={handleBulkDelete} className="btn-danger icon-button btn-small">
                         <FaTrash /> Eliminar Seleccionados
                     </button>
-                      <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      <label className='select-all-label'>
                           <input
                               type="checkbox"
                               checked={isAllVisibleSelected}
                               onChange={handleSelectAllVisible}
                               disabled={visibleAlumnoIds.length === 0}
-                              style={{ marginRight: '5px' }}
                               title="Seleccionar Todos los Visibles"
                           />
                           Todos Visibles
