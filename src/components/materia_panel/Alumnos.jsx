@@ -309,111 +309,96 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             {showAssignGroupModal && <AsignarGrupoModal grupos={grupos} onClose={() => setShowAssignGroupModal(false)} onAssign={handleAssignGroup} />}
 
             {/* Listado de Alumnos por Grupo */}
-            {loading && !showAlumnoForm && !showCSVUploader && !showGrupoForm ? (
+            {loading ? (
                 <div style={{textAlign: 'center', padding: '2rem'}}><FaSpinner className="spinner" /> Cargando...</div>
             ) : (
              !showAlumnoForm && !showCSVUploader && !showGrupoForm && (
                 <div className="grupos-list">
-                    {/* Grupos Existentes */}
-                    {grupos.map(grupo => {
-                        const grupoKey = grupo.id;
-                        const alumnosEnEsteGrupo = alumnosAgrupados[grupoKey] || [];
-                        const isExpanded = expandedGroups.has(grupoKey);
-                         const areAllInGroupSelected = alumnosEnEsteGrupo.length > 0 && alumnosEnEsteGrupo.every(a => selectedAlumnos.has(a.id));
-
-                        return (
-                            <div key={grupoKey} className="grupo-container card">
-                                <div className="grupo-header" onClick={() => toggleGroupExpansion(grupoKey)}>
-                                     <span className='grupo-toggle-icon'>{isExpanded ? <FaAngleDown /> : <FaAngleRight />}</span>
-                                    <input type="checkbox" checked={areAllInGroupSelected} onChange={(e) => handleSelectGroup(grupoKey, e)} onClick={(e) => e.stopPropagation()} disabled={alumnosEnEsteGrupo.length === 0} title={`Seleccionar ${grupo.nombre}`} style={{ marginRight: '10px' }}/>
-                                    <h4>{grupo.nombre} ({alumnosEnEsteGrupo.length})</h4>
-                                    <div className="grupo-actions">
-                                        <button onClick={(e) => { e.stopPropagation(); handleEditGrupo(grupo); }} className="btn-secondary btn-small icon-button" title="Editar Nombre Grupo"> <FaEdit /> </button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteGrupo(grupo.id); }} className="btn-danger btn-small icon-button" title="Eliminar Grupo"> <FaTrash /> </button>
-                                    </div>
-                                </div>
-                                {isExpanded && (
-                                     <div className='table-responsive'>
-                                         <table className="alumnos-table inside-group">
-                                             <thead><tr><th style={{width:'30px'}}></th><th>Matrícula</th><th>Apellido, Nombre</th><th>Correo</th><th>Acceso</th><th>Acciones</th></tr></thead>
-                                             <tbody>
-                                                 {alumnosEnEsteGrupo.length > 0 ? alumnosEnEsteGrupo.map(alumno => {
-                                                     const isSelected = selectedAlumnos.has(alumno.id);
-                                                     const accountState = creatingAccountStates[alumno.id];
-                                                     const hasUserId = !!alumno.user_id;
-                                                     const canCreate = alumno.email && alumno.matricula && !hasUserId && accountState !== 'loading' && accountState !== 'success' && accountState !== 'exists';
-                                                     return (
-                                                         <tr key={alumno.id} className={isSelected ? 'selected-row' : ''}>
-                                                             <td><input type="checkbox" checked={isSelected} onChange={() => handleSelectAlumno(alumno.id)} /></td>
-                                                             <td>{alumno.matricula}</td>
-                                                             <td>{alumno.apellido}, {alumno.nombre}</td>
-                                                             <td>{alumno.email || '-'}</td>
-                                                             <td style={{ textAlign: 'center' }}>
-                                                                  {hasUserId || accountState === 'exists' || accountState === 'success' ? (<FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso activado"/>)
-                                                                  : accountState === 'loading' ? (<FaSpinner className="spinner" />)
-                                                                  : accountState === 'error' ? (<FaTimesCircle style={{ color: 'var(--color-danger)'}} title={error || "Error al crear"}/>)
-                                                                  : canCreate ? (<button onClick={() => handleCrearAcceso(alumno)} className="btn-secondary btn-small icon-button" title={`Crear acceso (Pass: ${alumno.matricula})`} disabled={accountState === 'loading'}><FaKey /></button>)
-                                                                  : (<span title={!alumno.email ? "Requiere correo" : (!alumno.matricula ? "Requiere matrícula" : "")}>-</span>)}
-                                                             </td>
-                                                             <td>
-                                                                  <button onClick={() => handleEditAlumno(alumno)} className="btn-secondary btn-small icon-button" title="Editar Alumno"><FaEdit /></button>
-                                                                  <button onClick={() => handleDeleteAlumno(alumno.id, alumno.user_id)} className="btn-danger btn-small icon-button" title="Eliminar Alumno" style={{marginLeft:'5px'}}><FaTrash /></button>
-                                                             </td>
-                                                         </tr>
-                                                     );
-                                                 }) : (<tr><td colSpan="6">No hay alumnos {searchTerm ? 'visibles ' : ''}en este grupo.</td></tr>)}
-                                             </tbody>
-                                         </table>
-                                    </div>
-                                )}
+                
+                    {/* --- Sección 1: Gestión de Grupos --- */}
+                    <div className="grupo-container card">
+                        <div className="grupo-header" onClick={() => toggleSectionExpansion('gestion_grupos')}>
+                             <span className='grupo-toggle-icon'>{expandedSections.has('gestion_grupos') ? <FaAngleDown /> : <FaAngleRight />}</span>
+                             <h4>Gestión de Grupos/Equipos ({grupos.length})</h4>
+                             <div className="grupo-actions">
+                                <button onClick={(e) => { e.stopPropagation(); setEditingGrupo(null); setShowGrupoForm(true); }} className="btn-primary btn-small icon-button" title="Crear Nuevo Grupo">
+                                    <FaFolderPlus /> Crear Grupo
+                                </button>
+                             </div>
+                        </div>
+                        {expandedSections.has('gestion_grupos') && (
+                            <div className='table-responsive'>
+                                <table className="alumnos-table inside-group">
+                                    <thead><tr><th>Nombre del Grupo</th><th>Miembros</th><th style={{textAlign: 'right'}}>Acciones</th></tr></thead>
+                                    <tbody>
+                                        {grupos.length > 0 ? grupos.map(grupo => {
+                                            const miembrosCount = alumnos.filter(a => a.grupo_id === grupo.id).length;
+                                            return (
+                                                <tr key={grupo.id}>
+                                                    <td>{grupo.nombre}</td>
+                                                    <td>{miembrosCount}</td>
+                                                    <td style={{textAlign: 'right'}}>
+                                                        <button onClick={() => handleEditGrupo(grupo)} className="btn-secondary btn-small icon-button" title="Editar Nombre"><FaEdit /></button>
+                                                        <button onClick={() => handleDeleteGrupo(grupo.id)} className="btn-danger btn-small icon-button" title="Eliminar Grupo" style={{marginLeft:'5px'}}><FaTrash /></button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        }) : (
+                                            <tr><td colSpan="3">No hay grupos creados. Haz clic en "Crear Grupo" para empezar.</td></tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
-                        );
-                    })}
+                        )}
+                    </div>
 
-                    {/* Alumnos Sin Grupo */}
-                    <div key="sin_grupo" className="grupo-container card">
-                         <div className="grupo-header" onClick={() => toggleGroupExpansion('sin_grupo')}>
-                             <span className='grupo-toggle-icon'>{expandedGroups.has('sin_grupo') ? <FaAngleDown /> : <FaAngleRight />}</span>
-                              <input type="checkbox"
-                                checked={(alumnosAgrupados['sin_grupo']?.length || 0) > 0 && (alumnosAgrupados['sin_grupo'] || []).every(a => selectedAlumnos.has(a.id))}
-                                onChange={(e) => handleSelectGroup('sin_grupo', e)}
-                                onClick={(e) => e.stopPropagation()}
-                                disabled={!alumnosAgrupados['sin_grupo'] || alumnosAgrupados['sin_grupo'].length === 0}
-                                title="Seleccionar/Deseleccionar todos sin grupo" style={{ marginRight: '10px' }}
-                             />
-                             <h4>Sin Grupo Asignado ({alumnosAgrupados['sin_grupo']?.length || 0})</h4>
-                             {/* No hay acciones de editar/borrar para este "grupo" */}
+                    {/* --- Sección 2: Lista de Alumnos --- */}
+                    <div key="lista_alumnos" className="grupo-container card">
+                         <div className="grupo-header" onClick={() => toggleSectionExpansion('lista_alumnos')}>
+                             <span className='grupo-toggle-icon'>{expandedSections.has('lista_alumnos') ? <FaAngleDown /> : <FaAngleRight />}</span>
+                             {/* Cambiamos el checkbox por el título */}
+                             <h4>Lista de Alumnos ({filteredAlumnos.length})</h4>
+                             {/* El checkbox "Seleccionar Todos" ya está en la barra de acciones masivas */}
                          </div>
-                         {expandedGroups.has('sin_grupo') && (
+                         {expandedSections.has('lista_alumnos') && (
                              <div className='table-responsive'>
                                  <table className="alumnos-table inside-group">
-                                    <thead><tr><th style={{width:'30px'}}></th><th>Matrícula</th><th>Apellido, Nombre</th><th>Correo</th><th>Acceso</th><th>Acciones</th></tr></thead>
+                                    <thead>
+                                        <tr>
+                                            <th style={{width:'30px'}}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isAllVisibleSelected}
+                                                    onChange={handleSelectAllVisible}
+                                                    disabled={visibleAlumnoIds.length === 0}
+                                                    title="Seleccionar Todos los Visibles"
+                                                />
+                                            </th>
+                                            <th>Matrícula</th>
+                                            <th>Apellido</th>
+                                            <th>Nombre</th>
+                                            <th>Correo</th>
+                                            <th>Grupo</th>
+                                            <th>Acceso</th>
+                                            <th style={{textAlign: 'right'}}>Acciones</th>
+                                        </tr>
+                                    </thead>
                                      <tbody>
-                                         {(alumnosAgrupados['sin_grupo'] || []).length > 0 ? (alumnosAgrupados['sin_grupo'] || []).map(alumno => {
-                                            const isSelected = selectedAlumnos.has(alumno.id);
-                                            const accountState = creatingAccountStates[alumno.id];
-                                            const hasUserId = !!alumno.user_id;
-                                            const canCreate = alumno.email && alumno.matricula && !hasUserId && accountState !== 'loading' && accountState !== 'success' && accountState !== 'exists';
-                                             return (
-                                                 <tr key={alumno.id} className={isSelected ? 'selected-row' : ''}>
-                                                     <td><input type="checkbox" checked={isSelected} onChange={() => handleSelectAlumno(alumno.id)} /></td>
-                                                     <td>{alumno.matricula}</td>
-                                                     <td>{alumno.apellido}, {alumno.nombre}</td>
-                                                     <td>{alumno.email || '-'}</td>
-                                                     <td style={{ textAlign: 'center' }}>
-                                                         {hasUserId || accountState === 'exists' || accountState === 'success' ? (<FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso activado"/>)
-                                                         : accountState === 'loading' ? (<FaSpinner className="spinner" />)
-                                                         : accountState === 'error' ? (<FaTimesCircle style={{ color: 'var(--color-danger)'}} title={error || "Error al crear"}/>)
-                                                         : canCreate ? (<button onClick={() => handleCrearAcceso(alumno)} className="btn-secondary btn-small icon-button" title={`Crear acceso (Pass: ${alumno.matricula})`} disabled={accountState === 'loading'}><FaKey /></button>)
-                                                         : (<span title={!alumno.email ? "Requiere correo" : (!alumno.matricula ? "Requiere matrícula" : "")}>-</span>)}
-                                                     </td>
-                                                     <td>
-                                                         <button onClick={() => handleEditAlumno(alumno)} className="btn-secondary btn-small icon-button" title="Editar Alumno"><FaEdit /></button>
-                                                         <button onClick={() => handleDeleteAlumno(alumno.id, alumno.user_id)} className="btn-danger btn-small icon-button" title="Eliminar Alumno" style={{marginLeft:'5px'}}><FaTrash /></button>
-                                                     </td>
-                                                 </tr>
-                                             );
-                                         }) : (<tr><td colSpan="6">No hay alumnos {searchTerm ? 'visibles ' : ''}sin asignar.</td></tr>)}
+                                         {filteredAlumnos.length > 0 ? filteredAlumnos.map(alumno => (
+                                             <AlumnoRow
+                                                key={alumno.id}
+                                                alumno={alumno}
+                                                isSelected={selectedAlumnos.has(alumno.id)}
+                                                onSelect={handleSelectAlumno}
+                                                onEdit={handleEditAlumno}
+                                                onDelete={handleDeleteAlumno}
+                                                onCrearAcceso={handleCrearAcceso}
+                                                creatingState={creatingAccountStates[alumno.id]}
+                                                error={error}
+                                             />
+                                         )) : (
+                                            <tr><td colSpan="8">No hay alumnos {searchTerm ? 'que coincidan con la búsqueda.' : 'en esta materia.'}</td></tr>
+                                         )}
                                      </tbody>
                                  </table>
                              </div>
