@@ -62,3 +62,23 @@
   padding: var(--spacing-xl);
   min-height: 300px; /* Para que el contenedor tenga algo de altura */
 }
+
+/* src/pages/MateriaPanel.css */
+
+/* ... (tus otros estilos) ... */
+
+.materia-panel-back-button {
+  /* Estilos para hacerlo más pequeño y alineado a la izquierda */
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  margin-right: auto; /* Empuja otros elementos (si los hubiera en un flex) */
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  /* Quitar margen inferior si el contenedor ya lo tiene */
+  /* margin-bottom: 0; */
+}
+
+.materia-panel-back-button svg {
+    margin-right: 0.3rem;
+}

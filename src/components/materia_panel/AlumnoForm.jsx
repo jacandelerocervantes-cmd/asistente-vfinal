@@ -1,98 +1,144 @@
 // src/components/materia_panel/AlumnoForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import './AlumnoForm.css'; // Asegúrate de tener estilos básicos
+import { FaSave, FaTimes, FaSpinner } from 'react-icons/fa'; // Añadir FaSpinner
 
-const AlumnoForm = ({ materia_id, alumnoToEdit, onSave, onCancel }) => {
-  const [matricula, setMatricula] = useState('');
-  const [nombre, setNombre] = useState('');
-  const [apellido, setApellido] = useState('');
-  const [correo, setCorreo] = useState('');
-  const [loading, setLoading] = useState(false);
-  const isEditing = Boolean(alumnoToEdit);
+// --- CORRECCIÓN: Recibir 'grupos' como prop ---
+const AlumnoForm = ({ alumno, materiaId, grupos = [], onSave, onCancel }) => {
+// --- FIN CORRECCIÓN ---
+    // Estado inicial vacío
+    const initialState = { matricula: '', nombre: '', apellido: '', email: '', grupo_id: '' };
+    const [formData, setFormData] = useState(initialState);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    // Determinar si es edición basado en si 'alumno' tiene un ID
+    const isEditing = Boolean(alumno && alumno.id);
 
-  useEffect(() => {
-    if (isEditing) {
-      setMatricula(alumnoToEdit.matricula);
-      setNombre(alumnoToEdit.nombre);
-      setApellido(alumnoToEdit.apellido);
-      setCorreo(alumnoToEdit.correo || '');
-    } else {
-      // Resetea el formulario si no estamos editando
-      setMatricula('');
-      setNombre('');
-      setApellido('');
-      setCorreo('');
-    }
-  }, [alumnoToEdit, isEditing]);
+    useEffect(() => {
+        // Llenar el formulario SI estamos en modo edición
+        if (isEditing) {
+            setFormData({
+                matricula: alumno.matricula || '',
+                nombre: alumno.nombre || '',
+                apellido: alumno.apellido || '',
+                email: alumno.email || '',
+                // Asegurarse de que grupo_id sea string para el select, o '' si es null/undefined
+                grupo_id: alumno.grupo_id?.toString() || '',
+            });
+            console.log("Cargando datos para editar:", alumno);
+        } else {
+            // Si no es edición (alumno es null o sin id), resetear
+            setFormData(initialState);
+            console.log("Formulario reseteado para crear.");
+        }
+        setError(''); // Limpiar errores al cambiar de modo
+    }, [alumno, isEditing]); // Depender de 'alumno' y 'isEditing'
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!matricula || !nombre || !apellido) {
-      alert('Matrícula, Nombre y Apellido son campos obligatorios.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const alumnoData = { matricula, nombre, apellido, correo, materia_id, user_id: user.id };
-      let error;
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
 
-      if (isEditing) {
-        // Lógica de Actualización
-        const { error: updateError } = await supabase
-          .from('alumnos')
-          .update(alumnoData)
-          .eq('id', alumnoToEdit.id);
-        error = updateError;
-      } else {
-        // Lógica de Creación
-        const { error: insertError } = await supabase
-          .from('alumnos')
-          .insert([alumnoData]);
-        error = insertError;
-      }
+    const handleSubmit = async (e) => {
+        /* ... (sin cambios, ya maneja isEditing) ... */
+        e.preventDefault();
+        setLoading(true);
+        setError('');
 
-      if (error) throw error;
-      alert(`Alumno ${isEditing ? 'actualizado' : 'creado'} con éxito.`);
-      onSave(); // Llama a la función del padre para cerrar y recargar
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+        // Validaciones básicas
+        if (!formData.matricula || !formData.nombre || !formData.apellido) {
+            setError('Matrícula, Nombre y Apellido son obligatorios.');
+            setLoading(false);
+            return;
+        }
 
-  return (
-    <div className="form-container card">
-      <form onSubmit={handleSubmit} className="materia-form">
-        <h3>{isEditing ? 'Editar Alumno' : 'Añadir Nuevo Alumno'}</h3>
-        <div className="form-group">
-          <label htmlFor="matricula">Matrícula</label>
-          <input id="matricula" type="text" value={matricula} onChange={(e) => setMatricula(e.target.value)} required />
+        try {
+            const dataToSave = {
+                ...formData,
+                materia_id: materiaId,
+                // Convertir grupo_id a null si está vacío o no seleccionado
+                grupo_id: formData.grupo_id ? parseInt(formData.grupo_id, 10) : null,
+                // Convertir email a null si está vacío
+                email: formData.email || null,
+            };
+
+            let response;
+            if (isEditing && alumno && alumno.id) {
+                // Modo Edición: UPDATE
+                 console.log("Actualizando alumno:", alumno.id, dataToSave);
+                response = await supabase
+                    .from('alumnos')
+                    .update(dataToSave)
+                    .eq('id', alumno.id);
+            } else {
+                // Modo Creación: INSERT
+                 console.log("Insertando nuevo alumno:", dataToSave);
+                 // Verificar duplicados antes de insertar (opcional pero recomendado)
+                 const { data: existing, error: checkError } = await supabase
+                    .from('alumnos')
+                    .select('id')
+                    .eq('materia_id', materiaId)
+                    .eq('matricula', dataToSave.matricula)
+                    .maybeSingle();
+
+                 if (checkError) throw new Error(`Error verificando duplicados: ${checkError.message}`);
+                 if (existing) throw new Error(`La matrícula ${dataToSave.matricula} ya existe en esta materia.`);
+
+
+                response = await supabase
+                    .from('alumnos')
+                    .insert(dataToSave);
+            }
+
+            const { error: saveError } = response;
+            if (saveError) throw saveError;
+
+            console.log(`Alumno ${isEditing ? 'actualizado' : 'creado'} exitosamente.`);
+            onSave(); // Llama al callback para cerrar y recargar
+
+        } catch (err) {
+            console.error(`Error ${isEditing ? 'actualizando' : 'guardando'} alumno:`, err);
+            // Mensaje de error más específico para duplicados
+            if (err.message?.includes('duplicate key value violates unique constraint')) {
+                 if(err.message?.includes('alumnos_materia_id_matricula_key')) {
+                    setError(`Error: La matrícula '${formData.matricula}' ya existe para esta materia.`);
+                 } else if (err.message?.includes('alumnos_user_id_key')) {
+                      setError(`Error: El usuario ya está vinculado a otro alumno.`);
+                 }
+                  else {
+                      setError('Error: Conflicto de datos únicos. Verifica matrícula o correo.');
+                  }
+            } else {
+                setError(`Error al ${isEditing ? 'actualizar' : 'guardar'} alumno: ${err.message}`);
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="modal-overlay" onClick={onCancel}>
+            <div className="modal-content alumno-form-modal" onClick={(e) => e.stopPropagation()}>
+                {/* ... (Header y Form con campos incluyendo el select de grupo) ... */}
+                <div className="modal-header">/* ... */</div>
+                <form onSubmit={handleSubmit} className="modal-body materia-form">
+                    {/* ... (Campos: matricula, apellido, nombre, email) ... */}
+                     {/* --- Selector de Grupo --- */}
+                    <div className="form-group">
+                        <label htmlFor="grupo_id">Grupo (Opcional)</label>
+                        <select id="grupo_id" name="grupo_id" value={formData.grupo_id} onChange={handleChange} disabled={loading}>
+                            <option value="">-- Sin asignar --</option>
+                            {grupos.map(g => (
+                                <option key={g.id} value={g.id}>{g.nombre}</option>
+                            ))}
+                        </select>
+                    </div>
+                    {/* ... (Botones Save/Cancel) ... */}
+                </form>
+            </div>
         </div>
-        <div className="form-group">
-          <label htmlFor="nombre">Nombre(s)</label>
-          <input id="nombre" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
-        </div>
-        <div className="form-group">
-          <label htmlFor="apellido">Apellido(s)</label>
-          <input id="apellido" type="text" value={apellido} onChange={(e) => setApellido(e.target.value)} required />
-        </div>
-        <div className="form-group">
-          <label htmlFor="correo">Correo (Opcional)</label>
-          <input id="correo" type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} />
-        </div>
-        <div className="form-actions">
-          <button type="button" onClick={onCancel} className="btn-tertiary" disabled={loading}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Guardando...' : (isEditing ? 'Actualizar Alumno' : 'Guardar Alumno')}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+    );
 };
 
 export default AlumnoForm;

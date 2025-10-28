@@ -6,30 +6,46 @@ import CSVUploader from './CSVUploader'; // Asegúrate de que este también llam
 import './Alumnos.css';
 
 // Importa el icono de llave o similar
-import { FaKey, FaUserPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle } from 'react-icons/fa'; // Añadir FaKey y FaCheckCircle/FaTimesCircle
+import { FaKey, FaUserPlus, FaEdit, FaTrash, FaCheckCircle, FaTimesCircle, FaSpinner } from 'react-icons/fa'; // Añadir FaSpinner
 
 const Alumnos = ({ materiaId, nombreMateria }) => {
     const [alumnos, setAlumnos] = useState([]);
-    const [loading, setLoading] = useState(true); // Mantener true inicialmente
+    const [loading, setLoading] = useState(true); // Iniciar como true
     const [editingAlumno, setEditingAlumno] = useState(null);
     const [showForm, setShowForm] = useState(false);
     const [showCSVUploader, setShowCSVUploader] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [error, setError] = useState('');
     const [creatingAccountStates, setCreatingAccountStates] = useState({}); // Estado para manejar la carga por botón
+    const [grupos, setGrupos] = useState([]); // Estado para guardar los grupos
+
+    // --- Cargar Grupos de la Materia ---
+    const fetchGrupos = useCallback(async () => {
+        if (!materiaId) return; // No cargar si no hay ID
+        try {
+            const { data, error: grupoError } = await supabase
+                .from('grupos')
+                .select('id, nombre')
+                .eq('materia_id', materiaId)
+                .order('nombre');
+            if (grupoError) throw grupoError;
+            setGrupos(data || []);
+        } catch (err) {
+            console.error("Error cargando grupos:", err);
+            // Considera mostrar un error al usuario si la carga de grupos falla
+        }
+    }, [materiaId]);
+
 
     const fetchAlumnos = useCallback(async () => {
-        // --- INICIO CORRECCIÓN ---
         // Solo ejecutar si materiaId es un número válido
         if (!materiaId || typeof materiaId !== 'number' || isNaN(materiaId)) {
             console.warn("fetchAlumnos: materiaId no es válido aún:", materiaId);
-            // Opcional: Puedes poner loading en false aquí si no quieres que muestre "Cargando..."
-            // setLoading(false);
-            // Opcional: Limpiar lista de alumnos si cambia la materia
-            // setAlumnos([]);
-            return; // No hacer la petición si no hay ID
+            setLoading(false); // Detener carga si no hay ID
+            setAlumnos([]); // Limpiar lista
+            setError('ID de materia no válido para cargar alumnos.'); // Mostrar error
+            return;
         }
-        // --- FIN CORRECCIÓN ---
 
         console.log("Fetching alumnos for materiaId:", materiaId); // Log para confirmar ID
         setLoading(true);
@@ -37,7 +53,10 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
-                .select('*')
+                .select(`
+                    *,
+                    grupos ( nombre )
+                `) // Seleccionar todo de alumnos y el nombre del grupo relacionado
                 .eq('materia_id', materiaId) // Ahora materiaId debería ser válido
                 .order('apellido', { ascending: true });
 
@@ -46,40 +65,60 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         } catch (err) {
             console.error("Error cargando alumnos:", err);
             setError("No se pudieron cargar los alumnos: " + err.message); // Mostrar mensaje
+            setAlumnos([]); // Limpiar en caso de error
         } finally {
             setLoading(false);
         }
     }, [materiaId]);
 
     useEffect(() => {
-        fetchAlumnos();
-    }, [fetchAlumnos]); // La dependencia es fetchAlumnos (que a su vez depende de materiaId)
+        // Cargar grupos y alumnos cuando el materiaId sea válido
+        if (materiaId) {
+            fetchGrupos();
+            fetchAlumnos();
+        } else {
+            // Si el ID se vuelve inválido, limpiar estados
+            setAlumnos([]);
+            setGrupos([]);
+            setLoading(false);
+        }
+    }, [materiaId, fetchAlumnos, fetchGrupos]); // Depender de materiaId aquí
 
     // ... (resto de las funciones: handleEdit, handleDelete, handleSave, handleCancel, handleCrearAcceso) ...
     const handleEdit = (alumno) => {
+        console.log("Editando alumno:", alumno); // Verificar que llega el alumno correcto
         setEditingAlumno(alumno);
         setShowForm(true);
         setShowCSVUploader(false);
     };
 
-    const handleDelete = async (alumnoId) => {
-        if (window.confirm("¿Estás seguro de eliminar este alumno?")) {
-            setLoading(true);
+    const handleDelete = async (alumnoId, alumnoUserId) => { // Recibir también user_id
+        if (window.confirm("¿Estás seguro de eliminar este alumno? Esto NO eliminará su cuenta de acceso si ya fue creada.")) {
+            // setLoading(true); // No es necesario bloquear toda la tabla
+             setError('');
             try {
                 const { error: deleteError } = await supabase
                     .from('alumnos')
                     .delete()
                     .eq('id', alumnoId);
                 if (deleteError) throw deleteError;
-                // Opcional: Si el alumno tiene user_id, podrías borrar también la cuenta de Supabase Auth
-                // (requiere llamar a una función Edge con permisos de admin)
+
+                 // Opcional: Lógica para borrar cuenta Auth (requiere función Edge 'borrar-usuario-alumno')
+                 if (alumnoUserId) {
+                     console.warn(`Alumno ${alumnoId} eliminado, pero su cuenta Auth (${alumnoUserId}) permanece. Implementar borrado si es necesario.`);
+                     // try {
+                     //   await supabase.functions.invoke('borrar-usuario-alumno', { body: { user_id: alumnoUserId } });
+                     // } catch(authDeleteError){ console.error("Error borrando cuenta Auth:", authDeleteError);}
+                 }
+
                 setAlumnos(prev => prev.filter(a => a.id !== alumnoId));
-                alert("Alumno eliminado.");
+                // alert("Alumno eliminado."); // Quizás un mensaje menos intrusivo
             } catch (err) {
                 console.error("Error eliminando alumno:", err);
-                alert("Error al eliminar alumno: " + err.message);
+                setError("Error al eliminar alumno: " + err.message);
+                // alert("Error al eliminar alumno: " + err.message);
             } finally {
-                setLoading(false);
+                // setLoading(false);
             }
         }
     };
@@ -87,31 +126,22 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     const handleSave = () => {
         setShowForm(false);
         setShowCSVUploader(false);
-        setEditingAlumno(null);
+        setEditingAlumno(null); // Limpiar alumno en edición
         fetchAlumnos(); // Recargar la lista
+        fetchGrupos(); // Recargar grupos por si se añadió uno nuevo
     };
 
     const handleCancel = () => {
         setShowForm(false);
         setShowCSVUploader(false);
-        setEditingAlumno(null);
+        setEditingAlumno(null); // Limpiar alumno en edición
     };
 
     // --- NUEVA FUNCIÓN PARA CREAR LA CUENTA DE ACCESO ---
-    const handleCrearAcceso = async (alumno) => {
-        if (!alumno.email) {
-            alert("Este alumno no tiene un correo electrónico registrado.");
-            return;
-        }
-        if (!alumno.matricula) {
-             alert("Este alumno no tiene matrícula registrada (necesaria para contraseña inicial).");
-             return;
-        }
-
-        if (!window.confirm(`¿Crear cuenta de acceso para ${alumno.nombre} ${alumno.apellido} (${alumno.email})?\nLa contraseña inicial será su matrícula: ${alumno.matricula}`)) {
-            return;
-        }
-
+    const handleCrearAcceso = async (alumno) => { /* ... (sin cambios funcionales, asegurar que matricula exista) ... */
+        if (!alumno.email) { alert("Este alumno no tiene correo."); return; }
+        if (!alumno.matricula) { alert("Se necesita la matrícula para la contraseña inicial."); return; }
+        if (!window.confirm(`¿Crear cuenta de acceso para ${alumno.nombre} ${alumno.apellido} (${alumno.email})?\nPass inicial: ${alumno.matricula}`)) return;
         setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'loading' })); // Indicar carga para este alumno
         setError('');
 
@@ -126,11 +156,12 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             });
 
             if (functionError) {
-                // Si el error es un 409 (Conflict), significa que ya existe
-                if (functionError.context?.status === 409) {
+                 // Manejar error 409 (ya existe)
+                 if (functionError.context?.status === 409 || functionError.message?.includes('ya está registrado')) {
+                      console.warn(`Cuenta para ${alumno.email} ya existía o el alumno ya estaba vinculado.`);
                      setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'exists' }));
-                     // Opcional: Refrescar solo este alumno para asegurar que user_id esté actualizado
-                     fetchAlumnos(); // O una recarga más específica
+                      // Forzar recarga para obtener el user_id correcto si faltaba
+                      fetchAlumnos();
                 } else {
                     throw functionError; // Lanzar otros errores
                 }
