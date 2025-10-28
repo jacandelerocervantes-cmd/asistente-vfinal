@@ -29,14 +29,14 @@
   margin-bottom: var(--spacing-xl);
 }
 
-.materia-tabs {
+.tabs {
   display: flex;
   border-bottom: 2px solid #ccc;
   margin-bottom: var(--spacing-xl);
   flex-wrap: wrap; /* Para que se adapte en pantallas pequeñas */
 }
 
-.tab-btn {
+.tab-button {
   padding: 12px 20px;
   cursor: pointer;
   border: none;
@@ -49,11 +49,11 @@
   transition: color 0.2s, border-color 0.2s;
 }
 
-.tab-btn:hover {
+.tab-button:hover {
   color: var(--color-primary);
 }
 
-.tab-btn.active {
+.tab-button.active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
 }
@@ -68,15 +68,13 @@
 /* ... (tus otros estilos) ... */
 
 .materia-panel-back-button {
-  /* Estilos para hacerlo más pequeño y alineado a la izquierda */
   padding: 0.4rem 0.8rem;
   font-size: 0.85rem;
-  margin-right: auto; /* Empuja otros elementos (si los hubiera en un flex) */
+  margin-right: auto;
   width: auto;
   display: inline-flex;
   align-items: center;
-  /* Quitar margen inferior si el contenedor ya lo tiene */
-  /* margin-bottom: 0; */
+  margin-bottom: 1rem;
 }
 
 .materia-panel-back-button svg {

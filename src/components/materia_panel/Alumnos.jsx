@@ -162,29 +162,13 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         });
     };
 
-    const handleSelectAllVisible = (event) => {
-        setSelectedAlumnos(event.target.checked ? new Set(visibleAlumnoIds) : new Set());
-    };
-
-     const handleSelectGroup = (grupoKey, event) => {
-         const alumnosEnGrupo = alumnosAgrupados[grupoKey]?.map(a => a.id) || [];
-         if (alumnosEnGrupo.length === 0) return;
-         setSelectedAlumnos(prev => {
-             const next = new Set(prev);
-             if (event.target.checked) alumnosEnGrupo.forEach(id => next.add(id));
-             else alumnosEnGrupo.forEach(id => next.delete(id));
-             return next;
-         });
-     };
-
     const isAllVisibleSelected = visibleAlumnoIds.length > 0 && selectedAlumnos.size >= visibleAlumnoIds.length &&
                                   visibleAlumnoIds.every(id => selectedAlumnos.has(id));
 
     const handleBulkDelete = async () => {
          const numSelected = selectedAlumnos.size;
-         if (numSelected === 0) return;
-         if (window.confirm(`¿Eliminar ${numSelected} alumno(s) seleccionado(s)?`)) {
-             setLoadingAlumnos(true); setError('');
+         if (numSelected === 0 || !window.confirm(`¿Eliminar ${numSelected} alumno(s) seleccionado(s)?`)) return;
+         setLoading(true); setError('');
              try {
                  const idsToDelete = Array.from(selectedAlumnos);
                  const { error: deleteError } = await supabase.from('alumnos').delete().in('id', idsToDelete);
@@ -193,64 +177,53 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                  fetchAlumnos();
              } catch (err) {
                  setError("Error en eliminación masiva: " + err.message);
-             } finally { setLoadingAlumnos(false); }
-         }
+             } finally { setLoading(false); }
      };
 
     const handleOpenAssignGroupModal = () => { if (selectedAlumnos.size > 0) setShowAssignGroupModal(true); };
 
-    const handleAssignGroup = async (grupoId) => { // Recibe el ID del grupo (o null)
+    const handleAssignGroup = async (grupoId) => {
          const numSelected = selectedAlumnos.size;
-         setLoadingAlumnos(true); setError(''); setShowAssignGroupModal(false);
+         setLoading(true); setError(''); setShowAssignGroupModal(false);
          try {
              const idsToUpdate = Array.from(selectedAlumnos);
              const { error: updateError } = await supabase
                  .from('alumnos')
-                 .update({ grupo_id: grupoId }) // grupoId puede ser null
+                 .update({ grupo_id: grupoId })
                  .in('id', idsToUpdate);
              if (updateError) throw updateError;
              setSelectedAlumnos(new Set());
              fetchAlumnos();
          } catch (err) {
              setError("Error al asignar grupo: " + err.message);
-         } finally { setLoadingAlumnos(false); }
+         } finally { setLoading(false); }
      };
-
 
     // --- Handler Creación de Cuenta Individual ---
     const handleCrearAcceso = async (alumno) => {
-        if (!alumno.email) { alert("Este alumno no tiene correo."); return; }
-        if (!alumno.matricula) { alert("Se necesita la matrícula para la contraseña inicial."); return; }
+        if (!alumno.email || !alumno.matricula) { alert("Se requiere correo y matrícula."); return; }
         if (!window.confirm(`¿Crear cuenta de acceso para ${alumno.nombre} (${alumno.email})?\nPass inicial: ${alumno.matricula}`)) return;
-
-        setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'loading' }));
-        setError('');
+        setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'loading' })); setError('');
         try {
             const { data, error: functionError } = await supabase.functions.invoke('crear-usuario-alumno', {
                 body: { alumno_id: alumno.id, email: alumno.email, password: alumno.matricula }
             });
              if (functionError) {
                  if (functionError.context?.status === 409 || functionError.message?.includes('ya está registrado')) {
-                      console.warn(`Cuenta para ${alumno.email} ya existía.`);
                       setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'exists' }));
-                      fetchAlumnos(); // Recargar para sincronizar user_id
-                 } else {
-                     throw functionError;
-                 }
+                      fetchAlumnos(); // Sincronizar
+                 } else { throw functionError; }
              } else {
-                 console.log('Respuesta crear-usuario-alumno:', data);
                  setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'success' }));
-                 setAlumnos(prev => prev.map(a => a.id === alumno.id ? { ...a, user_id: 'temp-id' } : a)); // Actualización visual temporal
+                 setAlumnos(prev => prev.map(a => a.id === alumno.id ? { ...a, user_id: 'temp-id' } : a));
              }
         } catch (err) {
-            console.error("Error al crear cuenta:", err);
             const message = err.context?.details || err.message || 'Error desconocido.';
             setError(`Error cuenta ${alumno.email}: ${message}`);
             setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'error' }));
         }
      };
 
-    // --- Handler para expandir/colapsar grupos ---
      const toggleGroupExpansion = (grupoKey) => {
          setExpandedGroups(prev => {
              const next = new Set(prev);

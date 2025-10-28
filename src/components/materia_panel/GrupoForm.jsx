@@ -24,6 +24,7 @@ const GrupoForm = ({ grupo, materiaId, onSave, onCancel }) => {
         setLoading(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("Usuario no autenticado. No se puede guardar el grupo.");
             const dataToSave = {
                 nombre: nombre.trim(),
                 materia_id: materiaId,

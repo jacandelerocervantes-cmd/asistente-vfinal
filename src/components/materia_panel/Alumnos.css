@@ -1,10 +1,5 @@
 /* src/components/materia_panel/Alumnos.css */
-
-.alumnos-container {
-  /* ... tus estilos existentes ... */
-}
-
-/* --- Estilos para Botones de Acción --- */
+/* Contenedor principal y acciones */
 .table-actions {
   display: flex;
   justify-content: space-between;
@@ -16,59 +11,65 @@
 .search-input {
   max-width: 350px;
   width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  font-size: 0.95rem;
 }
-.table-actions > div {
+.table-actions-buttons {
   display: flex;
   gap: 0.5rem;
 }
 
-/* --- Estilos Barra Acciones Masivas --- */
+/* Barra de acciones masivas */
 .bulk-actions-bar {
-  background-color: var(--color-background-alt, #f9fafb);
+  background-color: var(--color-primary-lighter); /* Azul muy claro */
+  border: 1px solid var(--color-primary-light);
+  color: var(--color-primary-dark);
   padding: var(--spacing-md);
   margin-bottom: var(--spacing-lg);
   border-radius: var(--border-radius);
-  border: 1px solid var(--color-border);
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
 }
-.bulk-actions-bar span {
-  font-weight: bold;
-  color: var(--color-primary);
+.bulk-actions-bar .selected-count {
+  font-weight: 600;
+  margin-right: auto; /* Empuja botones a la derecha */
 }
-.bulk-actions-bar button {
-  margin-left: 0; /* Resetear margen */
-}
-/* Empujar "Todos Visibles" a la derecha */
-.bulk-actions-bar label {
-   margin-left: auto;
+.bulk-actions-bar .select-all-label {
+   margin-left: 1rem;
    display: flex;
    align-items: center;
    cursor: pointer;
    font-size: 0.9rem;
+   color: var(--color-text-secondary);
 }
-.bulk-actions-bar label input {
+.bulk-actions-bar .select-all-label input {
     margin-right: 0.3rem;
+    cursor: pointer;
 }
 
 
-/* --- Estilos Grupos Colapsables --- */
+/* Lista de Grupos y Alumnos */
 .grupos-list {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 1.25rem; /* Espacio entre tarjetas */
 }
 .grupo-container.card {
-    /* Reutiliza tu estilo .card, pero asegura que no tenga padding interno */
     padding: 0;
-    overflow: hidden; /* Importante para bordes redondeados */
+    overflow: hidden;
     border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    background-color: #fff; /* Fondo blanco */
+    box-shadow: var(--shadow-light);
 }
 .grupo-header {
     display: flex;
     align-items: center;
-    padding: var(--spacing-md) var(--spacing-lg);
+    padding: 0.9rem var(--spacing-lg);
+    /* Usar colores de la paleta */
     background-color: var(--color-background-alt, #f9fafb);
     border-bottom: 1px solid var(--color-border);
     cursor: pointer;
@@ -79,53 +80,84 @@
 }
 .grupo-toggle-icon {
     margin-right: 0.75rem;
-    color: var(--color-text-secondary);
+    color: var(--color-primary); /* Color primario */
     font-size: 1.1rem;
     transition: transform 0.2s;
 }
-/* Rotar el icono (si usas FaAngleDown/Right) */
-/* .grupo-header[aria-expanded="false"] .grupo-toggle-icon {
-    transform: rotate(-90deg);
-} */
+/* Rotación del icono */
+/* .grupo-header[aria-expanded="false"] .grupo-toggle-icon { */
+    /* Asumiendo que FaAngleRight es el icono por defecto */
+    /* transform: rotate(0deg); */
+/* } */
+/* .grupo-header[aria-expanded="true"] .grupo-toggle-icon { */
+     /* Asumiendo que FaAngleDown es el icono expandido */
+    /* transform: rotate(0deg); */
+/* } */
 .grupo-header h4 {
     margin: 0;
     margin-left: 0.5rem;
     flex-grow: 1;
     font-size: 1.1rem;
-    color: var(--color-text-dark);
+    color: var(--color-primary-dark); /* Color oscuro primario */
+    font-weight: 600; /* Más peso */
 }
 .grupo-actions {
     margin-left: auto;
     display: flex;
     gap: 0.5rem;
 }
-/* Hacer que los botones no activen el colapso */
+/* Evitar que botones/checkbox activen el colapso */
 .grupo-header input[type="checkbox"],
 .grupo-header .grupo-actions button {
-    cursor: initial; /* O 'pointer' si prefieres */
+    cursor: pointer;
+}
+.grupo-header input[type="checkbox"] {
+     width: 17px;
+     height: 17px;
 }
 
 /* Tabla interna */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+}
+.alumnos-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
 .alumnos-table.inside-group {
-    margin: 0;
-    border: none;
-    border-radius: 0;
-    box-shadow: none;
-}
-.alumnos-table.inside-group th {
-    background-color: #fff; /* Fondo más limpio */
-    color: var(--color-text-secondary);
-    font-size: 0.85rem;
-}
-.alumnos-table.inside-group td,
-.alumnos-table.inside-group th {
-     padding: var(--spacing-sm) var(--spacing-md);
-     font-size: 0.95rem;
-}
-.alumnos-table.inside-group tr:last-child td {
-    border-bottom: none; /* Quitar último borde */
+    /* Quitar bordes/sombras internas */
+    border: none; box-shadow: none; margin: 0;
 }
 
+.alumnos-table th,
+.alumnos-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.95rem;
+  vertical-align: middle;
+}
+.alumnos-table th {
+  background-color: #fff; /* Fondo blanco para cabecera interna */
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+/* Cabecera de la tabla interna */
+.alumnos-table.inside-group th {
+     background-color: var(--color-background-alt, #f9fafb);
+}
+
+.alumnos-table tr:last-child td {
+  border-bottom: none;
+}
+.alumnos-table tbody tr:hover {
+  background-color: var(--color-background-hover, #f5f5f5);
+}
 /* Fila seleccionada */
 .alumnos-table tbody tr.selected-row {
   background-color: var(--color-primary-light, #e0f2fe) !important;
@@ -133,11 +165,18 @@
 .alumnos-table tbody tr.selected-row:hover {
   background-color: var(--color-primary-lighter, #bae6fd) !important;
 }
-
 /* Checkboxes */
-.alumnos-table input[type="checkbox"],
-.grupo-header input[type="checkbox"] {
+.alumnos-table input[type="checkbox"] {
     cursor: pointer;
     width: 16px;
     height: 16px;
+}
+/* Botones de acción en fila */
+.alumnos-table td:last-child {
+    text-align: right;
+    white-space: nowrap;
+}
+.alumnos-table .btn-small {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
 }
