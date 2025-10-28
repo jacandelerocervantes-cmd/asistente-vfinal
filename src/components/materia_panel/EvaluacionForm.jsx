@@ -213,10 +213,12 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                 try {
                     if (pregunta.tipo_pregunta === 'sopa_letras' && pregunta.datos_extra?.palabras?.length > 0) {
                         console.log("Llamando a generar-layout-sopa...");
+                        const tamanoSopa = pregunta.datos_extra.tamano || 10; // Obtener tamaño
                         const { data: layoutSopa, error: sopaError } = await supabase.functions.invoke('generar-layout-sopa', {
                             body: {
                                 palabras: pregunta.datos_extra.palabras,
-                                tamano: pregunta.datos_extra.tamano || 10 // Usar tamaño o default
+                                filas: tamanoSopa,    // Enviar 'filas'
+                                columnas: tamanoSopa // Enviar 'columnas'
                             }
                         });
                         if (sopaError) throw new Error(`Error generando layout Sopa: ${sopaError.message}`);
