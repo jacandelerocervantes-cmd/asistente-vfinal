@@ -1,94 +1,68 @@
 // src/components/materia_panel/GrupoForm.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 
-const GrupoForm = ({ materia_id, alumnosSeleccionados, onSave, onCancel }) => {
-  const [nombreGrupo, setNombreGrupo] = useState('');
-  const [loading, setLoading] = useState(false);
+const GrupoForm = ({ grupo, materiaId, onSave, onCancel }) => {
+    const [nombre, setNombre] = useState('');
+    const [loading, setLoading] = useState(false);
+    const isEditing = Boolean(grupo);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!nombreGrupo) {
-      alert('Por favor, asigna un nombre al grupo.');
-      return;
-    }
-    if (alumnosSeleccionados.length === 0) {
-      alert('No hay alumnos seleccionados para este grupo.');
-      return;
-    }
-    setLoading(true);
+    useEffect(() => {
+        if (isEditing) {
+            setNombre(grupo.nombre);
+        } else {
+            setNombre('');
+        }
+    }, [grupo, isEditing]);
 
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!nombre.trim()) {
+            alert("El nombre del grupo no puede estar vacío.");
+            return;
+        }
+        setLoading(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const dataToSave = {
+                nombre: nombre.trim(),
+                materia_id: materiaId,
+                user_id: user.id
+            };
 
-      // 1. Insertar el nuevo grupo y obtener su ID
-      const { data: grupoData, error: grupoError } = await supabase
-        .from('grupos')
-        .insert({
-          nombre: nombreGrupo,
-          materia_id,
-          user_id: user.id,
-        })
-        .select('id')
-        .single();
+            if (isEditing) {
+                const { error } = await supabase.from('grupos').update(dataToSave).eq('id', grupo.id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabase.from('grupos').insert(dataToSave);
+                if (error) throw error;
+            }
+            onSave();
+        } catch (error) {
+            console.error("Error guardando grupo:", error);
+            alert("Error al guardar el grupo: " + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-      if (grupoError) throw grupoError;
-      if (!grupoData) throw new Error('No se pudo crear el grupo.');
-
-      const grupoId = grupoData.id;
-
-      // 2. Preparar las asignaciones para la tabla 'alumnos_grupos'
-      const asignaciones = alumnosSeleccionados.map(alumnoId => ({
-        grupo_id: grupoId,
-        alumno_id: alumnoId,
-        user_id: user.id,
-      }));
-
-      // 3. Insertar todas las asignaciones
-      const { error: asignacionError } = await supabase
-        .from('alumnos_grupos')
-        .insert(asignaciones);
-
-      if (asignacionError) throw asignacionError;
-
-      alert(`¡Grupo "${nombreGrupo}" creado con éxito!`);
-      onSave(); // Llama a la función del padre para cerrar y recargar
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="form-container card">
-      <form onSubmit={handleSubmit} className="materia-form">
-        <h3>Crear Nuevo Grupo</h3>
-        <div className="form-group">
-          <label htmlFor="nombreGrupo">Nombre del Grupo</label>
-          <input
-            id="nombreGrupo"
-            type="text"
-            value={nombreGrupo}
-            onChange={(e) => setNombreGrupo(e.target.value)}
-            placeholder="Ej. Equipo Alfa"
-            required
-          />
+    return (
+        <div className="modal-overlay" onClick={onCancel}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <h4>{isEditing ? 'Editar Grupo' : 'Nuevo Grupo'}</h4>
+                <form onSubmit={handleSubmit} className="materia-form">
+                    <div className="form-group">
+                        <label htmlFor="nombre-grupo">Nombre del Grupo</label>
+                        <input id="nombre-grupo" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required disabled={loading} />
+                    </div>
+                    <div className="form-actions">
+                        <button type="button" onClick={onCancel} className="btn-tertiary" disabled={loading}>Cancelar</button>
+                        <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Guardando...' : 'Guardar'}</button>
+                    </div>
+                </form>
+            </div>
         </div>
-        <div>
-          <p><strong>Alumnos a incluir:</strong> {alumnosSeleccionados.length}</p>
-        </div>
-        <div className="form-actions">
-          <button type="button" onClick={onCancel} className="btn-tertiary" disabled={loading}>
-            Cancelar
-          </button>
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Guardando...' : 'Crear Grupo'}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+    );
 };
 
 export default GrupoForm;
