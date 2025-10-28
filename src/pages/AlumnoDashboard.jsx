@@ -8,24 +8,28 @@ const AlumnoDashboard = () => {
     const [evaluaciones, setEvaluaciones] = useState([]);
     const [loading, setLoading] = useState(true);
     const [alumnoInfo, setAlumnoInfo] = useState(null);
+    const [user, setUser] = useState(null);
     const navigate = useNavigate();
 
     useEffect(() => {
-        const authData = sessionStorage.getItem('alumnoAuth');
-        if (!authData) {
-            navigate('/alumno/portal'); // Redirigir si no hay sesión de alumno
-            return;
-        }
-        const parsedAuth = JSON.parse(authData);
-        setAlumnoInfo(parsedAuth);
+        const getSession = async () => {
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            if (sessionError || !session) {
+                navigate('/alumno/login');
+                return;
+            }
+            setUser(session.user);
+            // El email o matrícula se puede obtener de session.user.email o user_metadata
+            setAlumnoInfo({ matricula: session.user.email }); // Ajustar si usas matrícula en metadata
+            fetchEvaluaciones(session.user.id);
+        };
 
-        const fetchEvaluaciones = async () => {
+        const fetchEvaluaciones = async (userId) => {
             setLoading(true);
             try {
-                // Usamos la función RPC creada en SQL
+                // Usamos la función RPC, ahora pasando el user_id
                 const { data, error } = await supabase.rpc('obtener_evaluaciones_alumno', {
-                    p_matricula: parsedAuth.matricula,
-                    p_correo: parsedAuth.correo
+                    p_user_id: userId
                 });
 
                 if (error) throw error;
@@ -33,13 +37,12 @@ const AlumnoDashboard = () => {
             } catch (error) {
                 console.error("Error cargando evaluaciones del alumno:", error);
                 alert("No se pudieron cargar tus evaluaciones.");
-                // Podrías intentar limpiar sessionStorage y redirigir al portal aquí
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchEvaluaciones();
+        getSession();
 
     }, [navigate]);
 
@@ -62,7 +65,7 @@ const AlumnoDashboard = () => {
     return (
         <div className="container alumno-dashboard-container" style={{paddingTop: '2rem'}}>
             <h2>Mis Evaluaciones</h2>
-            <p>Bienvenido, {alumnoInfo?.matricula}</p>
+            <p>Bienvenido, {alumnoInfo?.matricula || user?.email}</p>
             {evaluaciones.length === 0 ? (
                 <p>No tienes evaluaciones disponibles en este momento.</p>
             ) : (

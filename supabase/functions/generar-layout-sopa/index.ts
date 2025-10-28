@@ -7,14 +7,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// --- Interfaces (SIN CAMBIOS) ---
 interface RequestPayload {
     palabras: string[];
-    filas: number;
-    columnas: number;
-    maxBacktrackAttempts?: number; // Optional: limit for backtracking attempts
-    fillRandomLetters?: boolean; // Optional: whether to fill empty cells with random letters
+    filas: number;    // <--- Ya estaba definido
+    columnas: number; // <--- Ya estaba definido
+    maxBacktrackAttempts?: number;
+    fillRandomLetters?: boolean;
 }
-
 interface PlacedWordSopa {
     word: string;
     startx: number; // 0-indexed column
@@ -22,11 +22,15 @@ interface PlacedWordSopa {
     direction: string; // e.g., 'horizontal', 'vertical', 'diagonal-up-right'
 }
 
+
 interface WordSearchLayout {
     grid: string[][];
     words: PlacedWordSopa[];
 }
 
+// --- Funciones de generación (generateWordSearchLayoutCustomWithBacktracking, canPlaceWordSopa - SIN CAMBIOS) ---
+// function generateWordSearchLayoutCustomWithBacktracking(...) { /* ... */ }
+// function canPlaceWordSopa(...) { /* ... */ }
 // --- Custom Word Search Generation Algorithm ---
 function generateWordSearchLayoutCustomWithBacktracking(
     palabrasInput: string[],
@@ -177,25 +181,37 @@ serve(async (req: Request) => {
   }
   
   try {
-    const { palabras, filas, columnas, maxBacktrackAttempts, fillRandomLetters }: RequestPayload = await req.json();
-    
-    if (!palabras || !Array.isArray(palabras) || palabras.length === 0 || !filas || !columnas) {
-      throw new Error("Parámetros inválidos: se requieren 'palabras' (array), 'filas' (número) y 'columnas' (número).");
+    // --- Destructuring y Validación (REVISADOS) ---
+    const payload: RequestPayload = await req.json();
+    const { palabras, filas, columnas, maxBacktrackAttempts, fillRandomLetters } = payload; // Extraer todos los campos
+
+    // Validar que los campos requeridos existan y tengan el tipo correcto
+    if (!palabras || !Array.isArray(palabras) || palabras.length === 0 ||
+        typeof filas !== 'number' || filas <= 0 ||
+        typeof columnas !== 'number' || columnas <= 0) {
+      // Mensaje de error más específico
+      const errorDetalle = [];
+      if (!palabras || !Array.isArray(palabras) || palabras.length === 0) errorDetalle.push("'palabras' (array no vacío)");
+      if (typeof filas !== 'number' || filas <= 0) errorDetalle.push("'filas' (número > 0)");
+      if (typeof columnas !== 'number' || columnas <= 0) errorDetalle.push("'columnas' (número > 0)");
+      throw new Error(`Parámetros inválidos: se requieren ${errorDetalle.join(', ')}.`);
     }
+    // --- Fin Validación Revisada ---
 
     console.log(`Generando sopa de letras de ${filas}x${columnas} con ${palabras.length} palabras...`);
 
+    // Llamada a la función de generación (sin cambios)
     const layout = generateWordSearchLayoutCustomWithBacktracking(
         palabras,
         filas,
         columnas,
-        maxBacktrackAttempts,
+        maxBacktrackAttempts, // Pasa los opcionales (serán undefined si no vienen)
         fillRandomLetters
     );
 
+    // Validación del resultado (sin cambios)
     if (!layout || layout.words.length !== palabras.length) {
-        // If not all words were placed, it means the backtracking failed to find a complete solution
-        throw new Error("No se pudo generar la sopa de letras colocando todas las palabras con los parámetros proporcionados. Intente con un tamaño de cuadrícula mayor o menos palabras.");
+        throw new Error("No se pudo generar la sopa de letras colocando todas las palabras...");
     }
 
     return new Response(JSON.stringify(layout), {

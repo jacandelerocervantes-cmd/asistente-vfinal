@@ -7,19 +7,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface PalabraClue {
-    clue: string;
-    answer: string; // Ensure answer is uppercase and no spaces for easier grid placement
+// --- Interfaces (SIN CAMBIOS) ---
+interface EntradaCrucigrama { // Renombrado de PalabraClue para claridad
+    pista: string; // clue -> pista
+    palabra: string; // answer -> palabra
 }
-
 interface PlacedWord {
-    answer: string;
-    clue: string;
+    palabra: string;
+    pista: string;
     startx: number; // 0-indexed column
     starty: number; // 0-indexed row
     orientation: 'across' | 'down';
 }
-
 interface CrosswordLayout {
     rows: number;
     cols: number;
@@ -28,7 +27,7 @@ interface CrosswordLayout {
 }
 
 // --- Custom Crossword Generation Algorithm ---
-function generateCrosswordLayoutCustom(palabrasInput: PalabraClue[]): CrosswordLayout {
+function generateCrosswordLayoutCustom(palabrasInput: { clue: string, answer: string }[]): CrosswordLayout {
     const GRID_SIZE = 50; // A generous grid size to start with
     const grid: (string | null)[][] = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
     const placedWords: PlacedWord[] = [];
@@ -54,8 +53,8 @@ function generateCrosswordLayoutCustom(palabrasInput: PalabraClue[]): CrosswordL
         grid[startY][startX + i] = firstWord.answer[i];
     }
     placedWords.push({
-        answer: firstWord.answer,
-        clue: firstWord.clue,
+        palabra: firstWord.answer,
+        pista: firstWord.clue,
         startx: startX,
         starty: startY,
         orientation: 'across'
@@ -79,8 +78,8 @@ function generateCrosswordLayoutCustom(palabrasInput: PalabraClue[]): CrosswordL
             const placed = placedWords[pwIndex];
 
             for (let charC = 0; charC < currentWord.answer.length; charC++) {
-                for (let charP = 0; charP < placed.answer.length; charP++) {
-                    if (currentWord.answer[charC] === placed.answer[charP]) {
+                for (let charP = 0; charP < placed.palabra.length; charP++) {
+                    if (currentWord.answer[charC] === placed.palabra[charP]) {
                         // Found a potential intersection
                         const newOrientation = placed.orientation === 'across' ? 'down' : 'across';
                         let newStartX, newStartY;
@@ -130,8 +129,8 @@ function generateCrosswordLayoutCustom(palabrasInput: PalabraClue[]): CrosswordL
                 }
             }
             placedWords.push({
-                answer: currentWord.answer,
-                clue: currentWord.clue,
+                palabra: currentWord.answer,
+                pista: currentWord.clue,
                 startx: newStartX,
                 starty: newStartY,
                 orientation: newOrientation
@@ -257,28 +256,36 @@ function checkPlacement(
     return true;
 }
 
+// --- Interfaz de Payload de Solicitud (CORREGIDA) ---
 interface RequestPayload {
-    palabras: PalabraClue[];
+    entradas: EntradaCrucigrama[]; // <--- Debe ser 'entradas', no 'palabras'
 }
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
-
   try {
-    const { palabras }: RequestPayload = await req.json();
+    // --- Validación de Payload (CORREGIDA) ---
+    const { entradas }: RequestPayload = await req.json(); // <--- Usar 'entradas'
 
-    if (!palabras || !Array.isArray(palabras) || palabras.length === 0) {
-      throw new Error("Parámetro inválido: se requiere un array 'palabras' con objetos {clue, answer}.");
+    // Validar que 'entradas' sea un array no vacío y que los objetos tengan 'palabra' y 'pista'
+    if (!entradas || !Array.isArray(entradas) || entradas.length === 0 ||
+        !entradas.every(e => typeof e.palabra === 'string' && typeof e.pista === 'string')) {
+      throw new Error("Parámetro inválido: se requiere un array 'entradas' con objetos {palabra, pista}."); // <--- Mensaje corregido
     }
+    // --- Fin Validación Corregida ---
 
-    console.log(`Generando crucigrama con ${palabras.length} palabras...`);
+    console.log(`Generando crucigrama con ${entradas.length} entradas...`); // <--- Usar 'entradas'
 
-    const layout = generateCrosswordLayoutCustom(palabras);
+    // Adaptar el mapeo si es necesario (si generateCrosswordLayoutCustom espera 'clue' y 'answer')
+    const palabrasParaGenerador = entradas.map(e => ({ clue: e.pista, answer: e.palabra }));
+    // const layout = generateCrosswordLayoutCustom(entradas); // Si la función ya usa palabra/pista
+    const layout = generateCrosswordLayoutCustom(palabrasParaGenerador); // Si usa clue/answer
+
 
     if (!layout || layout.words.length === 0) {
-        throw new Error("No se pudo generar un crucigrama con las palabras proporcionadas.");
+        throw new Error("No se pudo generar un crucigrama con las entradas proporcionadas.");
     }
 
     console.log(`Crucigrama generado: ${layout.rows}x${layout.cols}.`);

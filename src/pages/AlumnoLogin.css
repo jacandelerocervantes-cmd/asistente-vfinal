@@ -1,0 +1,75 @@
+/* src/pages/AlumnoLogin.css */
+/* Basado en Auth.css */
+
+.auth-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-grow: 1;
+  padding: var(--spacing-lg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  background: white;
+  padding: var(--spacing-xl);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-light);
+}
+
+.auth-title {
+  color: var(--color-primary);
+  font-size: 2rem;
+  margin-bottom: var(--spacing-sm);
+}
+
+.auth-subtitle {
+  color: var(--color-text-dark);
+  font-size: 1rem;
+  margin-bottom: var(--spacing-md);
+}
+
+.auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.auth-card .form-group {
+  text-align: left;
+}
+
+.auth-card label {
+  display: block;
+  margin-bottom: var(--spacing-sm);
+  font-weight: bold;
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 12px;
+  font-size: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.auth-card button[type="submit"] {
+  margin-top: var(--spacing-md);
+  padding: 12px;
+}
+
+.error-message {
+    color: #c53030; /* Rojo */
+    background-color: #fed7d7;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    margin-top: var(--spacing-md);
+    text-align: center;
+    font-size: 0.9rem;
+    border: 1px solid #f56565;
+}
