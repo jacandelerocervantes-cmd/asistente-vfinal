@@ -1,0 +1,11 @@
+/* src/components/materia_panel/AlumnoForm.css */
+/* Estilos para el formulario de alumno en un modal */
+
+.alumno-form-modal {
+    /* Puedes ajustar el ancho máximo del modal aquí */
+    max-width: 500px;
+}
+
+.alumno-form-modal .form-group {
+    margin-bottom: var(--spacing-md);
+}

@@ -1,7 +1,7 @@
 // src/components/materia_panel/AlumnoForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import './AlumnoForm.css'; // Asegúrate de tener estilos básicos
+import './AlumnoForm.css';
 import { FaSave, FaTimes, FaSpinner } from 'react-icons/fa'; // Añadir FaSpinner
 
 // --- CORRECCIÓN: Recibir 'grupos' como prop ---
