@@ -181,7 +181,7 @@ function handleCreateMateriasBatch(payload) {
           const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
           const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
 
-          const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
+          const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
           const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
           getOrCreateFolder(carpetaMateria, "Evaluaciones");
           getOrCreateFolder(carpetaMateria, "Material Didáctico");
@@ -201,8 +201,8 @@ function handleCreateMateriasBatch(payload) {
           const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
           Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos recibidos en payload.`);
 
-          crearListaDeAlumnosSheet(carpetaReportes, alumnosDeMateria);
-          const sheetAsistencia = crearAsistenciasSheet(carpetaReportes, alumnosDeMateria, numeroDeUnidades);
+          crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
+          const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
 
           const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
           const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
@@ -255,14 +255,12 @@ function handleCreateActivityFolder(payload) {
   const carpetaActividad = getOrCreateFolder(carpetaUnidad, nombre_actividad); // Usar getOrCreate por si ya existe
   // Crear carpeta "Entregas" dentro de la actividad
   const carpetaEntregas = getOrCreateFolder(carpetaActividad, "Entregas");
-  // Opcional: Crear carpeta "Calificados"
-  const carpetaCalificados = getOrCreateFolder(carpetaActividad, "Calificados");
 
   Logger.log(`Estructura de carpetas creada/verificada para actividad "${nombre_actividad}" en ${nombreCarpetaUnidad}.`);
   return {
     drive_folder_id_actividad: carpetaActividad.getId(),
     drive_folder_id_entregas: carpetaEntregas.getId(),
-    drive_folder_id_calificados: carpetaCalificados.getId() // Devolver ID si se crea
+    // drive_folder_id_calificados: carpetaCalificados.getId() // Eliminado
   };
 }
 
@@ -413,99 +411,90 @@ function handleGuardarReportePlagio(payload) {
  * @param {object} payload Datos de la sesión y asistencias. {drive_url, fecha, unidad, sesion, asistencias:[{matricula, presente}]}
  * @return {string} Mensaje de resultado.
  */
-function handleLogAsistencia(payload) {
+function handleLogAsistencia(payload) { // Renombrada para mantener consistencia
   const { drive_url, fecha, unidad, sesion, asistencias } = payload;
-  Logger.log("Recibido en handleLogAsistencia: " + JSON.stringify(payload).substring(0, 500) + "..."); // Log inicial truncado
+  Logger.log("Recibido en handleLogAsistencia: " + JSON.stringify(payload).substring(0, 500) + "...");
 
   if (!drive_url || !asistencias || !fecha || !unidad || !sesion) { throw new Error("Faltan datos para registrar la asistencia (drive_url, fecha, unidad, sesion, asistencias)."); }
   if (!Array.isArray(asistencias)) { throw new Error("El campo 'asistencias' debe ser un array."); }
 
-  const carpetaMateriaId = extractDriveIdFromUrl(drive_url);
-  if (!carpetaMateriaId) throw new Error(`URL de Drive inválida: ${drive_url}`);
-  const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
-  const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
+  try {
+    const carpetaMateriaId = extractDriveIdFromUrl(drive_url);
+    if (!carpetaMateriaId) throw new Error(`URL de Drive inválida: ${drive_url}`);
+    const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
+    const carpetaReportes = getOrCreateFolder(carpetaMateria, "Reportes");
 
-  const archivos = carpetaReportes.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
-  if (!archivos.hasNext()) throw new Error(`No se encontró el archivo "${NOMBRE_SHEET_ASISTENCIA}" en la carpeta Reportes.`);
+    const archivos = carpetaReportes.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
+    if (!archivos.hasNext()) throw new Error(`No se encontró el archivo "${NOMBRE_SHEET_ASISTENCIA}" en la carpeta Reportes.`);
 
-  const hojaDeCalculo = SpreadsheetApp.open(archivos.next());
-  const nombreHojaUnidad = `Unidad ${unidad}`;
-  const hoja = hojaDeCalculo.getSheetByName(nombreHojaUnidad);
-  if (!hoja) throw new Error(`No se encontró la pestaña "${nombreHojaUnidad}" en el archivo ${NOMBRE_SHEET_ASISTENCIA}.`);
+    const reporteSheet = SpreadsheetApp.open(archivos.next());
+    const nombreHojaUnidad = `Unidad ${unidad}`;
+    const unitSheet = reporteSheet.getSheetByName(nombreHojaUnidad);
+    
+    if (!unitSheet) {
+      throw new Error(`No se encontró la hoja de la unidad "${nombreHojaUnidad}" para registrar la asistencia.`);
+    }
+    
+    // Constantes para la hoja
+    const HEADER_ROW = 1;
+    const DATA_START_ROW = 2; // Fila donde inician los datos de los alumnos (después del encabezado)
+    const FIXED_COLS = 2; // Matrícula, Nombre Completo
+    
+    let lastCol = unitSheet.getLastColumn();
+    let sessionCol = -1;
+    
+    // Aseguramos que lastCol sea al menos el número de columnas fijas si hay datos.
+    if (unitSheet.getLastRow() > 0 && lastCol < FIXED_COLS) {
+        lastCol = FIXED_COLS;
+    }
 
-  // --- Lógica para encontrar/crear la columna de la sesión ---
-  const hoy = new Date(fecha + 'T12:00:00Z'); // Usar T12:00Z para consistencia
-  const textoEncabezado = `${('0' + hoy.getDate()).slice(-2)}/${('0' + (hoy.getMonth() + 1)).slice(-2)}-${sesion}`;
-  Logger.log("Buscando/Creando encabezado de columna: " + textoEncabezado);
+    // 1. Buscar si la columna de sesión ya existe
+    const hoy = new Date(fecha + 'T12:00:00Z');
+    const textoEncabezado = `${('0' + hoy.getDate()).slice(-2)}/${('0' + (hoy.getMonth() + 1)).slice(-2)}-${sesion}`;
 
-  const ultimaColumna = hoja.getLastColumn();
-  let columnaParaHoy = 0; // Base 1
+    if (lastCol > FIXED_COLS) {
+      const headerValues = unitSheet.getRange(HEADER_ROW, FIXED_COLS + 1, 1, lastCol - FIXED_COLS).getValues()[0];
+      const colIndex = headerValues.findIndex(h => String(h).trim() === textoEncabezado);
+      if (colIndex !== -1) {
+        sessionCol = colIndex + FIXED_COLS + 1;
+      }
+    }
 
-  if (ultimaColumna > 0) { // Solo buscar si la hoja tiene contenido
-    const primeraFila = hoja.getRange(1, 1, 1, ultimaColumna).getValues()[0];
-    columnaParaHoy = primeraFila.findIndex(header => String(header).trim() === textoEncabezado) + 1; // findIndex es base 0, +1 para base 1
-  }
+    // 2. Si no existe la columna de sesión, crear una nueva
+    if (sessionCol === -1) {
+      sessionCol = lastCol + 1;
+      unitSheet.getRange(HEADER_ROW, sessionCol).setValue(textoEncabezado).setFontWeight('bold').setHorizontalAlignment("center");
+    }
+    
+    // 3. Escribir los valores de asistencia (1 o 0)
+    const maxRows = unitSheet.getLastRow();
+    if (maxRows < DATA_START_ROW) {
+        throw new Error('No se encontraron alumnos en la hoja de la unidad.');
+    }
 
-  // Si no se encontró (findIndex devuelve -1 -> columnaParaHoy es 0), crearla
-  if (columnaParaHoy === 0) {
-    columnaParaHoy = (ultimaColumna || hoja.getFrozenColumns()) + 1; // Añadir después de la última columna o después de las congeladas si está vacía
-    hoja.getRange(1, columnaParaHoy).setValue(textoEncabezado).setFontWeight("bold").setHorizontalAlignment("center");
-    Logger.log(`Columna "${textoEncabezado}" creada en la posición ${columnaParaHoy}.`);
-  } else {
-    Logger.log(`Columna "${textoEncabezado}" encontrada en la posición ${columnaParaHoy}.`);
-  }
-
-  // --- Lógica para mapear matrículas a filas ---
-  const primeraFilaDatos = hoja.getFrozenRows() + 1; // Asume que los datos empiezan después de las filas congeladas (usualmente 2)
-  const numFilasDatos = hoja.getLastRow() - primeraFilaDatos + 1;
-  let matriculaMap = new Map(); // Mapa: matricula (string mayúsculas) -> numero de fila (base 1)
-
-  if (numFilasDatos > 0) {
-    const rangoMatriculas = hoja.getRange(primeraFilaDatos, 1, numFilasDatos, 1).getValues(); // Leer columna A
-    rangoMatriculas.forEach((fila, index) => {
-      const matriculaEnSheet = String(fila[0]).trim().toUpperCase();
-      if (matriculaEnSheet && !matriculaMap.has(matriculaEnSheet)) { // Evitar duplicados si existen en la hoja
-        matriculaMap.set(matriculaEnSheet, index + primeraFilaDatos);
-      } else if (matriculaEnSheet) {
-          Logger.log(`Advertencia: Matrícula duplicada encontrada en hoja: ${matriculaEnSheet} en fila ${index + primeraFilaDatos}`);
+    const matriculasInSheetRange = unitSheet.getRange(DATA_START_ROW, 1, maxRows - DATA_START_ROW + 1, 1);
+    const matriculasInSheet = matriculasInSheetRange.getValues().flat();
+    
+    let registrosEscritos = 0;
+    asistencias.forEach(data => {
+      const rowIndex = matriculasInSheet.findIndex(m => String(m).trim().toUpperCase() === String(data.matricula).trim().toUpperCase());
+      
+      if (rowIndex !== -1) {
+        const sheetRow = rowIndex + DATA_START_ROW;
+        const value = data.presente ? 1 : 0;
+        unitSheet.getRange(sheetRow, sessionCol).setValue(value).setHorizontalAlignment("center");
+        registrosEscritos++;
       }
     });
-    Logger.log(`Mapeadas ${matriculaMap.size} matrículas únicas desde la hoja.`);
-  } else {
-    Logger.log("Advertencia: No se encontraron filas de datos de alumnos en la hoja (después de las filas congeladas).");
+
+    SpreadsheetApp.flush(); 
+
+    return `Asistencia registrada en la columna ${sessionCol} de la hoja ${nombreHojaUnidad}. Se procesaron ${registrosEscritos} registros.`;
+
+  } catch (e) {
+    Logger.log(e);
+    throw new Error('Error al procesar el registro de asistencia: ' + e.message);
   }
-
-
-  // --- Escribir las asistencias ---
-  let registrosEscritos = 0;
-  let matriculasNoEncontradas = [];
-  asistencias.forEach(asistencia => {
-    if (!asistencia || typeof asistencia.matricula !== 'string') {
-        Logger.log(`Registro de asistencia inválido recibido: ${JSON.stringify(asistencia)}`);
-        return; // Saltar registro inválido
-    }
-    const matriculaRecibida = asistencia.matricula.trim().toUpperCase();
-    const fila = matriculaMap.get(matriculaRecibida);
-
-    if (fila) {
-      const valor = asistencia.presente === true ? 1 : 0; // Asegurar 1 o 0
-      try {
-        hoja.getRange(fila, columnaParaHoy).setValue(valor).setHorizontalAlignment("center");
-        registrosEscritos++;
-      } catch (writeError) {
-         Logger.log(`Error al escribir en celda (${fila}, ${columnaParaHoy}) para ${matriculaRecibida}: ${writeError.message}`);
-      }
-    } else {
-      matriculasNoEncontradas.push(matriculaRecibida); // Guardar para loguear al final
-    }
-  });
-
-  if (matriculasNoEncontradas.length > 0) {
-      Logger.log(`Advertencia: ${matriculasNoEncontradas.length} matrículas recibidas no fueron encontradas en la hoja "${nombreHojaUnidad}": ${matriculasNoEncontradas.join(', ')}`);
-  }
-  Logger.log(`Proceso completado. Se intentó escribir ${asistencias.length} registros, se escribieron ${registrosEscritos}.`);
-  SpreadsheetApp.flush(); // Forzar escritura
-  return `Se ${registrosEscritos === 1 ? 'escribió' : 'escribieron'} ${registrosEscritos} de ${asistencias.length} asistencias en '${textoEncabezado}'. ${matriculasNoEncontradas.length > 0 ? ` (${matriculasNoEncontradas.length} matrículas no encontradas)` : ''}`;
 }
 
 /**
@@ -792,10 +781,7 @@ function handleGetJustificationText(payload) {
   }
 
   // Validar formato A1Notation básico (NombreHoja!Celda)
-  if (typeof justificacion_sheet_cell !== 'string' || !justificacion_sheet_cell.includes('!')) {
-      throw new Error(`Formato de celda inválido: "${justificacion_sheet_cell}". Debe ser 'NombreHoja!A1'.`);
-  }
-
+  // SE ELIMINA LA VALIDACIÓN ESTRICTA QUE PROVOCABA EL ERROR 400
   let spreadsheet;
   try {
      spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
@@ -1304,19 +1290,14 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
   }).filter(Boolean) : []; // Filtrar nulos si hubo inválidos
   Logger.log(`Asistencia - 'filasAlumnos' válidas generadas: ${filasAlumnos.length} filas.`);
 
-  // --- LÓGICA SIMPLIFICADA PARA HOJAS ---
-  // 1. Eliminar la hoja por defecto "Sheet1"
-  const sheet1 = spreadsheet.getSheetByName("Sheet1");
-  if (sheet1) {
-    try {
-      spreadsheet.deleteSheet(sheet1);
-      Logger.log("Hoja por defecto 'Sheet1' eliminada.");
-    } catch (e) {
-      Logger.log(`Advertencia: No se pudo eliminar 'Sheet1': ${e.message}`);
-    }
-  }
+  // --- INICIO DE LA LÓGICA CORREGIDA PARA ELIMINAR HOJA POR DEFECTO ---
 
-  // Crear hojas por unidad
+  // [Paso 1] Obtener referencia a la hoja por defecto CREADA AUTOMÁTICAMENTE
+  const defaultSheet = spreadsheet.getSheets()[0];
+  const defaultSheetName = defaultSheet ? defaultSheet.getName() : null;
+  // Guardamos la referencia ANTES de crear las de unidad.
+
+  // [Paso 2] Crear hojas por unidad
   const numUnidadesReales = Math.max(1, numeroDeUnidades || 0); // Si es 0, creará 1 hoja "Unidad 1"
   for (let i = 1; i <= numUnidadesReales; i++) {
     const nombreHoja = `Unidad ${i}`;
@@ -1353,6 +1334,28 @@ function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
         Logger.log(`Advertencia: No hay datos (ni siquiera headers?) para escribir en ${nombreHoja}.`);
     }
   } // Fin for unidades
+
+  // [Paso 3] Eliminar la hoja por defecto *después* de que se hayan creado las hojas de unidad.
+  // Buscamos la hoja por la referencia ANTERIOR.
+  // Comprobamos si el nombre coincide con los nombres por defecto comunes.
+  if (defaultSheet && (defaultSheetName === "Sheet1" || defaultSheetName === "Hoja 1")) {
+     try {
+        spreadsheet.deleteSheet(defaultSheet); // Usar la referencia obtenida en [Paso 1]
+        Logger.log(`Hoja por defecto residual '${defaultSheetName}' eliminada exitosamente.`);
+     } catch (e) {
+         // Ya no debería fallar, ya que hay al menos una hoja de unidad.
+         Logger.log(`Advertencia: Falló la eliminación final de la hoja por defecto residual '${defaultSheetName}': ${e.message}`);
+     }
+  }
+
+  // [Paso 4] Asegurar que la hoja "Unidad 1" sea la primera (si existe).
+  const firstUnitSheet = spreadsheet.getSheetByName("Unidad 1");
+  if (firstUnitSheet) {
+    spreadsheet.setActiveSheet(firstUnitSheet); // Establecer como activa
+    spreadsheet.moveActiveSheet(1); // Mover a la primera posición
+  }
+
+  // --- FIN DE LA LÓGICA CORREGIDA ---
 
   // Mover archivo
   moveFileToFolder(spreadsheet.getId(), carpetaPadre, NOMBRE_SHEET_ASISTENCIA);

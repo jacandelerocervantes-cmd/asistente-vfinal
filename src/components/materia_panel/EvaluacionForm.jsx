@@ -256,7 +256,6 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                     puntos: pregunta.puntos || 0, // Asegurar valor numérico
                     orden: index, // Orden secuencial
                     datos_extra: datosExtraFinales, // USAR LOS DATOS FINALES (con layout si aplica)
-                    banco_pregunta_id: pregunta.banco_pregunta_id || null // Guardar referencia al banco si viene de ahí
                 };
 
                 // Añadir ID solo si estamos actualizando una existente
@@ -269,7 +268,8 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                     supabase.from('preguntas').upsert(preguntaData).select().single().then(async ({ data: savedPregunta, error: upsertError }) => {
                         if (upsertError) {
                              console.error(`Error en upsert pregunta ${index + 1}:`, upsertError);
-                             throw new Error(`Error guardando pregunta ${index + 1}: ${upsertError.message}`);
+                             const errMsg = upsertError.message || JSON.stringify(upsertError);
+                             throw new Error(`Error guardando pregunta ${index + 1}: ${errMsg}`);
                          }
                          const savedPreguntaId = savedPregunta.id;
                          console.log(`Pregunta ${index + 1} guardada/actualizada con ID: ${savedPreguntaId}`);

@@ -6,18 +6,30 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Interfaces para definir la estructura esperada
+// --- Interfaces Actualizadas ---
 interface OpcionGenerada {
     texto_opcion: string;
     es_correcta: boolean;
 }
 
+// Interfaz para datos_extra (simplificada para generación inicial)
+// La IA *no* generará la estructura completa (grid, layout), solo la base.
+interface DatosExtraGenerados {
+    palabras?: string[]; // Para sopa_letras
+    entradas?: { palabra: string; pista: string }[]; // Para crucigrama
+    columnas?: { texto: string, grupo: 'A' | 'B' }[]; // Para relacionar_columnas (solo texto y grupo inicial)
+    pares_correctos?: { id_a_temp?: string, id_b_temp?: string }[]; // Placeholder para relacionar_columnas
+}
+
+
 interface PreguntaGenerada {
     texto_pregunta: string;
-    // Permitimos los tipos que definimos en la Fase 1
-    tipo_pregunta: 'opcion_multiple_unica' | 'abierta';
+    // --- Añadir todos los tipos permitidos ---
+    tipo_pregunta: 'opcion_multiple_unica' | 'opcion_multiple_multiple' | 'abierta' | 'sopa_letras' | 'crucigrama' | 'relacionar_columnas';
     puntos: number;
     opciones?: OpcionGenerada[]; // Solo para opción múltiple
+    // --- Añadir datos_extra ---
+    datos_extra?: DatosExtraGenerados | null; // Para tipos didácticos
 }
 
 interface EvaluacionGenerada {
@@ -27,8 +39,8 @@ interface EvaluacionGenerada {
 interface RequestPayload {
     tema: string;
     num_preguntas: number;
-    // Usamos los tipos definidos
-    tipos_preguntas: ('opcion_multiple_unica' | 'abierta')[];
+    // --- Usar todos los tipos ---
+    tipos_preguntas: ('opcion_multiple_unica' | 'opcion_multiple_multiple' | 'abierta' | 'sopa_letras' | 'crucigrama' | 'relacionar_columnas')[];
     instrucciones_adicionales?: string;
 }
 
@@ -85,11 +97,12 @@ serve(async (req: Request) => {
     }
 
     // --- Construcción del Prompt Detallado ---
+    const tiposPermitidosStr = tipos_preguntas.join(', ');
     let prompt = `
       Eres un asistente experto diseñando evaluaciones académicas para nivel ${instrucciones_adicionales?.includes('universitario') ? 'universitario' : 'técnico/preparatoria'}.
       Genera un borrador de examen sobre el tema "${tema}".
       El examen debe contener exactamente ${num_preguntas} preguntas.
-      Los tipos de preguntas permitidos son: ${tipos_preguntas.join(', ')}. Intenta distribuir los tipos si hay más de uno. Por ejemplo, si se piden 10 preguntas y 2 tipos, haz 5 de cada tipo.
+      Los tipos de preguntas permitidos son: ${tiposPermitidosStr}. Intenta distribuir los tipos solicitados equitativamente. Por ejemplo, si se piden 10 preguntas y 5 tipos, haz 2 de cada tipo si es posible.
       Cada pregunta debe valer aproximadamente ${Math.round(100 / num_preguntas)} puntos. Asegúrate que la suma TOTAL de puntos de todas las preguntas sea exactamente 100. Ajusta los puntos de algunas preguntas ligeramente si es necesario para alcanzar 100.
     `;
 
@@ -98,15 +111,48 @@ serve(async (req: Request) => {
       Para las preguntas de opción múltiple única ('opcion_multiple_unica'):
       - Incluye exactamente 4 opciones de respuesta (ni más ni menos).
       - Marca solo UNA opción como la correcta (es_correcta: true).
-      - Las opciones incorrectas (distractores) deben ser verosímiles y relacionadas con el tema, pero claramente incorrectas. Evita opciones como "Todas las anteriores" o "Ninguna de las anteriores".
+      - Los distractores deben ser verosímiles. Evita "Todas las anteriores" o "Ninguna de las anteriores".
+      `;
+    }
+     if (tipos_preguntas.includes('opcion_multiple_multiple')) {
+      prompt += `
+      Para las preguntas de opción múltiple múltiple ('opcion_multiple_multiple'):
+      - Incluye entre 4 y 6 opciones de respuesta.
+      - Marca al menos UNA y como máximo N-1 opciones como correctas (es_correcta: true).
+      - Los distractores deben ser verosímiles.
       `;
     }
     if (tipos_preguntas.includes('abierta')) {
         prompt += `
         Para las preguntas abiertas ('abierta'):
-        - Formula preguntas claras y concisas que requieran una respuesta desarrollada (ej. explicar un concepto, comparar elementos, justificar una opinión basada en el tema). Evita preguntas de sí/no o de una sola palabra.
+        - Formula preguntas claras que requieran una respuesta desarrollada (explicar, comparar, justificar). Evita preguntas de sí/no.
         `;
     }
+    if (tipos_preguntas.includes('sopa_letras')) {
+        prompt += `
+        Para las preguntas de Sopa de Letras ('sopa_letras'):
+        - El campo "texto_pregunta" debe ser la instrucción (Ej: "Encuentra las siguientes 5 palabras clave sobre...").
+        - Incluye una clave "datos_extra" con un campo "palabras" (array de strings) que contenga entre 5 y 10 palabras relevantes al tema "${tema}", en MAYÚSCULAS y sin espacios. NO generes la cuadrícula, solo la lista de palabras.
+        `;
+    }
+     if (tipos_preguntas.includes('crucigrama')) {
+        prompt += `
+        Para las preguntas de Crucigrama ('crucigrama'):
+        - El campo "texto_pregunta" debe ser la instrucción (Ej: "Resuelve el crucigrama sobre...").
+        - Incluye una clave "datos_extra" con un campo "entradas" (array de objetos).
+        - Cada objeto en "entradas" debe tener "palabra" (string en MAYÚSCULAS, sin espacios) y "pista" (string, la definición o clue). Genera entre 5 y 8 entradas. NO generes el layout de la cuadrícula, solo las palabras y pistas.
+        `;
+    }
+     if (tipos_preguntas.includes('relacionar_columnas')) {
+        prompt += `
+        Para las preguntas de Relacionar Columnas ('relacionar_columnas'):
+        - El campo "texto_pregunta" debe ser la instrucción (Ej: "Relaciona los conceptos de la columna A con sus definiciones en la columna B").
+        - Incluye una clave "datos_extra" con un campo "columnas" (array de objetos).
+        - Genera entre 4 y 6 PARES de elementos relacionados. Para cada par, crea dos objetos en "columnas": uno con "grupo": "A" y el otro con "grupo": "B". Cada objeto debe tener un campo "texto" (string).
+        - NO intentes definir los pares correctos, solo genera los elementos de ambas columnas.
+        `;
+    }
+
      if (instrucciones_adicionales) {
         prompt += `\nConsidera estas Instrucciones Adicionales del Docente: ${instrucciones_adicionales}`;
      }
