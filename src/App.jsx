@@ -70,6 +70,7 @@ function App() {
       console.log("triggerSync: Sync already in progress, skipping call.");
       return;
     }
+    syncInProgress.current = true; // Set lock before setting state
     setIsSyncing(true); // Marcar inicio
     console.log("triggerSync: Calling sync-drive-on-first-login...");
     try {
@@ -82,7 +83,19 @@ function App() {
 
     } catch (error) {
       console.error("triggerSync: Error invoking sync function:", error);
-      alert("Hubo un error al intentar la sincronización inicial con Google Drive: " + error.message);
+      
+      // === INICIO DE LA MEJORA UX: Manejo Silencioso del Error de Bloqueo ===
+      const errorMessage = error.message || String(error);
+      const isLockError = errorMessage.includes("El proceso de sincronización ya está en ejecución");
+      
+      if (isLockError) {
+          // Si es el error específico de bloqueo (concurrencia), lo logueamos pero NO mostramos la alerta.
+          console.warn("triggerSync: Detectado error de bloqueo de Apps Script. Omitiendo alerta, se espera reintento exitoso.");
+      } else {
+          // Mostrar alerta para cualquier otro error real (ej. red, Apps Script URL no válida, etc.)
+          alert("Hubo un error al intentar la sincronización inicial con Google Drive: " + errorMessage);
+      }
+      // === FIN DE LA MEJORA UX ===
     } finally {
        console.log("triggerSync: Setting isSyncing to false.");
        setIsSyncing(false); // Marcar fin (incluso si falló, para posible reintento)
