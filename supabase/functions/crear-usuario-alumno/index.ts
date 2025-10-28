@@ -1,13 +1,7 @@
 // supabase/functions/crear-usuario-alumno/index.ts
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-// Define tus CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', // Cambia '*' por tu URL de frontend en producción
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS' // Importante para OPTIONS
-};
+import { serve } from "std/http/server.ts";
+import { createClient } from "@supabase/supabase-js";
+import { corsHeaders } from '../_shared/cors.ts';
 
 
 serve(async (req: Request) => {
@@ -110,9 +104,14 @@ serve(async (req: Request) => {
 
   } catch (error) {
     console.error("Error en crear-usuario-alumno:", error);
-    return new Response(JSON.stringify({ message: error.message }), {
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido.";
+    const status = errorMessage.includes('ya está registrado') || errorMessage.includes('ya tiene') ? 409
+                 : errorMessage.includes('Faltan datos') || errorMessage.includes('inválido') || errorMessage.includes('contraseña') ? 400
+                 : 500;
+
+    return new Response(JSON.stringify({ message: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: error.message.includes('ya está registrado') || error.message.includes('ya tiene') ? 409 : (error.message.includes('Faltan datos') || error.message.includes('inválido') || error.message.includes('contraseña') ? 400 : 500),
+      status: status,
     });
   }
 });

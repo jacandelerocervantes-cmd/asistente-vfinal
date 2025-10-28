@@ -511,3 +511,14 @@ entrypoint = "./functions/crear-usuario-alumno/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/crear-usuario-alumno/*.html" ]
+
+[functions.crear-usuarios-alumnos-batch]
+enabled = true
+verify_jwt = true
+import_map = "./functions/crear-usuarios-alumnos-batch/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/crear-usuarios-alumnos-batch/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/crear-usuarios-alumnos-batch/*.html" ]

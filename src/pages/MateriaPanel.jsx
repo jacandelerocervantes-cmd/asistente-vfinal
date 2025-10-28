@@ -1,6 +1,6 @@
 // src/pages/MateriaPanel.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import './MateriaPanel.css';
 
@@ -9,6 +9,7 @@ import Alumnos from '../components/materia_panel/Alumnos';
 import Asistencia from '../components/materia_panel/Asistencia';
 import Actividades from '../components/materia_panel/Actividades';
 import Evaluaciones from '../components/materia_panel/Evaluaciones'; // <-- IMPORTA EL NUEVO COMPONENTE
+import { FaArrowLeft } from 'react-icons/fa';
 
 const TABS = {
   ALUMNOS: 'Alumnos',
@@ -21,57 +22,82 @@ const TABS = {
 
 const MateriaPanel = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [materia, setMateria] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(TABS.ALUMNOS);
+  const [error, setError] = useState('');
+
+    // --- CORRECCIÓN: Convertir id de la URL a número ---
+    const materiaIdNumerico = id ? parseInt(id, 10) : null;
+    // --- FIN CORRECCIÓN ---
 
   useEffect(() => {
     const fetchMateria = async () => {
+            // --- CORRECCIÓN: Usar materiaIdNumerico ---
+            if (!materiaIdNumerico) {
+                 setError("ID de materia inválido.");
+                 setLoading(false);
+                 return;
+            }
+            // --- FIN CORRECCIÓN ---
+
+      setLoading(true);
+      setError('');
       try {
-        setLoading(true);
-        const { data, error } = await supabase.from('materias').select('*').eq('id', id).single();
-        if (error) throw error;
+        const { data, error: fetchError } = await supabase
+            .from('materias')
+            .select('*')
+            .eq('id', materiaIdNumerico) // Usar el ID numérico
+            .single();
+
+        if (fetchError) throw fetchError;
+        if (!data) throw new Error("Materia no encontrada.");
         setMateria(data);
-      } catch (error) {
-        console.error('Error fetching materia:', error);
-        alert('No se pudo cargar la materia.');
+
+      } catch (err) {
+        console.error("Error cargando materia:", err);
+        setError("No se pudo cargar la información de la materia.");
       } finally {
         setLoading(false);
       }
     };
     fetchMateria();
-  }, [id]);
+  }, [materiaIdNumerico]); // Depender del ID numérico
 
   const renderContent = () => {
     switch (activeTab) {
       case TABS.ALUMNOS:
-        return <Alumnos />;
+        // --- CORRECCIÓN: Pasar el ID numérico directamente ---
+        return <Alumnos materiaId={materiaIdNumerico} nombreMateria={materia.nombre} />;
       case TABS.ASISTENCIA:
-        return <Asistencia />;
+        return <Asistencia materiaId={materia.id} nombreMateria={materia.nombre} materia={materia} />;
       
       // --- 2. USA EL COMPONENTE CORRECTO AQUÍ ---
       case TABS.ACTIVIDADES:
-        return <Actividades />;
+        return <Actividades materiaId={materiaIdNumerico} nombreMateria={materia.nombre} />;
       case TABS.EVALUACIONES: // <-- AÑADE EL CASO PARA RENDERIZAR
-        return <Evaluaciones materia={materia} />; // Pasa la materia como prop
+        return <Evaluaciones materiaId={materiaIdNumerico} nombreMateria={materia.nombre} />;
       default:
         return <div style={{padding: '20px', textAlign: 'center'}}>Selecciona una pestaña.</div>;
     }
   };
 
   if (loading) {
-    return <div className="container">Cargando información de la materia...</div>;
+    return <div className="container">Cargando...</div>;
   }
 
+  if (error) return <div className="container error-message">{error} <Link to="/dashboard">Volver</Link></div>;
   if (!materia) {
-    return <div className="container">Materia no encontrada.</div>;
+    return <div className="container">Materia no encontrada. <Link to="/dashboard">Volver</Link></div>;
   }
 
   return (
     <div className="materia-panel-container container">
-      <Link to="/dashboard" className="back-link">&larr; Volver a Mis Materias</Link>
-      <h2 className="materia-panel-title">{materia.nombre}</h2>
-      <p className="materia-panel-subtitle">Semestre: {materia.semestre}</p>
+      <button onClick={() => navigate('/dashboard')} className="back-button btn-secondary icon-button" style={{marginBottom: '1rem'}}>
+          <FaArrowLeft /> Volver al Dashboard
+      </button>
+      <h2>{materia.nombre} <span className="materia-semestre">({materia.semestre})</span></h2>
 
       <nav className="materia-tabs">
         {Object.values(TABS).map((tab) => (

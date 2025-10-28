@@ -1,11 +1,7 @@
 // supabase/functions/registrar-asistencia/index.ts
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', // O tu URL específica en producción
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', // <-- ADDED authorization, x-client-info
-};
+import { corsHeaders } from '../_shared/cors.ts';
 
 interface AsistenciaRequest {
     matricula: string;

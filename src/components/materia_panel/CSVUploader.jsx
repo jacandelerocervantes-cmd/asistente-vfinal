@@ -1,149 +1,220 @@
-import React from 'react';
-import { useState } from 'react';
-import Papa from 'papaparse';
+import React, { useState, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
+import Papa from 'papaparse';
 import './CSVUploader.css';
+import { FaUpload, FaSpinner } from 'react-icons/fa'; // Añadir FaSpinner
 
-const CSVUploader = ({ materia_id, onFinish }) => {
-  const [uploadType, setUploadType] = useState('alumnos');
+const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
   const [file, setFile] = useState(null);
-  const [data, setData] = useState([]);
-  const [headers, setHeaders] = useState([]);
-  const [loading, setLoading] = useState(false);
+    const [uploading, setUploading] = useState(false);
+    const [error, setError] = useState('');
+    const [results, setResults] = useState(null); // Para mostrar resultados
+    const [createAccounts, setCreateAccounts] = useState(true); // Checkbox para crear cuentas
 
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      Papa.parse(selectedFile, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          setHeaders(Object.keys(results.data[0] || {}));
-          setData(results.data);
-        },
-      });
-    }
-  };
+    const handleFileChange = (event) => {
+        setFile(event.target.files[0]);
+        setError('');
+        setResults(null);
+    };
 
-  const handleUpload = async () => {
-    if (data.length === 0) {
-      alert('No hay datos para subir.');
-      return;
-    }
-    setLoading(true);
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (uploadType === 'alumnos') {
-        const alumnosToInsert = data.map(row => ({
-          matricula: row.matricula,
-          nombre: row.nombre,
-          apellido: row.apellido,
-          correo: row.correo,
-          materia_id,
-          user_id: user.id
-        }));
-
-        // Use 'upsert' to update if matricula already exists, or insert if it's new.
-        const { error } = await supabase.from('alumnos').upsert(alumnosToInsert, { onConflict: 'materia_id,matricula' });
-        if (error) throw error;
-        alert(`¡${data.length} registros de alumnos han sido subidos/actualizados exitosamente!`);
-
-      } else if (uploadType === 'grupos') {
-        // 1. Get all students in the course to map matricula -> id
-        const { data: todosLosAlumnos, error: alumnosError } = await supabase.from('alumnos').select('id, matricula').eq('materia_id', materia_id);
-        if (alumnosError) throw alumnosError;
-        const matriculaToIdMap = new Map(todosLosAlumnos.map(a => [String(a.matricula), a.id]));
-
-        // 2. Group the CSV by group name
-        const gruposCSV = data.reduce((acc, row) => {
-          const nombreGrupo = row.nombre_grupo;
-          const matricula = row.matricula_alumno;
-          if (!acc[nombreGrupo]) {
-            acc[nombreGrupo] = [];
-          }
-          acc[nombreGrupo].push(matricula);
-          return acc;
-        }, {});
-
-        // 3. Process each group
-        for (const nombreGrupo in gruposCSV) {
-          // Create or find the group
-          const { data: grupoData } = await supabase.from('grupos').upsert({ nombre: nombreGrupo, materia_id, user_id: user.id }, { onConflict: 'materia_id,nombre' }).select('id').single();
-          const grupoId = grupoData.id;
-
-          // Prepare student assignments
-          const asignaciones = gruposCSV[nombreGrupo]
-            .map(matricula => matriculaToIdMap.get(String(matricula))) // Convert matricula to id
-            .filter(id => id) // Filter out matriculas that don't exist
-            .map(alumnoId => ({ grupo_id: grupoId, alumno_id: alumnoId, user_id: user.id }));
-
-          // Delete old members and add the new ones
-          await supabase.from('alumnos_grupos').delete().eq('grupo_id', grupoId);
-          if (asignaciones.length > 0) {
-            await supabase.from('alumnos_grupos').insert(asignaciones);
-          }
+    const processCSV = useCallback(async () => {
+        if (!file) {
+            setError('Por favor, selecciona un archivo CSV.');
+            return;
         }
-        alert(`¡Grupos procesados desde el CSV exitosamente!`);
-      }
-      onFinish();
-    } catch (error) {
-      alert(`Error al subir los datos: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+        if (!materiaId) {
+            setError('Error: No se ha proporcionado el ID de la materia.');
+            return;
+        }
 
-  const expectedHeaders = uploadType === 'alumnos' ? ['matricula', 'nombre', 'apellido', 'correo'] : ['nombre_grupo', 'matricula_alumno'];
+        setUploading(true);
+        setError('');
+        setResults(null); // Limpiar resultados anteriores
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: async (result) => {
+                const alumnosFromCSV = result.data;
+                console.log("Datos CSV parseados:", alumnosFromCSV);
+
+                if (!alumnosFromCSV || alumnosFromCSV.length === 0) {
+                    setError('El archivo CSV está vacío o no tiene el formato esperado (con cabeceras).');
+                    setUploading(false);
+                    return;
+                }
+
+                // Validar cabeceras esperadas (ajusta según tu CSV)
+                const expectedHeaders = ['matricula', 'nombre', 'apellido'];
+                const actualHeaders = Object.keys(alumnosFromCSV[0]);
+                if (!expectedHeaders.every(header => actualHeaders.includes(header))) {
+                    setError(`Cabeceras incorrectas. Se esperan: ${expectedHeaders.join(', ')}. Encontradas: ${actualHeaders.join(', ')}`);
+                    setUploading(false);
+                    return;
+                }
+
+                // Preparar datos para Supabase (añadiendo materia_id)
+                const alumnosParaGuardar = alumnosFromCSV.map(a => ({
+                    materia_id: materiaId,
+                    matricula: String(a.matricula).trim(), // Asegurar string y quitar espacios
+                    nombre: String(a.nombre).trim(),
+                    apellido: String(a.apellido).trim(),
+                    email: a.email ? String(a.email).trim().toLowerCase() : null // Normalizar email si existe
+                })).filter(a => a.matricula && a.nombre && a.apellido); // Filtrar filas incompletas
+
+                if (alumnosParaGuardar.length === 0) {
+                     setError('No se encontraron alumnos válidos (con matrícula, nombre y apellido) en el CSV.');
+                     setUploading(false);
+                     return;
+                }
+
+                console.log(`Intentando guardar/actualizar ${alumnosParaGuardar.length} alumnos...`);
+
+                try {
+                    // Usar upsert para insertar nuevos o actualizar existentes por matrícula y materia_id
+                    const { data: savedAlumnos, error: upsertError } = await supabase
+                        .from('alumnos')
+                        .upsert(alumnosParaGuardar, { onConflict: 'materia_id, matricula' }) // Clave única
+                        .select('id, matricula, email'); // Necesitamos el ID y email para la creación de cuentas
+
+                    if (upsertError) throw upsertError;
+
+                    console.log(`${savedAlumnos.length} alumnos guardados/actualizados.`);
+                    setResults({ message: `${savedAlumnos.length} alumnos procesados desde CSV.` });
+
+                    // --- INICIO CREACIÓN MASIVA DE CUENTAS ---
+                    if (createAccounts && savedAlumnos && savedAlumnos.length > 0) {
+                        const alumnosParaCrearCuenta = savedAlumnos.filter(a => a.email && a.matricula); // Filtrar los que tienen email y matrícula
+
+                        if (alumnosParaCrearCuenta.length > 0) {
+                            console.log(`Intentando crear ${alumnosParaCrearCuenta.length} cuentas de acceso...`);
+                            setResults(prev => ({ ...prev, accountMessage: `Creando ${alumnosParaCrearCuenta.length} cuentas...` }));
+
+                            const payloadBatch = {
+                                alumnos: alumnosParaCrearCuenta.map(a => ({
+                                    alumno_id: a.id,
+                                    email: a.email,
+                                    matricula: a.matricula // La función usará esto como password
+                                }))
+                            };
+
+                            try {
+                                const { data: batchResult, error: batchError } = await supabase.functions.invoke(
+                                    'crear-usuarios-alumnos-batch',
+                                    { body: payloadBatch }
+                                );
+
+                                if (batchError) throw batchError;
+
+                                const erroresCuenta = batchResult.resultados.filter(r => !r.success);
+                                const mensajeCuentas = `Cuentas creadas: ${batchResult.exitosos}/${batchResult.totalProcesados}. ${erroresCuenta.length > 0 ? `Errores: ${erroresCuenta.length}` : ''}`;
+                                console.log("Resultado creación masiva:", batchResult);
+                                setResults(prev => ({ ...prev, accountMessage: mensajeCuentas, accountErrors: erroresCuenta.length > 0 ? erroresCuenta : null }));
+                                if (erroresCuenta.length > 0) {
+                                     console.warn("Errores al crear cuentas:", erroresCuenta);
+                                }
+
+
+                            } catch (batchInvokeError) {
+                                console.error("Error invocando crear-usuarios-alumnos-batch:", batchInvokeError);
+                                const errMsg = batchInvokeError.context?.details || batchInvokeError.message || 'Error desconocido.';
+                                setResults(prev => ({ ...prev, accountMessage: `Error creando cuentas: ${errMsg}` }));
+                            }
+                        } else {
+                            console.log("No hay alumnos con correo en el CSV para crear cuentas.");
+                            setResults(prev => ({ ...prev, accountMessage: "No se encontraron alumnos con correo para crear cuentas." }));
+                        }
+                    } else if (createAccounts) {
+                         setResults(prev => ({ ...prev, accountMessage: "No se procesaron alumnos desde CSV para crear cuentas." }));
+                    }
+                    // --- FIN CREACIÓN MASIVA ---
+
+                    // Llamar al callback de éxito después de todo
+                    onUploadComplete();
+
+                } catch (err) {
+                    console.error("Error guardando alumnos desde CSV:", err);
+                    setError("Error al procesar el archivo CSV: " + err.message);
+                } finally {
+                    setUploading(false);
+                }
+            },
+            error: (err) => {
+                console.error("Error parseando CSV:", err);
+                setError("Error al leer el archivo CSV: " + err.message);
+                setUploading(false);
+            }
+        });
+    }, [file, materiaId, onUploadComplete, createAccounts]); // Añadir createAccounts a dependencias
 
   return (
-    <div className="csv-uploader-container card">
-      <h3>Subida Masiva con CSV</h3>
-      
-      <div className="upload-type-selector">
-        <label>
-          <input type="radio" value="alumnos" checked={uploadType === 'alumnos'} onChange={() => setUploadType('alumnos')} />
-          Subir Alumnos
-        </label>
-        <label>
-          <input type="radio" value="grupos" checked={uploadType === 'grupos'} onChange={() => setUploadType('grupos')} />
-          Subir Grupos
-        </label>
-      </div>
-      
-      <p>Asegúrate de que tu archivo CSV tenga las columnas: <strong>{expectedHeaders.join(', ')}</strong>.</p>
-      
-      <input type="file" accept=".csv" onChange={handleFileChange} />
+        <div className="modal-overlay" onClick={onCancel}>
+            <div className="modal-content csv-uploader-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                    <h4>Subir Alumnos desde CSV</h4>
+                    <button onClick={onCancel} className="close-btn">&times;</button>
+                </div>
+                <div className="modal-body">
+                    <p>El archivo CSV debe tener las columnas: <strong>matricula</strong>, <strong>nombre</strong>, <strong>apellido</strong>. Opcionalmente puede incluir <strong>email</strong>.</p>
+                    {error && <p className="error-message">{error}</p>}
+                    {results && (
+                        <div className="results-message">
+                            <p>{results.message}</p>
+                            {results.accountMessage && <p>{results.accountMessage}</p>}
+                            {/* Opcional: Mostrar detalles de errores de creación de cuenta */}
+                            {results.accountErrors && results.accountErrors.length > 0 && (
+                                <details style={{marginTop: '10px', fontSize: '0.9em', textAlign: 'left'}}>
+                                    <summary>Ver errores ({results.accountErrors.length})</summary>
+                                    <ul>
+                                        {results.accountErrors.map((e, i) => (
+                                            <li key={i}>{e.email}: {e.error}</li>
+                                        ))}
+                                    </ul>
+                                </details>
+                            )}
+                        </div>
+                    )}
 
-      {data.length > 0 && (
-        <div className="preview-container">
-          <h4>Vista Previa ({data.length} filas)</h4>
-          <table className="preview-table">
-            <thead>
-              <tr>
-                {headers.map(h => <th key={h}>{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {data.slice(0, 5).map((row, i) => ( // Show only the first 5 rows for preview
-                <tr key={i}>
-                  {headers.map(h => <td key={h}>{row[h]}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <div className="form-group">
+                        <label htmlFor="csvFile">Seleccionar Archivo CSV</label>
+                        <input
+                            type="file"
+                            id="csvFile"
+                            accept=".csv"
+                            onChange={handleFileChange}
+                            disabled={uploading}
+                        />
+                    </div>
+
+                     {/* --- Checkbox para crear cuentas --- */}
+                     <div className="form-group" style={{ marginTop: '1rem', textAlign: 'left' }}>
+                        <label>
+                            <input
+                                type="checkbox"
+                                checked={createAccounts}
+                                onChange={(e) => setCreateAccounts(e.target.checked)}
+                                disabled={uploading}
+                            />
+                            Intentar crear cuenta de acceso para alumnos con correo (usará matrícula como contraseña inicial)
+                        </label>
+                    </div>
+                     {/* --- Fin Checkbox --- */}
+
+
+                </div>
+                 <div className="modal-footer form-actions">
+                    <button type="button" onClick={onCancel} className="btn-tertiary" disabled={uploading}>Cancelar</button>
+                    <button
+                        onClick={processCSV}
+                        className="btn-primary icon-button"
+                        disabled={!file || uploading}
+                    >
+                        {uploading ? <FaSpinner className="spinner" /> : <FaUpload />}
+                        {uploading ? 'Procesando...' : 'Subir y Procesar'}
+                    </button>
+                </div>
+            </div>
         </div>
-      )}
-
-      <div className="form-actions">
-        <button onClick={onFinish} className="btn-tertiary" disabled={loading}>Cancelar</button>
-        <button onClick={handleUpload} className="btn-primary" disabled={!file || loading}>
-          {loading ? 'Subiendo...' : `Subir ${data.length} Registros`}
-        </button>
-      </div>
-    </div>
   );
 };
 

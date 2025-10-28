@@ -334,15 +334,28 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
 
     // Renderizado del Formulario
     return (
-        <div className="evaluacion-form-container">
-            {/* ... (Modal Generar IA) ... */}
-            {/* ... (Modal Banco Preguntas) ... */}
-            {/* --- RENDERIZAR MODAL --- */}
+        <div className="evaluacion-form-container">            
+            {/* --- RENDERIZAR MODALES --- */}
             <GenerarEvaluacionModal
                 show={showGenerarModal}
                 onClose={() => setShowGenerarModal(false)}
                 onGenerar={handlePreguntasGeneradas}
             />
+
+            {/* Modal para el Banco de Preguntas */}
+            {showBancoModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content modal-lg">
+                        <BancoPreguntasPanel
+                            materiaId={materia.id} // Pasar el ID de la materia actual
+                            modoSeleccion={true} // Activar modo selección
+                            onSeleccionarPregunta={handleSeleccionarPreguntaBanco} // Callback al seleccionar
+                        />
+                        <button onClick={() => setShowBancoModal(false)} className="btn-tertiary modal-close-btn">Cerrar Banco</button>
+                    </div>
+                </div>
+            )}
+
             <form onSubmit={handleSubmit} className="materia-form">
                 <h3>{isEditing ? 'Editar Evaluación' : 'Nueva Evaluación'}</h3>
 
@@ -404,7 +417,7 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                             ✨ Crear con IA
                         </button>
                          {/* --- 3. Botón para abrir el modal del Banco --- */}
-                        <button type="button" onClick={() => setShowBancoModal(true)} className="btn-secondary" disabled={loading || loadingPreguntas}>
+                        <button type="button" onClick={() => setShowBancoModal(true)} className="btn-secondary" disabled={loading || loadingPreguntas} title="Añadir una pregunta existente desde tu banco personal">
                             🏦 Añadir desde Banco
                         </button>
                     </div>
