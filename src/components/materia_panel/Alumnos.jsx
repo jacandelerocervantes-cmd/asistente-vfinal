@@ -91,7 +91,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             setLoading(false); setAlumnos([]);
             return;
         }
-        setLoadingAlumnos(true); setError('');
+        setLoading(true); setError('');
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
@@ -261,11 +261,6 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
          });
      };
 
-    // --- Renderizado ---
-    if (!materiaId && !loadingAlumnos && !loadingGrupos) {
-         return <div className="alumnos-container section-container"><p>ID de materia inválido.</p></div>;
-     }
-    const isLoading = loadingAlumnos || loadingGrupos;
 
     return (
         <div className="alumnos-container section-container">
@@ -324,7 +319,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             {showAssignGroupModal && <AsignarGrupoModal grupos={grupos} onClose={() => setShowAssignGroupModal(false)} onAssign={handleAssignGroup} />}
 
             {/* Listado de Alumnos por Grupo */}
-            {isLoading && !showAlumnoForm && !showCSVUploader && !showGrupoForm ? (
+            {loading && !showAlumnoForm && !showCSVUploader && !showGrupoForm ? (
                 <div style={{textAlign: 'center', padding: '2rem'}}><FaSpinner className="spinner" /> Cargando...</div>
             ) : (
              !showAlumnoForm && !showCSVUploader && !showGrupoForm && (
