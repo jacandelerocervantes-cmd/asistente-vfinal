@@ -1,82 +1,80 @@
 // supabase/functions/generar-layout-sopa/index.ts
-import { serve } from "std/http/server.ts";
-// No more external library import for wordsearch
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// --- Interfaces (SIN CAMBIOS) ---
 interface RequestPayload {
     palabras: string[];
-    filas: number;    // <--- Ya estaba definido
-    columnas: number; // <--- Ya estaba definido
-    maxBacktrackAttempts?: number;
-    fillRandomLetters?: boolean;
-}
-interface PlacedWordSopa {
-    word: string;
-    startx: number; // 0-indexed column
-    starty: number; // 0-indexed row
-    direction: string; // e.g., 'horizontal', 'vertical', 'diagonal-up-right'
+    filas: number;
+    columnas: number;
+    maxBacktrackAttempts?: number; // Opcional: límite para intentos de backtracking
+    fillRandomLetters?: boolean; // Opcional: rellenar celdas vacías
 }
 
+interface PlacedWordSopa {
+    word: string;
+    startx: number; // Columna base 0
+    starty: number; // Fila base 0
+    direction: string; // ej., 'horizontal', 'vertical', 'diagonal-up-right'
+}
 
 interface WordSearchLayout {
     grid: string[][];
     words: PlacedWordSopa[];
+    error?: string; // Para indicar si falló o es parcial
+    finalRows?: number; // Para devolver el tamaño final usado
+    finalCols?: number; // Para devolver el tamaño final usado
 }
 
-// --- Funciones de generación (generateWordSearchLayoutCustomWithBacktracking, canPlaceWordSopa - SIN CAMBIOS) ---
-// function generateWordSearchLayoutCustomWithBacktracking(...) { /* ... */ }
-// function canPlaceWordSopa(...) { /* ... */ }
-// --- Custom Word Search Generation Algorithm ---
+// --- Algoritmo de Generación de Sopa de Letras con Backtracking ---
+// (Asegúrate de que estas funciones estén definidas aquí)
 function generateWordSearchLayoutCustomWithBacktracking(
     palabrasInput: string[],
     rows: number,
     cols: number,
-    maxBacktrackAttempts: number = 1000, // Limit total backtracking attempts
+    maxBacktrackAttempts: number = 2000, // Aumentar intentos un poco
     fillRandomLetters: boolean = true
-): WordSearchLayout {
-    // Prepare words: uppercase, remove spaces, sort by length (longest first for better placement chances)
+): WordSearchLayout | null { // Puede devolver null si falla catastróficamente
     const palabras = palabrasInput
         .map(p => p.toUpperCase().replace(/\s/g, ''))
+        .filter(Boolean)
         .sort((a, b) => b.length - a.length);
 
-    const directions = [ // All 8 directions
-        { dx: 1, dy: 0, name: 'horizontal' },         // Right
-        { dx: -1, dy: 0, name: 'horizontal-reverse' }, // Left
-        { dx: 0, dy: 1, name: 'vertical' },          // Down
-        { dx: 0, dy: -1, name: 'vertical-reverse' },  // Up
-        { dx: 1, dy: 1, name: 'diagonal-down-right' }, // Down-Right
-        { dx: -1, dy: 1, name: 'diagonal-down-left' }, // Down-Left
-        { dx: 1, dy: -1, name: 'diagonal-up-right' },  // Up-Right
-        { dx: -1, dy: -1, name: 'diagonal-up-left' }   // Up-Left
+    if (palabras.length === 0) return { grid: Array.from({ length: rows }, () => Array(cols).fill('?')), words: [] };
+
+    const directions = [
+        { dx: 1, dy: 0, name: 'horizontal' }, { dx: -1, dy: 0, name: 'horizontal-reverse' },
+        { dx: 0, dy: 1, name: 'vertical' }, { dx: 0, dy: -1, name: 'vertical-reverse' },
+        { dx: 1, dy: 1, name: 'diagonal-down-right' }, { dx: -1, dy: 1, name: 'diagonal-down-left' },
+        { dx: 1, dy: -1, name: 'diagonal-up-right' }, { dx: -1, dy: -1, name: 'diagonal-up-left' }
     ];
 
     let backtrackCounter = 0;
+    let stopBacktracking = false; // Flag para detener si se excede el límite
 
-    // Recursive backtracking function
     function solve(
         wordIndex: number,
         currentGrid: string[][],
         currentPlacedWords: PlacedWordSopa[]
     ): WordSearchLayout | null {
+        // Detener si ya excedimos el límite en una rama superior
+        if (stopBacktracking) return { grid: currentGrid, words: currentPlacedWords };
+
         backtrackCounter++;
         if (backtrackCounter > maxBacktrackAttempts) {
-            console.warn(`Max backtrack attempts (${maxBacktrackAttempts}) reached. Aborting.`);
-            return null;
-        }
-
-        // Base case: All words have been placed successfully
-        if (wordIndex === palabras.length) {
+            console.warn(`Máximo de intentos (${maxBacktrackAttempts}) alcanzado. Devolviendo layout parcial.`);
+            stopBacktracking = true; // Activar el flag
             return { grid: currentGrid, words: currentPlacedWords };
         }
 
-        const currentWord = palabras[wordIndex];
+        if (wordIndex === palabras.length) {
+            return { grid: currentGrid, words: currentPlacedWords }; // Éxito
+        }
 
-        // Try all possible starting positions and directions for the current word
+        const currentWord = palabras[wordIndex];
         const possiblePlacements: { startY: number, startX: number, dir: typeof directions[0] }[] = [];
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
@@ -88,15 +86,12 @@ function generateWordSearchLayoutCustomWithBacktracking(
             }
         }
 
-        // Shuffle possible placements to introduce randomness and avoid predictable patterns
-        possiblePlacements.sort(() => Math.random() - 0.5);
+        possiblePlacements.sort(() => Math.random() - 0.5); // Aleatoriedad
 
         for (const { startY, startX, dir } of possiblePlacements) {
-            // Create a new grid and placed words list for this attempt (to avoid modifying previous states)
             const newGrid: string[][] = currentGrid.map(row => [...row]);
             const newPlacedWords: PlacedWordSopa[] = [...currentPlacedWords];
 
-            // Place the word on the new grid
             let tempX = startX;
             let tempY = startY;
             for (let i = 0; i < currentWord.length; i++) {
@@ -104,39 +99,45 @@ function generateWordSearchLayoutCustomWithBacktracking(
                 tempX += dir.dx;
                 tempY += dir.dy;
             }
-            newPlacedWords.push({
-                word: currentWord,
-                startx: startX,
-                starty: startY,
-                direction: dir.name
-            });
+            newPlacedWords.push({ word: currentWord, startx: startX, starty: startY, direction: dir.name });
 
-            // Recursively try to place the next word
             const result = solve(wordIndex + 1, newGrid, newPlacedWords);
+
+            // Si la recursión devuelve algo (completo o parcial por límite)
             if (result !== null) {
-                return result; // Solution found!
+                 return result; // Propagar hacia arriba
             }
-            // If not successful, backtrack (the loop will try the next possible placement)
+            // Si devuelve null (fallo en esta rama), el bucle continúa (backtrack)
+            if (stopBacktracking) return { grid: currentGrid, words: currentPlacedWords }; // Si se activó el flag en una sub-rama, devolver parcial
         }
 
-        return null; // No valid placement found for the current word
-    }
+        // Si se probaron todas las posiciones y ninguna funcionó para esta palabra
+        if (!stopBacktracking) {
+             console.warn(`No se encontró lugar para la palabra "${currentWord}" (índice ${wordIndex}). Deteniendo.`);
+             stopBacktracking = true; // Activar flag para detener
+        }
+        return { grid: currentGrid, words: currentPlacedWords }; // Devolver el estado parcial actual
 
-    // Start the backtracking process
+    } // Fin solve
+
     const initialGrid: string[][] = Array.from({ length: rows }, () => Array(cols).fill(''));
-    const finalLayout = solve(0, initialGrid, []);
+    stopBacktracking = false; // Resetear flag antes de empezar
+    backtrackCounter = 0; // Resetear contador
+    let finalLayout = solve(0, initialGrid, []);
 
+    // Si solve devuelve null (falló en encontrar CUALQUIER lugar para una palabra), devolvemos null.
     if (finalLayout === null) {
-        console.warn("No se pudo colocar todas las palabras en la sopa de letras con el backtracking.");
-        // If backtracking failed, return an empty layout or a partially filled one
-        return { grid: initialGrid, words: [] };
+        console.error("El backtracking falló completamente al inicio.");
+        return null;
     }
 
-    // Fill remaining empty cells with random letters if requested
-    if (fillRandomLetters) {
+    // Rellenar letras aleatorias si se solicita y el layout no es null
+    if (fillRandomLetters && finalLayout) {
         const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
+                // Rellenar solo si la celda está vacía ('')
+                // No rellenar si es null (puede que el algoritmo use null para marcar bordes, etc.)
                 if (finalLayout.grid[r][c] === '') {
                     finalLayout.grid[r][c] = alphabet[Math.floor(Math.random() * alphabet.length)];
                 }
@@ -147,7 +148,7 @@ function generateWordSearchLayoutCustomWithBacktracking(
     return finalLayout;
 }
 
-// Helper function to check if a word can be placed at a given position and direction
+// Helper para verificar si se puede colocar la palabra
 function canPlaceWordSopa(
     grid: string[][],
     word: string,
@@ -159,68 +160,124 @@ function canPlaceWordSopa(
 ): boolean {
     let currentX = startX;
     let currentY = startY;
-
     for (let i = 0; i < word.length; i++) {
-        // Check bounds
-        if (currentY < 0 || currentY >= rows || currentX < 0 || currentX >= cols) {
-            return false;
-        }
-        // Check for conflicts with existing different letters
-        if (grid[currentY][currentX] !== '' && grid[currentY][currentX] !== word[i]) {
-            return false;
-        }
+        if (currentY < 0 || currentY >= rows || currentX < 0 || currentX >= cols) return false; // Fuera de límites
+        if (grid[currentY][currentX] !== '' && grid[currentY][currentX] !== word[i]) return false; // Conflicto
         currentX += direction.dx;
         currentY += direction.dy;
     }
-    return true; // If all checks pass, the placement is valid
+    return true; // Válido
 }
+// --- Fin Algoritmo ---
+
+// --- Nueva función envoltorio con bucle de reintento ---
+function intentarGenerarSopa(
+    palabras: string[],
+    filasInicial: number,
+    columnasInicial: number,
+    maxIntentosAjuste: number = 5, // Intentar aumentar tamaño hasta 5 veces
+    incremento: number = 1, // Aumentar filas y columnas en 1 cada vez
+    maxBacktrack?: number,
+    fillRandom?: boolean
+): WordSearchLayout {
+    let currentFilas = filasInicial;
+    let currentColumnas = columnasInicial;
+    let intentos = 0;
+    let layout: WordSearchLayout | null = null;
+    const numPalabrasTotal = palabras.filter(Boolean).length; // Contar palabras no vacías
+
+    // Estimación inicial del tamaño mínimo (basado en la palabra más larga)
+    const palabraMasLarga = palabras.reduce((max, p) => Math.max(max, p.replace(/\s/g, '').length), 0);
+    currentFilas = Math.max(currentFilas, palabraMasLarga, 5); // Asegurar mínimo de 5 o longitud de palabra más larga
+    currentColumnas = Math.max(currentColumnas, palabraMasLarga, 5);
+    if (currentFilas !== filasInicial || currentColumnas !== columnasInicial) {
+        console.log(`Ajustando tamaño inicial a ${currentFilas}x${currentColumnas} basado en la palabra más larga (${palabraMasLarga}).`);
+    }
+
+
+    while (intentos <= maxIntentosAjuste) {
+        console.log(`Intento ${intentos + 1}/${maxIntentosAjuste + 1}: Generando sopa ${currentFilas}x${currentColumnas}...`);
+        layout = generateWordSearchLayoutCustomWithBacktracking(
+            palabras, currentFilas, currentColumnas, maxBacktrack, fillRandom ?? true
+        );
+
+        // Verificar si se colocaron todas las palabras
+        if (layout && layout.words.length === numPalabrasTotal) {
+            console.log("¡Éxito! Todas las palabras fueron colocadas.");
+            layout.finalRows = currentFilas; // Guardar tamaño final
+            layout.finalCols = currentColumnas;
+            return layout; // Devolver layout completo
+        }
+
+        // Si falló o no colocó todas, incrementar tamaño y reintentar
+        intentos++;
+        if (intentos <= maxIntentosAjuste) {
+            console.warn(`Intento ${intentos} fallido o incompleto (${layout?.words?.length ?? 0}/${numPalabrasTotal} palabras). Aumentando tamaño...`);
+            currentFilas += incremento;
+            currentColumnas += incremento;
+        }
+    }
+
+    // Si se agotaron los intentos
+    console.error(`Se agotaron los ${maxIntentosAjuste + 1} intentos para generar la sopa de letras completa.`);
+    // Devolver el último layout obtenido (que podría ser parcial o null si falló catastróficamente)
+    // Si layout es null, crear uno vacío de error.
+    if (!layout) {
+         layout = {
+             grid: Array.from({ length: filasInicial }, () => Array(columnasInicial).fill('X')),
+             words: [],
+             error: "Generación fallida incluso tras reintentos."
+         }
+    } else {
+        layout.error = "Layout incompleto tras reintentos."; // Marcar como incompleto
+    }
+    layout.finalRows = currentFilas; // Guardar tamaño final intentado
+    layout.finalCols = currentColumnas;
+    return layout;
+}
+// --- Fin función envoltorio ---
+
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
-  
-  try {
-    // --- Destructuring y Validación (REVISADOS) ---
-    const payload: RequestPayload = await req.json();
-    const { palabras, filas, columnas, maxBacktrackAttempts, fillRandomLetters } = payload; // Extraer todos los campos
+  // Manejo OPTIONS (sin cambios)
+  if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
 
-    // Validar que los campos requeridos existan y tengan el tipo correcto
-    if (!palabras || !Array.isArray(palabras) || palabras.length === 0 ||
-        typeof filas !== 'number' || filas <= 0 ||
-        typeof columnas !== 'number' || columnas <= 0) {
-      // Mensaje de error más específico
-      const errorDetalle = [];
-      if (!palabras || !Array.isArray(palabras) || palabras.length === 0) errorDetalle.push("'palabras' (array no vacío)");
-      if (typeof filas !== 'number' || filas <= 0) errorDetalle.push("'filas' (número > 0)");
-      if (typeof columnas !== 'number' || columnas <= 0) errorDetalle.push("'columnas' (número > 0)");
-      throw new Error(`Parámetros inválidos: se requieren ${errorDetalle.join(', ')}.`);
-    }
-    // --- Fin Validación Revisada ---
+  try {
+    const payload: RequestPayload = await req.json();
+    console.log("Payload recibido en generar-layout-sopa:", JSON.stringify(payload));
+
+    const { palabras, filas, columnas, maxBacktrackAttempts, fillRandomLetters } = payload;
+
+    // Validación (sin cambios)
+    const errorDetalle: string[] = []; let isValid = true;
+    if (!palabras || !Array.isArray(palabras) || palabras.length === 0) { isValid = false; errorDetalle.push("'palabras' (array no vacío)"); }
+    if (typeof filas !== 'number' || isNaN(filas) || filas <= 0) { isValid = false; errorDetalle.push("'filas' (número > 0)"); }
+    if (typeof columnas !== 'number' || isNaN(columnas) || columnas <= 0) { isValid = false; errorDetalle.push("'columnas' (número > 0)"); }
+    if (!isValid) { throw new Error(`Parámetros inválidos: se requieren ${errorDetalle.join(', ')}.`); }
 
     console.log(`Generando sopa de letras de ${filas}x${columnas} con ${palabras.length} palabras...`);
 
-    // Llamada a la función de generación (sin cambios)
-    const layout = generateWordSearchLayoutCustomWithBacktracking(
+    // --- LLAMAR A LA FUNCIÓN CON REINTENTOS ---
+    const layout = intentarGenerarSopa(
         palabras,
         filas,
         columnas,
-        maxBacktrackAttempts, // Pasa los opcionales (serán undefined si no vienen)
+        5, // Máximo 5 reintentos aumentando tamaño
+        1, // Incrementar en 1 fila/columna cada vez
+        maxBacktrackAttempts, // Pasar límite de backtracking si se proporcionó
         fillRandomLetters
     );
+    // --- FIN LLAMADA ---
 
-    // Validación del resultado (sin cambios)
-    if (!layout || layout.words.length !== palabras.length) {
-        throw new Error("No se pudo generar la sopa de letras colocando todas las palabras...");
-    }
 
+    // Devolver el layout (completo, parcial o de error) con status 200
     return new Response(JSON.stringify(layout), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     });
-  } catch (error) {
+  } catch (error) { // Captura errores de validación inicial o JSON
     console.error("Error en generar-layout-sopa:", error);
-    const errorMessage = error instanceof Error ? error.message : "Error desconocido al generar la sopa de letras.";
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido.";
     return new Response(JSON.stringify({ message: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,

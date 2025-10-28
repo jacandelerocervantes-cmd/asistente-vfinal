@@ -378,9 +378,36 @@ const PreguntaBancoForm = ({ preguntaToEdit, materiasDocente, onSave, onCancel }
 
             // 2. Gestionar las opciones en 'banco_opciones' (solo si es tipo opción múltiple)
             if (tipoPregunta.startsWith('opcion_multiple') && savedPreguntaId) {
-                /* ... (delete + upsert banco_opciones) ... */ }
-            else if (savedPreguntaId) {
-                /* ... (delete banco_opciones si no aplica) ... */ }
+                // Borrar opciones antiguas que ya no están
+                // Filtramos por IDs numéricos para las opciones existentes
+                const opcionesActualesIds = opciones.map(opt => opt.id).filter(id => typeof id === 'number');
+                await supabase.from('banco_opciones').delete()
+                    .eq('banco_pregunta_id', savedPreguntaId)
+                    .not('id', 'in', `(${opcionesActualesIds.join(',') || 0})`); // Usar '0' si no hay IDs para evitar un IN vacío
+
+                // Upsert opciones actuales
+                const opcionesParaUpsert = opciones.map((opt, optIndex) => {
+                    const opcionData = {
+                        banco_pregunta_id: savedPreguntaId,
+                        user_id: user.id,
+                        texto_opcion: opt.texto_opcion,
+                        es_correcta: opt.es_correcta || false,
+                        orden: optIndex,
+                        // banco_opcion_id: opt.banco_opcion_id || null // Esta línea ya no se incluye
+                    };
+                    // Solo añadir el ID si es una opción existente (numérico)
+                    if (typeof opt.id === 'number') {
+                        opcionData.id = opt.id;
+                    }
+                    return opcionData;
+                });
+                if (opcionesParaUpsert.length > 0) {
+                    const { error: optUpsertError } = await supabase.from('banco_opciones').upsert(opcionesParaUpsert, { onConflict: 'id', columns: ['banco_pregunta_id', 'user_id', 'texto_opcion', 'es_correcta', 'orden'] }); // Especificar columnas explícitamente
+                    if (optUpsertError) console.error(`Error upsert opciones para banco_pregunta ${savedPreguntaId}:`, optUpsertError);
+                }
+            } else if (savedPreguntaId) { // Si el tipo ya no es opción múltiple, borrar opciones existentes
+                await supabase.from('banco_opciones').delete().eq('banco_pregunta_id', savedPreguntaId);
+            }
 
             alert(`Pregunta ${isEditing ? 'actualizada' : 'añadida'} al banco.`);
             onSave();

@@ -292,7 +292,7 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                                      texto_opcion: opt.texto_opcion,
                                      es_correcta: opt.es_correcta || false,
                                      orden: optIndex,
-                                     banco_opcion_id: opt.banco_opcion_id || null
+                                     // banco_opcion_id: opt.banco_opcion_id || null // <<--- LÍNEA COMENTADA SEGÚN SOLICITUD
                                  };
                                  // Solo añadir el ID si es una opción existente (numérico)
                                  if (typeof opt.id === 'number') {
@@ -301,7 +301,9 @@ const EvaluacionForm = ({ materia, evaluacionToEdit, onSave, onCancel }) => {
                                  return opcionData;
                              });
                               if (opcionesParaUpsert.length > 0) {
-                                  const { error: optUpsertError } = await supabase.from('opciones').upsert(opcionesParaUpsert);
+                                  const { error: optUpsertError } = await supabase
+                                      .from('opciones')
+                                      .upsert(opcionesParaUpsert, { onConflict: 'id', columns: ['pregunta_id', 'user_id', 'texto_opcion', 'es_correcta', 'orden'] }); // Especificar columnas explícitamente
                                   if (optUpsertError) console.error(`Error upsert opciones para pregunta ${savedPreguntaId}:`, optUpsertError);
                               }
                          } else if (savedPreguntaId) {
