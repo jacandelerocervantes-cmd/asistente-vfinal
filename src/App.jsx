@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Layout from './components/Layout';
 import Auth from './pages/Auth'; // Login Docente
-import AlumnoLogin from './pages/AlumnoLogin'; // Login Alumno
 import MateriasDashboard from './pages/MateriasDashboard';
 import MateriaPanel from './pages/MateriaPanel';
 import RegistroAsistencia from './pages/RegistroAsistencia';
@@ -110,8 +109,6 @@ function App() {
         <Routes>
           {/* --- Rutas Públicas --- */}
           <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
-          <Route path="/alumno/portal" element={<AlumnoPortal />} /> {/* Asistencia SIN login */}
-          <Route path="/alumno/login" element={<AlumnoLogin />} /> {/* NUEVA ruta de login Alumno */}
           {/* Login Docente (implícito en "/") */}
 
 

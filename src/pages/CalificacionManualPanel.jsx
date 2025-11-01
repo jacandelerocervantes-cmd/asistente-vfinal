@@ -105,34 +105,6 @@ const CalificacionManualPanel = () => {
         });
     };
 
-    // --- Lógica para recalcular y finalizar calificación (IMPORTANTE) ---
-    const finalizarCalificacionIntento = async (intentoId) => {
-        // Esta función debe ser llamada después de guardar la última pregunta abierta de un intento.
-        // Similar a 'calificar-intento', pero ahora suma los puntos manuales.
-        try {
-             // Podríamos invocar una función Edge específica que haga esto
-             // O hacerlo aquí en el cliente (menos seguro si hay lógica compleja)
-             // Por simplicidad, invocaremos 'calificar-intento' de nuevo.
-             // La función 'calificar-intento' debería modificarse para:
-             // 1. NO sobreescribir puntos_obtenidos si es_correcta es NULL (pregunta abierta ya calificada).
-             // 2. Sumar los puntos_obtenidos de todas las respuestas (auto + manuales).
-             // 3. Marcar el intento como 'calificado' si TODAS las abiertas tienen puntos asignados.
-
-             const { error } = await supabase.functions.invoke('calificar-intento', {
-                 body: { intento_id: intentoId }
-             });
-             if (error) throw error;
-
-             // Actualizar estado del intento localmente tras recalcular
-             setIntentos(prev => prev.map(i => i.id === intentoId ? { ...i, estado: 'calificado' } : i));
-             // Opcional: Recargar todo con fetchData()
-
-        } catch (error) {
-            console.error(`Error al finalizar calificación para intento ${intentoId}:`, error);
-            alert("Error al recalcular la calificación final: " + error.message);
-        }
-    };
-
 
     if (loading) return <div className="container">Cargando panel de calificación...</div>;
     if (!evaluacion) return <div className="container">Evaluación no encontrada.</div>;
@@ -173,7 +145,6 @@ const CalificacionManualPanel = () => {
                                         respuesta={respuesta} // Puede ser undefined si el alumno no respondió
                                         intentoId={intento.id}
                                         onSave={handleRespuestaUpdateLocal} // Actualiza UI local al guardar
-                                        onFinalizarIntento={finalizarCalificacionIntento} // Para recalcular al terminar
                                     />
                                 );
                             })}

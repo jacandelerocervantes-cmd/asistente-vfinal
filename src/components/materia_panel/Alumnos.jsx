@@ -305,7 +305,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             {/* Modales */}
             {showAlumnoForm && <AlumnoForm alumno={editingAlumno} materiaId={materiaId} grupos={grupos} onSave={handleSaveAlumno} onCancel={handleCancelAlumno} />}
             {showGrupoForm && <GrupoForm grupo={editingGrupo} materiaId={materiaId} onSave={handleSaveGrupo} onCancel={handleCancelGrupo} />}
-            {showCSVUploader && <CSVUploader materiaId={materiaId} onUploadComplete={handleSaveAlumno} onCancel={handleCancelAlumno} />}
+            {showCSVUploader && <CSVUploader materiaId={materiaId} onUploadComplete={handleSaveAlumno} onCancel={() => setShowCSVUploader(false)} />}
             {showAssignGroupModal && <AsignarGrupoModal grupos={grupos} onClose={() => setShowAssignGroupModal(false)} onAssign={handleAssignGroup} />}
 
             {/* Listado de Alumnos por Grupo */}
