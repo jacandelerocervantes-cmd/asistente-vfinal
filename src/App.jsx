@@ -32,7 +32,6 @@ const DocenteProtectedRoute = ({ docenteSession, loading }) => {
 
 function App() {
   const [docenteSession, setDocenteSession] = useState(null);
-  const [alumnoSession, setAlumnoSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const syncInProgress = useRef(false);
