@@ -22,3 +22,4 @@ code.gs
 *.njsproj
 *.sln
 *.sw?
+supabase/cron.toml

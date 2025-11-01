@@ -90,17 +90,20 @@ function App() {
   const triggerSync = async () => {
     if (syncInProgress.current) return;
     syncInProgress.current = true;
-    setIsSyncing(true);
-    console.log("triggerSync: Calling...");
+    setIsSyncing(true); // Muestra "Sincronizando..."
+    console.log("triggerSync: Encolando trabajo de sincronización...");
     try {
-        const { error } = await supabase.functions.invoke('sync-drive-on-first-login');
+        // Llama a una NUEVA función que solo crea el trabajo
+        const { error } = await supabase.functions.invoke('queue-drive-sync'); 
         if (error) throw error;
-        await supabase.auth.refreshSession();
+
+        // Actualiza la metadata localmente para que el usuario pueda continuar
+        // (Aunque el trabajo real siga pendiente en el backend)
+        await supabase.auth.refreshSession(); 
+
     } catch (error) {
         console.error("triggerSync Error:", error);
-        if (!error.message?.includes("ya está en ejecución")) {
-             alert("Error al sincronizar con Drive: " + error.message);
-        }
+        alert("Error al iniciar la sincronización con Drive: " + error.message);
     } finally {
         setIsSyncing(false);
         syncInProgress.current = false;

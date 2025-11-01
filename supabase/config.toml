@@ -424,17 +424,6 @@ entrypoint = "./functions/validar-alumno/index.ts"
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/validar-alumno/*.html" ]
 
-[functions.calificar-intento]
-enabled = true
-verify_jwt = false
-import_map = "./functions/calificar-intento/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
-entrypoint = "./functions/calificar-intento/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/calificar-intento/*.html" ]
-
 [functions.generar-evaluacion-gemini]
 enabled = true
 verify_jwt = true
@@ -522,3 +511,21 @@ entrypoint = "./functions/crear-usuarios-alumnos-batch/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/crear-usuarios-alumnos-batch/*.html" ]
+
+[functions.sync-drive-on-first-login]
+enabled = true
+verify_jwt = true
+import_map = "./functions/sync-drive-on-first-login/deno.json"
+entrypoint = "./functions/sync-drive-on-first-login/index.ts"
+
+
+[functions.queue-drive-sync]
+enabled = true
+verify_jwt = true
+import_map = "./functions/queue-drive-sync/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/queue-drive-sync/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/queue-drive-sync/*.html" ]
