@@ -74,7 +74,7 @@ const MateriaPanel = ({ session }) => {
             <h2 style={{marginTop: '0.5rem'}}>{materia.nombre} <span className="materia-semestre">({materia.semestre})</span></h2>
 
             <div className="tabs">
-                <button className={`tab-button ${activeTab === 'alumnos' ? 'active' : ''}`} onClick={() => setActiveTab('alumnos')}>Alumnos y Grupos</button>
+                <button className={`tab-button ${activeTab === 'alumnos' ? 'active' : ''}`} onClick={() => setActiveTab('alumnos')}>Alumnos </button>
                 <button className={`tab-button ${activeTab === 'asistencia' ? 'active' : ''}`} onClick={() => setActiveTab('asistencia')}>Asistencia</button>
                 <button className={`tab-button ${activeTab === 'actividades' ? 'active' : ''}`} onClick={() => setActiveTab('actividades')}>Actividades</button>
                 <button className={`tab-button ${activeTab === 'evaluaciones' ? 'active' : ''}`} onClick={() => setActiveTab('evaluaciones')}>Evaluaciones</button>

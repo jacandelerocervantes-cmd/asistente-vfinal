@@ -7,8 +7,8 @@ const Footer = () => {
   return (
     <footer className="main-footer">
       <div className="footer-content container">
-        <p>&copy; {year} Tecnológico Nacional de México | Instituto Tecnológico de Tizimín</p>
-        <p>Todos los derechos reservados.</p>
+        <p>&copy; {year} Juan Candelero| Instituto Tecnológico de Tizimín</p>
+        <p>V 1.0.0|Todos los derechos reservados.</p>
       </div>
     </footer>
   );

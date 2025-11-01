@@ -35,10 +35,17 @@ serve(async (req: Request) => {
             .select('id')
             .single();
 
-        if (upsertError) {
+        // Si hay un error Y NO es porque la fila ya existe (lo cual es un caso esperado), entonces lanzamos el error.
+        // El código '23505' es el código de PostgreSQL para violación de restricción de unicidad.
+        if (upsertError && !upsertError.message.includes('23505')) {
             console.error("Error en Upsert drive_sync_jobs:", upsertError);
             throw upsertError;
         }
+
+        // Si jobData es null (porque ya existía un trabajo), no es un error.
+        // El worker 'sync-drive-on-first-login' se encargará de procesar el trabajo pendiente.
+        // Si es un nuevo trabajo, jobData.id tendrá un valor.
+        const jobId = jobData ? jobData.id : 'existente';
 
         // 5. Invocar la función trabajadora (worker) de forma asíncrona pero SIN esperar aquí.
         // El cliente que llamó a `poll-drive-sync-status` se encargará de esperar.
@@ -56,7 +63,7 @@ serve(async (req: Request) => {
         });
 
         // 6. Devolver el ID del trabajo creado/encontrado
-        return new Response(JSON.stringify({ jobId: jobData.id }), {
+        return new Response(JSON.stringify({ jobId: jobId }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
             status: 200
         });
