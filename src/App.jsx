@@ -5,68 +5,81 @@ import Layout from './components/Layout';
 import Auth from './pages/Auth'; // Login Docente
 import MateriasDashboard from './pages/MateriasDashboard';
 import MateriaPanel from './pages/MateriaPanel';
-import RegistroAsistencia from './pages/RegistroAsistencia';
 import CalificacionPanel from './pages/CalificacionPanel';
 import CalificacionManualPanel from './pages/CalificacionManualPanel';
-import AlumnoPortal from './pages/AlumnoPortal'; // Asistencia sin login
+import AlumnoPortal from './pages/AlumnoPortal'; // Login Alumno (Matrícula/Correo)
 import AlumnoDashboard from './pages/AlumnoDashboard'; // Evaluaciones con login
 import ExamenAlumno from './pages/ExamenAlumno';
 import RevisionExamenAlumno from './pages/RevisionExamenAlumno';
+import RegistroAsistencia from './pages/RegistroAsistencia';
 import { supabase } from './supabaseClient';
 
 // --- Componente para Rutas Protegidas de Alumno ---
-const AlumnoProtectedRoute = ({ alumnoSession, loading }) => {
+// Este guardia revisa sessionStorage, no el estado de Supabase Auth
+const AlumnoProtectedRoute = ({ loading }) => {
   if (loading) return <div>Verificando acceso...</div>;
-  // TODO: Mejorar verificación de rol en producción
-  return alumnoSession ? <Outlet /> : <Navigate to="/alumno/login" replace />;
+  
+  // Revisa el sessionStorage que AlumnoPortal.jsx debió crear
+  const alumnoAuthData = sessionStorage.getItem('alumnoAuth');
+  
+  // Si existe, permite el acceso. Si no, redirige al portal de login.
+  return (alumnoAuthData) ? <Outlet /> : <Navigate to="/alumno/portal" replace />;
 };
 // --- Fin Componente ---
 
 // --- Componente para Rutas Protegidas de Docente ---
+// Este guardia revisa el estado de Supabase Auth (docenteSession)
 const DocenteProtectedRoute = ({ docenteSession, loading }) => {
     if (loading) return <div>Verificando acceso...</div>;
     return docenteSession ? <Outlet /> : <Navigate to="/" replace />; // A raíz (login docente)
 }
 // --- Fin Componente ---
 
-
 function App() {
   const [docenteSession, setDocenteSession] = useState(null);
+  // No necesitamos 'alumnoSession' en el estado, se maneja en sessionStorage
   const [loadingSession, setLoadingSession] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const syncInProgress = useRef(false);
 
   useEffect(() => {
     setLoadingSession(true);
-    // Obtener sesión inicial
+    
+    // 1. Obtener sesión inicial (SOLO PARA DOCENTES)
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      // Diferenciar sesión inicial (ejemplo básico)
-      if (initialSession && initialSession.user.user_metadata?.drive_synced !== undefined) {
-         setDocenteSession(initialSession);
-         if (!initialSession.user.user_metadata?.drive_synced && !isSyncing) {
-             triggerSync();
-         }
-      } else if (initialSession) {
-          setAlumnoSession(initialSession);
+      if (initialSession) {
+        // Si hay sesión de Supabase Auth, ES UN DOCENTE.
+        setDocenteSession(initialSession);
+        
+        const needsSync = initialSession.user.user_metadata?.drive_synced === undefined ||
+                          initialSession.user.user_metadata?.drive_synced === false;
+        
+        if (needsSync && !isSyncing) {
+          triggerSync();
+        }
       }
+      // No hay 'else' para 'setAlumnoSession', es irrelevante aquí.
       setLoadingSession(false);
     });
 
-    // Escuchar cambios
+    // 2. Escuchar cambios (SOLO PARA DOCENTES)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       console.log(`Auth state changed: ${_event}, User: ${currentSession?.user?.id}`);
-      if (currentSession && currentSession.user.user_metadata?.drive_synced !== undefined) {
-         setDocenteSession(currentSession);
-         setAlumnoSession(null);
-         if (currentSession.user.user_metadata?.drive_synced !== true && !isSyncing) {
-           triggerSync();
-         }
-      } else if (currentSession) {
-          setDocenteSession(null);
-          setAlumnoSession(currentSession);
+      
+      if (currentSession) {
+        // SIEMPRE es un Docente si hay sesión de Supabase Auth
+        setDocenteSession(currentSession);
+        
+        const needsSync = currentSession.user.user_metadata?.drive_synced === undefined ||
+                          currentSession.user.user_metadata?.drive_synced === false;
+
+        // Iniciar sincronización si es un nuevo login y necesita sync
+        if ((_event === 'SIGNED_IN' || _event === 'INITIAL_SESSION') && needsSync && !isSyncing) {
+          triggerSync();
+        }
       } else {
-         setDocenteSession(null);
-         setAlumnoSession(null);
+        // Es un logout de docente
+        setDocenteSession(null);
       }
     });
 
@@ -74,8 +87,7 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSyncing]);
 
-  // Función separada para llamar a la Edge Function
-  const triggerSync = async () => { /* ... (sin cambios) ... */
+  const triggerSync = async () => {
     if (syncInProgress.current) return;
     syncInProgress.current = true;
     setIsSyncing(true);
@@ -100,28 +112,27 @@ function App() {
     return <div>Cargando sesión...</div>;
   }
 
-  const currentSession = docenteSession || alumnoSession;
-
   return (
     <Router>
-      <Layout session={currentSession}>
+      {/* Pasamos solo la sesión de docente al Layout (para la UserBar) */}
+      <Layout session={docenteSession}> 
         <Routes>
-          {/* --- Rutas Públicas --- */}
+          {/* --- Rutas Públicas (Asistencia por QR y Login de Alumno) --- */}
           <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
-          {/* Login Docente (implícito en "/") */}
+          <Route path="/alumno/portal" element={<AlumnoPortal />} />
 
 
-          {/* --- Rutas "Privadas" Alumno (protegidas por lógica en componente) --- */}
-          <Route element={<AlumnoProtectedRoute alumnoSession={alumnoSession} loading={loadingSession} />}>
+          {/* --- Rutas "Privadas" Alumno (protegidas por sessionStorage) --- */}
+          {/* Este guardia (AlumnoProtectedRoute) revisa sessionStorage */}
+          <Route element={<AlumnoProtectedRoute loading={loadingSession} />}>
             <Route path="/alumno/evaluaciones" element={<AlumnoDashboard />} />
             <Route path="/alumno/examen/:evaluacionId" element={<ExamenAlumno />} />
             <Route path="/alumno/revision/:intentoId" element={<RevisionExamenAlumno />} />
-            {/* Futura ruta para subir archivos */}
-            {/* <Route path="/alumno/actividad/:actividadId/entrega" element={<PaginaEntregaAlumno />} /> */}
           </Route>
 
 
-          {/* --- Rutas Privadas Docente (Protegidas) --- */}
+          {/* --- Rutas Privadas Docente (Protegidas por Supabase Auth) --- */}
+           {/* Este guardia (DocenteProtectedRoute) revisa el estado docenteSession */}
            <Route element={<DocenteProtectedRoute docenteSession={docenteSession} loading={loadingSession} />}>
                 <Route path="/dashboard" element={<MateriasDashboard session={docenteSession} />} />
                 <Route path="/materia/:id" element={<MateriaPanel session={docenteSession} />} />
@@ -129,14 +140,13 @@ function App() {
                 <Route path="/evaluacion/:evaluacionId/calificar" element={<CalificacionManualPanel />} />
            </Route>
 
-          {/* --- Ruta Raíz --- */}
+          {/* --- Ruta Raíz (Login Docente) --- */}
           <Route
             path="/"
             element={
               loadingSession ? <div>Cargando...</div> :
               docenteSession ? <Navigate to="/dashboard" replace /> :
-              alumnoSession ? <Navigate to="/alumno/evaluaciones" replace /> :
-              <Auth /> // Mostrar login docente por defecto
+              <Auth /> // Si no hay sesión de docente, mostrar el login de docente
             }
           />
 
@@ -148,4 +158,5 @@ function App() {
     </Router>
   );
 }
+
 export default App;
