@@ -90,22 +90,29 @@ function App() {
   const triggerSync = async () => {
     if (syncInProgress.current) return;
     syncInProgress.current = true;
-    setIsSyncing(true); // Muestra "Sincronizando..."
-    console.log("triggerSync: Encolando trabajo de sincronización...");
+    setIsSyncing(true); // Muestra "Sincronizando..." y bloquea la UI
+    console.log("triggerSync: Iniciando y esperando la sincronización completa...");
     try {
-        // Llama a una NUEVA función que solo crea el trabajo
-        const { error } = await supabase.functions.invoke('queue-drive-sync'); 
+        // Llama a una función que encola Y espera el resultado del trabajo.
+        // Esta función puede tardar varios minutos.
+        const { data, error } = await supabase.functions.invoke('poll-drive-sync-status');
+        
         if (error) throw error;
 
-        // Actualiza la metadata localmente para que el usuario pueda continuar
-        // (Aunque el trabajo real siga pendiente en el backend)
+        if (data.status === 'error') {
+            throw new Error(data.message || "El proceso de sincronización en el servidor falló.");
+        }
+
+        console.log("Sincronización completada con éxito. Refrescando sesión.");
+        // Una vez completado, refresca la sesión para obtener `drive_synced: true`
         await supabase.auth.refreshSession(); 
 
     } catch (error) {
-        console.error("triggerSync Error:", error);
-        alert("Error al iniciar la sincronización con Drive: " + error.message);
+        const message = error instanceof Error ? error.message : "Ocurrió un error desconocido.";
+        console.error("triggerSync Error:", message);
+        alert("Error durante la sincronización con Drive: " + message);
     } finally {
-        setIsSyncing(false);
+        setIsSyncing(false); // Oculta "Sincronizando..."
         syncInProgress.current = false;
     }
   };
