@@ -113,8 +113,14 @@ const CalificacionPanel = () => {
                     for (const archivo of driveFilesData.archivos) {
                         const entregable = posiblesEntregables.find(e => archivo.nombre.toUpperCase().startsWith(e.identificador));
                         if (entregable) {
+                            // CORRECCIÓN: Asegurarse de que no se añada un duplicado al array de upsert
+                            const yaEnColaParaUpsert = calificacionesParaUpsert.some(c => 
+                                (c.alumno_id === entregable.id && entregable.tipo === 'alumno') || 
+                                (c.grupo_id === entregable.id && entregable.tipo === 'grupo')
+                            );
+
                             entregablesConArchivo.add(entregable.id);
-                            if (!entregasMap.has(entregable.id)) {
+                            if (!entregasMap.has(entregable.id) && !yaEnColaParaUpsert) {
                                 calificacionesParaUpsert.push({
                                     actividad_id: actividad_id, // Usar la variable numérica
                                     alumno_id: entregable.tipo === 'alumno' ? entregable.id : null,
@@ -317,16 +323,20 @@ const CalificacionPanel = () => {
             if (driveFileIds.length < 2) throw new Error("No se encontraron suficientes archivos válidos para comparar.");
             if (!actividad?.materia_id) throw new Error("No se pudo obtener el ID de la materia."); // Validar
 
-            const { data, error } = await supabase.functions.invoke('comprobar-plagio-gemini', {
+            // CORRECCIÓN: Llamar a la función de encolar en lugar de la de procesamiento directo.
+            const { data, error } = await supabase.functions.invoke('encolar-comprobacion-plagio', {
                 body: { 
                     drive_file_ids: driveFileIds,
                     materia_id: actividad.materia_id 
                 }
             });
             if (error) throw error;
-            // Asegurarse que data.reporte_plagio es un array
-            setPlagioReportData(Array.isArray(data?.reporte_plagio) ? data.reporte_plagio : []); 
-            setShowPlagioReport(true);
+
+            // La respuesta ahora es solo una confirmación. El resultado se verá en la hoja de cálculo.
+            alert(data.message || "La comprobación de plagio ha sido iniciada. El reporte se generará en segundo plano.");
+            // Ya no se muestra el modal directamente, el usuario debe ir a la hoja de cálculo.
+            // setPlagioReportData(Array.isArray(data?.reporte_plagio) ? data.reporte_plagio : []); 
+            // setShowPlagioReport(true);
         } catch (error) {
             console.error("Error en handlePlagioCheck:", error);
             alert("Error al comprobar el plagio: " + (error instanceof Error ? error.message : String(error)));
@@ -411,17 +421,14 @@ const CalificacionPanel = () => {
         setLoadingJustificacion(true);
 
         try {
-            const spreadsheetId = actividad.materias.calificaciones_spreadsheet_id; 
             const { data, error } = await supabase.functions.invoke('get-justification-text', {
                 body: {
-                    spreadsheet_id: spreadsheetId,
+                    spreadsheet_id: actividad.materias.calificaciones_spreadsheet_id,
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });
 
             if (error) throw error;
-            
-            // Asegurarse de que data y la propiedad existen
             const justificacionTexto = data?.justificacion_texto || "No se pudo cargar la justificación.";
             setSelectedCalificacion(prev => prev ? ({ ...prev, justificacion_texto: justificacionTexto }) : null);
 

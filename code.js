@@ -704,18 +704,34 @@ function handleGetRubricText(payload) {
  */
 function handleGetStudentWorkText(payload) {
   Logger.log(`Iniciando handleGetStudentWorkText para file ID ${payload.drive_file_id}...`);
-  const { drive_file_id } = payload;
-  if (!drive_file_id) { throw new Error("Falta 'drive_file_id'."); }
+  const { drive_file_id, fileMimeType } = payload; // fileMimeType is the one from Supabase
 
   let file;
   try {
     file = DriveApp.getFileById(drive_file_id);
+    // --- CORRECCIÓN: Obtener SIEMPRE el mimeType real de Google Drive ---
+    // El mimeType pasado desde Supabase (basado en la extensión .pdf) puede ser incorrecto
+    // si el alumno subió un Google Doc con la extensión .pdf
+    const fileMetadata = Drive.Files.get(drive_file_id, {fields: "id, name, mimeType"});
+    const mimeType = fileMetadata.mimeType;
+    Logger.log(`Extrayendo texto de fileId: ${drive_file_id}. MimeType (Provisto: ${fileMimeType}, Real: ${mimeType})`);
+    // --- FIN DE LA CORRECCIÓN ---
+    file = DriveApp.getFileById(drive_file_id); // We still need the file object for other operations
   } catch (e) {
-     throw new Error(`No se pudo encontrar o acceder al archivo con ID ${drive_file_id}. Verifica el ID y los permisos. Error: ${e.message}`);
+     throw new Error(`No se pudo acceder al archivo con fileId ${drive_file_id}. ¿Permisos? Error: ${e.message}`);
   }
 
   const fileName = file.getName();
-  const mimeType = file.getMimeType();
+  const mimeType = file.getMimeType(); // This can be null
+  
+  // --- CORRECCIÓN: Añadir un "null check" para el mimeType ---
+  if (!mimeType) {
+      Logger.log(`Advertencia: Archivo ${drive_file_id} (${fileName}) no tiene mimeType. Saltando...`);
+      // Devolver un texto de error controlado en lugar de fallar toda la operación.
+      // Esto evita que toda la operación se detenga.
+      return { texto_trabajo: `[Error: El archivo '${fileName}' no tiene un tipo de archivo definido y no puede ser procesado.]` };
+  }
+  // --- FIN DE LA CORRECCIÓN ---
   Logger.log(`Procesando archivo: "${fileName}", Tipo MIME: ${mimeType}`);
   let textContent = '';
 
@@ -755,7 +771,7 @@ function handleGetStudentWorkText(payload) {
       // Intentar OCR como último recurso para otros tipos (imágenes?)
       Logger.log(`Tipo MIME ${mimeType} no soportado directamente. Intentando OCR...`);
       const blob = file.getBlob();
-      const resource = { title: `[OCR TEMP fallback] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
+      const resource = { title: `[OCR TEMP fallback] ${file.getName()}` , mimeType: MimeType.GOOGLE_DOCS };
       const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
        try {
           textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
@@ -764,7 +780,7 @@ function handleGetStudentWorkText(payload) {
           try { Drive.Files.remove(ocrFile.id); } catch (e) {/*ignore*/}
        }
        if (!textContent) { // Si el OCR fallback tampoco funcionó
-           throw new Error(`El archivo '${fileName}' (tipo ${mimeType}) no es un formato de texto legible ni pudo ser procesado con OCR.`);
+           throw new Error(`El archivo '${file.getName()}' (tipo ${mimeType}) no es un formato de texto legible ni pudo ser procesado con OCR.`);
        }
     }
     Logger.log(`Texto extraído exitosamente (longitud: ${textContent.length}).`);
@@ -772,7 +788,7 @@ function handleGetStudentWorkText(payload) {
   } catch (e) {
     // Loguear el error específico y relanzar uno más genérico
     Logger.log(`ERROR en handleGetStudentWorkText para ID ${drive_file_id}: ${e.message}\nStack: ${e.stack}`);
-    throw new Error(`No se pudo leer el contenido del archivo "${fileName}". Asegúrate de que sea un formato compatible (Docs, Word, PDF, Texto) y que el script tenga permisos. Error: ${e.message}`);
+    throw new Error(`No se pudo leer el contenido del archivo "${file.getName()}". Asegúrate de que sea un formato compatible (Docs, Word, PDF, Texto) y que el script tenga permisos. Error: ${e.message}`);
   }
 }
 

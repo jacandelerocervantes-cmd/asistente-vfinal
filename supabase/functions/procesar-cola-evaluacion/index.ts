@@ -8,6 +8,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // --- Interfaces para seguridad de tipos ---
 interface Materia {
     id: number;
@@ -169,6 +171,10 @@ serve(async (req: Request) => {
     if (rubricJson.status !== 'success') throw new Error(`Apps Script (get_rubric_text) falló: ${rubricJson.message}`);
     const textoRubrica = rubricJson.texto_rubrica;
     console.log("Texto rúbrica OK.");
+
+    // --- CORRECCIÓN: Pausa de 1.5s para evitar el Rate Limit de Google ---
+    console.log(`Pausando 1.5s antes de llamar a Google API para la calificación ${calificacionId}...`);
+    await sleep(1500); 
 
     // Obtener texto del trabajo
     const workPayload = { action: 'get_student_work_text', drive_file_id: calificacion.evidencia_drive_file_id };
