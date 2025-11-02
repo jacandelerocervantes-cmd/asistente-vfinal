@@ -146,8 +146,10 @@ function handleCreateMateriasBatch(payload) {
   const lock = LockService.getScriptLock();
   const lockAcquired = lock.tryLock(15000); // Esperar hasta 15 segundos
   if (!lockAcquired) {
-    Logger.log("No se pudo obtener el bloqueo. Otra instancia de sincronización podría estar en ejecución. Saliendo.");
-    throw new Error("El proceso de sincronización ya está en ejecución. Por favor, espera un momento y recarga la página.");
+    Logger.log("No se pudo obtener el bloqueo. Otra instancia de sincronización podría estar en ejecución. Devolviendo respuesta controlada.");
+    // En lugar de lanzar un error, devolvemos un objeto que indica que el proceso está ocupado.
+    // La función `doPost` lo envolverá en una respuesta exitosa.
+    return { status_process: "locked", message: "El proceso de sincronización ya está en ejecución. Inténtalo de nuevo en un momento." };
   }
   Logger.log("Bloqueo adquirido. Procediendo con la sincronización.");
 
