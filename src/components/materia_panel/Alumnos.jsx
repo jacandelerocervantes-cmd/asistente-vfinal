@@ -12,8 +12,8 @@ import {
 } from 'react-icons/fa';
 
 // Componente de Fila de Alumno (para limpiar el renderizado)
-const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error }) => {
-    const { id, matricula, apellido, nombre, email, grupo_id, user_id } = alumno;
+const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error, grupoMap }) => { // <--- CORRECCIÓN 1: Recibir grupoMap
+    const { id, matricula, apellido, nombre, email, grupo_id, user_id } = alumno; // <--- CORRECCIÓN 2: Usar grupo_id
     
     const accountState = creatingState;
     const hasUserId = !!user_id;
@@ -33,7 +33,7 @@ const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcce
             <td>{apellido || ''}</td>
             <td>{nombre || ''}</td>
             <td>{email || '-'}</td>
-            <td>{grupo_id || '-'}</td>
+            <td>{grupoMap.get(grupo_id) || '-'}</td> {/* <--- CORRECCIÓN 3: Usar grupoMap */}
             <td style={{ textAlign: 'center' }}>
                 {hasUserId || accountState === 'exists' || accountState === 'success' ? (
                     <FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso de alumno activado"/>
@@ -95,7 +95,8 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
-                .select(`id, matricula, apellido, nombre, email, grupo_id, user_id`)
+                // <--- CORRECCIÓN 4: Quitar la unión ambigua
+                .select(`id, matricula, apellido, nombre, email, grupo_id, user_id`) 
                 .eq('materia_id', materiaId)
                 .order('apellido', { ascending: true });
 
@@ -112,17 +113,18 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         } else { setAlumnos([]); setGrupos([]); setLoading(false); }
     }, [materiaId, fetchAlumnos, fetchGrupos]);
 
-    // --- Filtrar Alumnos (para la lista principal) ---
+    // --- Mapa de Grupos ---
     const grupoMap = useMemo(() => new Map(grupos.map(g => [g.id, g.nombre])), [grupos]);
 
+    // --- Filtrar Alumnos (para la lista principal) ---
     const filteredAlumnos = useMemo(() => {
         return alumnos.filter(alumno =>
+            // <--- CORRECCIÓN 5: Usar el mapa para buscar el nombre del grupo
             `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''} ${grupoMap.get(alumno.grupo_id) || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
         );
-    }, [alumnos, searchTerm, grupoMap]);
+    }, [alumnos, searchTerm, grupoMap]); // <--- CORRECCIÓN 6: Añadir grupoMap como dependencia
 
     const visibleAlumnoIds = useMemo(() => filteredAlumnos.map(a => a.id), [filteredAlumnos]);
-
 
 
     // --- Handlers Formularios y CRUD Individual ---
@@ -399,6 +401,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 onCrearAcceso={handleCrearAcceso}
                                                 creatingState={creatingAccountStates[alumno.id]}
                                                 error={error}
+                                                grupoMap={grupoMap} // <--- CORRECCIÓN 7: Pasar el mapa
                                              />
                                          )) : (
                                             <tr><td colSpan="8">No hay alumnos {searchTerm ? 'que coincidan con la búsqueda.' : 'en esta materia.'}</td></tr>

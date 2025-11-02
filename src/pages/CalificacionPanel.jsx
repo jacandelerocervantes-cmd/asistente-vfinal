@@ -152,7 +152,7 @@ const CalificacionPanel = () => {
                 }
                 
                 if (calificacionesParaUpsert.length > 0) {
-                    const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id, grupo_id' });
+                    const { error: upsertError } = await supabase.from('calificaciones').upsert(calificacionesParaUpsert, { onConflict: 'actividad_id, alumno_id' }); // <-- CORRECCIÓN
                     if (upsertError) throw upsertError;
                     // No llamar fetchData aquí, el listener de realtime lo hará
                 }
