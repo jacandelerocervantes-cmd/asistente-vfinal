@@ -68,16 +68,23 @@ serve(async (req: Request) => {
     if (scriptResponse.status === 'error') throw new Error(`Error de Google Script: ${scriptResponse.message}`);
 
     // 5. Actualizar tablas de Supabase con la respuesta de Google
-    const { drive_urls, ..._otros_ids } = scriptResponse; // (Asumiendo que devuelve drive_urls, etc.)
+    // CORRECCIÓN: Desestructurar todos los IDs que devuelve el Apps Script
+    const { 
+        drive_urls, 
+        rubricas_spreadsheet_ids, 
+        plagio_spreadsheet_ids, 
+        calificaciones_spreadsheet_ids 
+    } = scriptResponse;
     
+    // CORRECCIÓN: Usar una condición más general (o revisar todos los arrays si es necesario)
     if (drive_urls) {
         const updatePromises = Object.keys(drive_urls).map(materiaId => {
             return supabaseAdmin.from('materias').update({
                 drive_url: drive_urls[materiaId],
-                // ... (actualiza los otros IDs que recibas de Google)
-                // rubricas_spreadsheet_id: rubricas_spreadsheet_ids[materiaId],
-                // plagio_spreadsheet_id: plagio_spreadsheet_ids[materiaId],
-                // calificaciones_spreadsheet_id: calificaciones_spreadsheet_ids[materiaId]
+                // CORRECCIÓN: Descomentar y usar las variables correctas
+                rubricas_spreadsheet_id: rubricas_spreadsheet_ids[materiaId],
+                plagio_spreadsheet_id: plagio_spreadsheet_ids[materiaId],
+                calificaciones_spreadsheet_id: calificaciones_spreadsheet_ids[materiaId]
             }).eq('id', parseInt(materiaId, 10));
         });
         await Promise.all(updatePromises);
@@ -101,7 +108,10 @@ serve(async (req: Request) => {
     console.error("Error en el cron job sync-drive:", message);
     if (jobId) {
         // Marcar el trabajo como fallido si algo salió mal
-        await supabaseAdmin.from('drive_sync_jobs').update({ status: 'failed' }).eq('id', jobId);
+        // CORRECCIÓN: Añadir el mensaje de error a la columna ultimo_error
+        await supabaseAdmin.from('drive_sync_jobs')
+            .update({ status: 'failed', ultimo_error: message }) // <-- AÑADIDO
+            .eq('id', jobId);
     }
     return new Response(JSON.stringify({ message }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

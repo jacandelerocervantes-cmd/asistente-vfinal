@@ -85,7 +85,7 @@ function App() {
 
     return () => subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSyncing]);
+  }, []); // <-- ¡LISTA VACÍA!
 
   const triggerSync = async () => {
     if (syncInProgress.current) return;
