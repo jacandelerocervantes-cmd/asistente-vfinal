@@ -92,21 +92,45 @@ function App() {
     syncInProgress.current = true;
     setIsSyncing(true); // Muestra "Sincronizando..." y bloquea la UI
     console.log("triggerSync: Iniciando y esperando la sincronización completa...");
+
     try {
-        // Llama a una función que encola Y espera el resultado del trabajo.
-        // Esta función puede tardar varios minutos.
-        const { data, error } = await supabase.functions.invoke('poll-drive-sync-status');
-        
-        if (error) throw error;
+        // --- LÓGICA DE POLLING EN EL CLIENTE ---
 
-        if (data.status === 'error') {
-            throw new Error(data.message || "El proceso de sincronización en el servidor falló.");
+        // Paso 1: Encolar el trabajo y obtener el ID
+        const { data: queueData, error: queueError } = await supabase.functions.invoke('queue-drive-sync');
+        if (queueError) throw queueError;
+        if (!queueData.jobId) throw new Error("No se recibió un ID de trabajo para la sincronización.");
+
+        const { jobId } = queueData;
+        console.log(`Trabajo de sincronización encolado con ID: ${jobId}`);
+
+        // Paso 2: Sondear el estado del trabajo periódicamente
+        let isJobDone = false;
+        while (!isJobDone) {
+            // Esperar 5 segundos entre cada sondeo
+            await new Promise(resolve => setTimeout(resolve, 5000));
+
+            const { data: statusData, error: statusError } = await supabase
+                .from('drive_sync_jobs')
+                .select('status, ultimo_error')
+                .eq('id', jobId)
+                .single();
+
+            if (statusError) throw new Error(`Error al consultar el estado del trabajo: ${statusError.message}`);
+
+            console.log(`Estado actual del trabajo ${jobId}: ${statusData.status}`);
+
+            if (statusData.status === 'completed') {
+                isJobDone = true;
+                console.log("Sincronización completada con éxito. Refrescando sesión.");
+                // Una vez completado, refresca la sesión para obtener `drive_synced: true`
+                await supabase.auth.refreshSession();
+            } else if (statusData.status === 'failed') {
+                isJobDone = true;
+                throw new Error(`La sincronización falló: ${statusData.ultimo_error || 'Error desconocido en el servidor.'}`);
+            }
+            // Si el estado es 'pending' o 'processing', el bucle continúa.
         }
-
-        console.log("Sincronización completada con éxito. Refrescando sesión.");
-        // Una vez completado, refresca la sesión para obtener `drive_synced: true`
-        await supabase.auth.refreshSession(); 
-
     } catch (error) {
         const message = error instanceof Error ? error.message : "Ocurrió un error desconocido.";
         console.error("triggerSync Error:", message);

@@ -216,11 +216,12 @@ function handleCreateMateriasBatch(payload) {
 
           const materiaEndTime = new Date().getTime();
           Logger.log(`Materia ID ${materia.id} procesada en ${(materiaEndTime - materiaStartTime) / 1000}s`);
-          try { SpreadsheetApp.flush(); } catch(e) { Logger.log(`Flush falló (puede ignorarse): ${e.message}`);}
       }
 
       const endTime = new Date().getTime();
       Logger.log(`--- Fin handleCreateMateriasBatch en ${(endTime - startTime) / 1000}s ---`);
+      // CORRECCIÓN: Llamar a flush() una sola vez al final del bucle para mejorar el rendimiento.
+      try { SpreadsheetApp.flush(); } catch(e) { Logger.log(`Flush final falló (puede ignorarse): ${e.message}`);}
       return results;
   } finally {
       // --- LIBERAR EL BLOQUEO ---

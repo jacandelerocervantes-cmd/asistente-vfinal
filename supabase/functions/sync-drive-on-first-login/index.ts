@@ -4,6 +4,15 @@ import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
+// CORRECCIÓN: Definir la interfaz para el objeto 'job' para dar contexto a TypeScript.
+interface DriveSyncJob {
+  id: number; // bigint from postgres is a number or string in JS
+  created_at: string; // timestampz is a string
+  user_id: string; // uuid is a string
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  ultimo_error: string | null;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
   
@@ -17,24 +26,24 @@ serve(async (req: Request) => {
   const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
   try {
-    // 1. Buscar un trabajo pendiente
-    const { data: job, error: jobError } = await supabaseAdmin
-      .from('drive_sync_jobs')
-      .select('*')
-      .eq('status', 'pending')
-      .limit(1)
-      .maybeSingle();
+    // 1. CORRECCIÓN: Obtener y bloquear atómicamente el siguiente trabajo pendiente usando una función RPC.
+    // Esto previene que múltiples instancias del worker tomen el mismo trabajo (Race Condition).
+    // CORRECCIÓN: Se ajusta la llamada RPC para que TypeScript infiera el tipo correctamente.
+    // La función RPC devuelve un array, por lo que no usamos .single() y tomamos el primer elemento.
+    const { data: jobs, error: jobError } = await supabaseAdmin.rpc('get_and_lock_sync_job');
+    const job = jobs ? (jobs as DriveSyncJob[])[0] : null;
 
     if (jobError) throw jobError;
     if (!job) {
+      console.log("No hay trabajos de sincronización pendientes.");
       return new Response(JSON.stringify({ message: "No hay trabajos de sincronización pendientes." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     
     jobId = job.id;
     const userId = job.user_id;
+    console.log(`Trabajo ${jobId} para usuario ${userId} seleccionado y marcado como 'processing'.`);
 
-    // 2. Marcar trabajo como 'processing'
-    await supabaseAdmin.from('drive_sync_jobs').update({ status: 'processing' }).eq('id', jobId);
+    // El paso 2 (marcar como 'processing') ya no es necesario aquí, la función RPC lo hace atómicamente.
 
     // 3. Obtener datos del docente y materias
     const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(userId);
@@ -46,12 +55,15 @@ serve(async (req: Request) => {
         .eq('user_id', user.id);
     if (materiasError) throw materiasError;
 
+    // Si el usuario no tiene materias, el proceso debe terminar exitosamente.
     if (!materias || materias.length === 0) {
+       console.log(`Usuario ${userId} no tiene materias. Finalizando trabajo ${jobId} como completado.`);
        await supabaseAdmin.auth.admin.updateUserById(userId, {
            user_metadata: { ...(user.user_metadata || {}), drive_synced: true }
        });
        await supabaseAdmin.from('drive_sync_jobs').update({ status: 'completed' }).eq('id', jobId);
-       return new Response(JSON.stringify({ message: "No hay materias. Trabajo completado." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+       
+       return new Response(JSON.stringify({ success: true, message: "No hay materias. Trabajo completado." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // 4. LLAMAR A GOOGLE APPS SCRIPT (La tarea larga)
