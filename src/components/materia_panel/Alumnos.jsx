@@ -13,7 +13,7 @@ import {
 
 // Componente de Fila de Alumno (para limpiar el renderizado)
 const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error }) => {
-    const { id, matricula, apellido, nombre, email, grupos, user_id } = alumno;
+    const { id, matricula, apellido, nombre, email, grupo_id, user_id } = alumno;
     
     const accountState = creatingState;
     const hasUserId = !!user_id;
@@ -33,7 +33,7 @@ const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcce
             <td>{apellido || ''}</td>
             <td>{nombre || ''}</td>
             <td>{email || '-'}</td>
-            <td>{grupos?.nombre || '-'}</td>
+            <td>{grupo_id || '-'}</td>
             <td style={{ textAlign: 'center' }}>
                 {hasUserId || accountState === 'exists' || accountState === 'success' ? (
                     <FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso de alumno activado"/>
@@ -95,7 +95,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
-                .select(`*, grupos ( nombre )`) // Cargar nombre del grupo
+                .select(`id, matricula, apellido, nombre, email, grupo_id, user_id`)
                 .eq('materia_id', materiaId)
                 .order('apellido', { ascending: true });
 
@@ -113,13 +113,17 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     }, [materiaId, fetchAlumnos, fetchGrupos]);
 
     // --- Filtrar Alumnos (para la lista principal) ---
+    const grupoMap = useMemo(() => new Map(grupos.map(g => [g.id, g.nombre])), [grupos]);
+
     const filteredAlumnos = useMemo(() => {
         return alumnos.filter(alumno =>
-            `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''} ${alumno.grupos?.nombre || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
+            `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''} ${grupoMap.get(alumno.grupo_id) || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
         );
-    }, [alumnos, searchTerm]);
+    }, [alumnos, searchTerm, grupoMap]);
 
     const visibleAlumnoIds = useMemo(() => filteredAlumnos.map(a => a.id), [filteredAlumnos]);
+
+
 
     // --- Handlers Formularios y CRUD Individual ---
     const handleEditAlumno = (alumno) => {
@@ -391,7 +395,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 isSelected={selectedAlumnos.has(alumno.id)}
                                                 onSelect={handleSelectAlumno}
                                                 onEdit={handleEditAlumno}
-                                                onDelete={handleDeleteAlumno}
+                                                onDelete={() => handleDeleteAlumno(alumno.id, alumno.user_id)}
                                                 onCrearAcceso={handleCrearAcceso}
                                                 creatingState={creatingAccountStates[alumno.id]}
                                                 error={error}
