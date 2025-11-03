@@ -60,12 +60,10 @@ serve(async (req: Request) => {
     console.log(`${trabajosParaInsertar.length} trabajos añadidos a la cola exitosamente.`);
     
     // Opcional: Invocar inmediatamente 'procesar-cola-evaluacion' una vez
-    // Si se descomenta, es crucial añadir el header de autorización para que la función llamada no devuelva 401.
-    /*
+    // --- CORRECCIÓN: Añadir el header de autorización ---
     await supabaseAdmin.functions.invoke('procesar-cola-evaluacion', {
       headers: { 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` }
     });
-    */
 
     return new Response(JSON.stringify({ message: `${calificaciones_ids.length} trabajos de evaluación añadidos a la cola.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

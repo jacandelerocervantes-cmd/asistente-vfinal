@@ -10,6 +10,12 @@ const NOMBRE_SHEET_LISTA_ALUMNOS = "Lista de Alumnos";
 const NOMBRE_SHEET_ASISTENCIA = "Reporte de Asistencia";
 const NOMBRE_SHEET_MAESTRO_RUBRICAS = "Rúbricas de la Materia";
 const NOMBRE_SHEET_PLAGIO = "Reportes de Plagio";
+// --- Nombres de Subcarpetas Estándar ---
+const FOLDER_ASISTENCIA = "Asistencia";
+const FOLDER_ACTIVIDADES = "Actividades";
+const FOLDER_EVALUACIONES = "Evaluaciones";
+const FOLDER_MATERIAL = "Material Didáctico";
+const FOLDER_REPORTES_ACTIVIDAD = "Reportes por Actividad";
 
 
 // ==========================================================================================
@@ -47,6 +53,7 @@ function doPost(e) {
       case 'create_materias_batch':
         return crearRespuestaExitosa(handleCreateMateriasBatch(payload));
       // AÑADE ESTA LÍNEA NUEVA:
+        return crearRespuestaExitosa(handleCreateMateriasBatch(payload));      
       case 'create_materia_struct':
         return crearRespuestaExitosa(handleCreateMateriaStruct(payload));
       case 'create_activity_folder':
@@ -114,6 +121,11 @@ function crearRespuestaExitosa(data) {
 function crearRespuestaError(message) {
   // Simplificar mensajes de error comunes para el usuario final
   let userFriendlyMessage = message;
+  // Log the full technical error for debugging
+  Logger.log(`crearRespuestaError: Technical Error - ${message}`);
+
+  // Provide a more generic but helpful message to the user
+  let userFriendlyMessage = "Ocurrió un error inesperado en el servidor.";
   if (message.includes("exceeded maximum execution time")) {
     userFriendlyMessage = "La operación tardó demasiado tiempo y fue cancelada. Intenta de nuevo o contacta al administrador.";
   } else if (message.includes("service invoked too many times")) {
@@ -121,6 +133,8 @@ function crearRespuestaError(message) {
   } else if (message.includes("Acción desconocida")) {
      userFriendlyMessage = "La acción solicitada no es válida.";
   }
+  } // Keep it simple, avoid trying to parse every possible error message.
+
   // Añadir más mapeos de errores técnicos a mensajes amigables si es necesario
   return ContentService.createTextOutput(JSON.stringify({ status: "error", message: userFriendlyMessage }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -168,10 +182,14 @@ function handleCreateMateriasBatch(payload) {
       try {
         const editores = carpetaDocente.getEditors().map(u => u.getEmail());
         if (!editores.includes(docente.email)) {
+        // This is more efficient as it avoids iterating over all editors if the user is already one.
+        if (carpetaDocente.getAccess(docente.email) !== DriveApp.Permission.EDIT) {
           carpetaDocente.addEditor(docente.email);
           Logger.log(`Permisos añadidos para ${docente.email} en "${carpetaDocente.getName()}"`);
+          Logger.log(`Permisos de edición añadidos para ${docente.email} en la carpeta "${carpetaDocente.getName()}".`);
         }
       } catch(permError) {
+      } catch (permError) {
         Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
       }
 
@@ -192,6 +210,10 @@ function handleCreateMateriasBatch(payload) {
           const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
           getOrCreateFolder(carpetaMateria, "Evaluaciones");
           getOrCreateFolder(carpetaMateria, "Material Didáctico");
+          const carpetaAsistencia = getOrCreateFolder(carpetaMateria, FOLDER_ASISTENCIA);
+          const carpetaActividades = getOrCreateFolder(carpetaMateria, FOLDER_ACTIVIDADES);
+          getOrCreateFolder(carpetaMateria, FOLDER_EVALUACIONES);
+          getOrCreateFolder(carpetaMateria, FOLDER_MATERIAL);
 
           const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
           if (numeroDeUnidades > 0) {
@@ -200,6 +222,8 @@ function handleCreateMateriasBatch(payload) {
               const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
               getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
               getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+              getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`); // This is specific, so no constant
+              getOrCreateFolder(carpetaUnidad, FOLDER_REPORTES_ACTIVIDAD);
             }
           } else {
               Logger.log("Advertencia: La materia no tiene un número válido de unidades definidas.");
@@ -252,12 +276,14 @@ function handleCreateActivityFolder(payload) {
 
   const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+  const carpetaActividades = getOrCreateFolder(carpetaMateria, FOLDER_ACTIVIDADES);
   // Usar 'General' si la unidad no es válida o no se proporciona
   const nombreCarpetaUnidad = (unidad && !isNaN(parseInt(unidad, 10)) && parseInt(unidad, 10) > 0) ? `Unidad ${unidad}` : 'General';
   const carpetaUnidad = getOrCreateFolder(carpetaActividades, nombreCarpetaUnidad);
 
   // Asegurar que exista la carpeta de reportes detallados en la unidad
   getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+  getOrCreateFolder(carpetaUnidad, FOLDER_REPORTES_ACTIVIDAD);
 
   // Crear carpeta para esta actividad específica
   const carpetaActividad = getOrCreateFolder(carpetaUnidad, nombre_actividad); // Usar getOrCreate por si ya existe
@@ -356,6 +382,7 @@ function handleGuardarReportePlagio(payload) {
   if (!carpetaMateriaId) throw new Error(`URL de Drive inválida: ${drive_url_materia}`);
   const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+  const carpetaActividades = getOrCreateFolder(carpetaMateria, FOLDER_ACTIVIDADES);
   const sheetPlagioSS = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO); // Spreadsheet
 
   // Crear/Obtener una hoja dentro del Spreadsheet con la fecha de hoy
@@ -703,36 +730,34 @@ function handleGetRubricText(payload) {
  * @return {object} Objeto con la clave 'texto_trabajo'.
  */
 function handleGetStudentWorkText(payload) {
-  Logger.log(`Iniciando handleGetStudentWorkText para file ID ${payload.drive_file_id}...`);
   const { drive_file_id, fileMimeType } = payload; // fileMimeType is the one from Supabase
+  if (!drive_file_id) { throw new Error("Falta 'drive_file_id'."); }
+  Logger.log(`Iniciando handleGetStudentWorkText para file ID ${drive_file_id}...`);
 
   let file;
+  let mimeType;
   try {
-    file = DriveApp.getFileById(drive_file_id);
     // --- CORRECCIÓN: Obtener SIEMPRE el mimeType real de Google Drive ---
     // El mimeType pasado desde Supabase (basado en la extensión .pdf) puede ser incorrecto
-    // si el alumno subió un Google Doc con la extensión .pdf
-    const fileMetadata = Drive.Files.get(drive_file_id, {fields: "id, name, mimeType"});
-    const mimeType = fileMetadata.mimeType;
-    Logger.log(`Extrayendo texto de fileId: ${drive_file_id}. MimeType (Provisto: ${fileMimeType}, Real: ${mimeType})`);
+    // si el alumno subió un Google Doc con la extensión .pdf. Se especifica `fields` para evitar el error "Invalid field selection name".
+    const partialFile = Drive.Files.get(drive_file_id, { fields: 'mimeType, name' }); // Pedir name para logs
+    mimeType = partialFile.mimeType;
     // --- FIN DE LA CORRECCIÓN ---
-    file = DriveApp.getFileById(drive_file_id); // We still need the file object for other operations
+    Logger.log(`Extrayendo texto de fileId: ${drive_file_id}. MimeType (Provisto: ${fileMimeType}, Real: ${mimeType})`);
+    file = DriveApp.getFileById(drive_file_id);
   } catch (e) {
      throw new Error(`No se pudo acceder al archivo con fileId ${drive_file_id}. ¿Permisos? Error: ${e.message}`);
   }
-
-  const fileName = file.getName();
-  const mimeType = file.getMimeType(); // This can be null
   
   // --- CORRECCIÓN: Añadir un "null check" para el mimeType ---
   if (!mimeType) {
-      Logger.log(`Advertencia: Archivo ${drive_file_id} (${fileName}) no tiene mimeType. Saltando...`);
+      Logger.log(`Advertencia: Archivo ${drive_file_id} (${file.getName()}) no tiene mimeType. Saltando...`);
       // Devolver un texto de error controlado en lugar de fallar toda la operación.
       // Esto evita que toda la operación se detenga.
-      return { texto_trabajo: `[Error: El archivo '${fileName}' no tiene un tipo de archivo definido y no puede ser procesado.]` };
+      return { texto_trabajo: `[Error: El archivo '${file.getName()}' no tiene un tipo de archivo definido y no puede ser procesado.]` };
   }
   // --- FIN DE LA CORRECCIÓN ---
-  Logger.log(`Procesando archivo: "${fileName}", Tipo MIME: ${mimeType}`);
+  Logger.log(`Procesando archivo: "${file.getName()}", Tipo MIME: ${mimeType}`);
   let textContent = '';
 
   try {
@@ -743,7 +768,7 @@ function handleGetStudentWorkText(payload) {
        Logger.log("Procesando PDF con OCR...");
        // Usar API Avanzada de Drive (Drive.Files) para OCR
        const blob = file.getBlob();
-       const resource = { title: `[OCR TEMP] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
+       const resource = { title: `[OCR TEMP] ${file.getName()}` , mimeType: MimeType.GOOGLE_DOCS };
        const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
        try {
           textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
@@ -756,7 +781,7 @@ function handleGetStudentWorkText(payload) {
     } else if (mimeType === MimeType.MICROSOFT_WORD || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
        Logger.log("Convirtiendo Word a Google Doc para leer texto...");
        // Crear copia temporal como Google Doc
-       const tempDoc = Drive.Files.copy({ title: `[TEMP CONVERT] ${fileName}`, mimeType: MimeType.GOOGLE_DOCS }, file.getId());
+       const tempDoc = Drive.Files.copy({ title: `[TEMP CONVERT] ${file.getName()}`, mimeType: MimeType.GOOGLE_DOCS }, file.getId());
        try {
           textContent = DocumentApp.openById(tempDoc.id).getBody().getText();
           Logger.log("Conversión y lectura completadas.");
@@ -1158,6 +1183,8 @@ function getOrCreateFolder(carpetaPadre, nombreSubcarpeta) {
       Logger.log(`ERROR en getOrCreateFolder("${carpetaPadre.getName()}", "${nombreNormalizado}"): ${e.message}`);
       throw e; // Relanzar el error para detener la ejecución si es crítico
   }
+  const carpetas = carpetaPadre.getFoldersByName(nombreNormalizado);
+  return carpetas.hasNext() ? carpetas.next() : carpetaPadre.createFolder(nombreNormalizado);
 }
 
 /**
