@@ -78,6 +78,16 @@ serve(async (req: Request) => {
   console.log(`--- INICIO EJECUCIÓN (SINGLE): procesar-cola-evaluacion | ${new Date().toISOString()} ---`);
   if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
 
+  // --- ¡¡AÑADE ESTE BLOQUE DE SEGURIDAD!! ---
+  const authHeader = req.headers.get('Authorization');
+  if (authHeader !== `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`) {
+    return new Response(
+      JSON.stringify({ message: 'No autorizado' }), 
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+  // --- FIN DEL BLOQUE DE SEGURIDAD ---
+
   let trabajoId: number | null = null;
   let calificacionId: number | null = null;
   // Crear cliente Admin al inicio para usarlo también en el catch

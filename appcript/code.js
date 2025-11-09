@@ -51,10 +51,6 @@ function doPost(e) {
         return crearRespuestaExitosa(handleCreateMateriaStruct(payload));
       case 'create_activity_folder':
         return crearRespuestaExitosa(handleCreateActivityFolder(payload));
-      case 'guardar_rubrica':
-        return crearRespuestaExitosa(handleGuardarRubrica(payload));
-      case 'actualizar_rubrica':
-        return crearRespuestaExitosa(handleActualizarRubrica(payload));
       case 'get_or_create_rubric_sheet': // Asegúrate que esta acción aún sea necesaria
         return crearRespuestaExitosa(handleGetOrCreateRubricSheet(payload));
       case 'guardar_reporte_plagio':
@@ -128,4 +124,78 @@ function crearRespuestaError(message) {
   // Añadir más mapeos de errores técnicos a mensajes amigables si es necesario
   return ContentService.createTextOutput(JSON.stringify({ status: "error", message: userFriendlyMessage }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// AÑADE ESTA NUEVA FUNCIÓN AL FINAL DE TU code.js
+
+/**
+ * Crea la estructura para UNA SOLA materia, incluyendo poblado de listas.
+ * @param {object} payload Datos { docente, materia }
+ * @return {object} IDs y URLs de los elementos creados.
+ */
+function handleCreateMateriaStruct(payload) {
+  Logger.log("--- Iniciando handleCreateMateriaStruct ---");
+  const startTime = new Date().getTime();
+
+  // Validar payload de entrada
+  if (!payload.docente || !payload.docente.email || !payload.materia) {
+    throw new Error("Payload inválido: faltan 'docente' (con email) o 'materia'.");
+  }
+  const { docente, materia } = payload;
+  Logger.log(`Docente: ${docente.email}. Procesando materia ID ${materia.id}: ${materia.nombre}`);
+
+  // Obtener carpeta raíz y carpeta del docente
+  const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
+  const nombreCarpetaDocente = docente.nombre || docente.email;
+  const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
+
+  // Asegurar permisos (por si acaso)
+  try {
+    const editores = carpetaDocente.getEditors().map(u => u.getEmail());
+    if (!editores.includes(docente.email)) {
+      carpetaDocente.addEditor(docente.email);
+    }
+  } catch (permError) {
+    Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
+  }
+
+  // --- Procesar esta única materia ---
+  const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
+  const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
+
+  const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
+  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+  getOrCreateFolder(carpetaMateria, "Evaluaciones");
+  getOrCreateFolder(carpetaMateria, "Material Didáctico");
+
+  const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
+  if (numeroDeUnidades > 0) {
+    for (let i = 1; i <= numeroDeUnidades; i++) {
+      const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
+      getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
+      getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+    }
+  }
+
+  const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
+  Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos.`);
+
+  // ¡AQUÍ ESTÁ LA DIFERENCIA! Llamamos a las funciones que pueblan las listas
+  crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
+  const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
+
+  const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
+  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
+
+  const results = {
+    drive_url: carpetaMateria.getUrl(),
+    rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
+    plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
+    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
+  };
+
+  const endTime = new Date().getTime();
+  Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);
+  SpreadsheetApp.flush();
+  return results; // Devolver los IDs de esta materia
 }
