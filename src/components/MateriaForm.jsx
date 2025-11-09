@@ -64,16 +64,21 @@ const MateriaForm = ({ materiaToEdit, onSave, onCancel }) => {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm(`¿Estás seguro de que quieres eliminar la materia "${nombre}"? Esta acción no se puede deshacer.`)) {
+    if (!window.confirm(`¿Estás seguro de que quieres eliminar la materia "${nombre}"? Esta acción no se puede deshacer y borrará la carpeta de Drive asociada.`)) {
       return;
     }
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('materias')
-        .delete()
-        .eq('id', materiaToEdit.id);
+      // --- ESTE ES EL CAMBIO ---
+      // Ya no borramos directamente, llamamos a la Edge Function
+      const { error } = await supabase.functions.invoke('eliminar-recurso', {
+        body: {
+          recurso_id: materiaToEdit.id,
+          tipo_recurso: 'materia'
+        }
+      });
+      // --- FIN DEL CAMBIO ---
 
       if (error) throw error;
       alert('¡Materia eliminada exitosamente!');

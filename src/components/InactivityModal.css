@@ -1,0 +1,55 @@
+/* EN: src/components/InactivityModal.css */
+.inactivity-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.inactivity-modal {
+    background: white;
+    padding: var(--spacing-xl);
+    border-radius: var(--border-radius);
+    width: 90%;
+    max-width: 450px;
+    text-align: center;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.inactivity-modal h3 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-md);
+    font-size: 1.5rem;
+}
+
+.inactivity-modal p {
+    margin-bottom: var(--spacing-lg);
+    font-size: 1rem;
+    color: #333;
+}
+
+.inactivity-countdown {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--color-accent); /* Naranja */
+    margin-bottom: var(--spacing-xl) !important;
+}
+
+.inactivity-modal .form-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-lg);
+    border-top: none;
+    padding-top: 0;
+}
+
+.inactivity-modal .form-actions button {
+    flex: 1; /* Hace que los botones ocupen el mismo espacio */
+}

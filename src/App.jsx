@@ -6,26 +6,9 @@ import Auth from './pages/Auth'; // Login Docente
 import MateriasDashboard from './pages/MateriasDashboard';
 import MateriaPanel from './pages/MateriaPanel';
 import CalificacionPanel from './pages/CalificacionPanel';
-import CalificacionManualPanel from './pages/CalificacionManualPanel';
-import AlumnoPortal from './pages/AlumnoPortal'; // Login Alumno (Matrícula/Correo)
-import AlumnoDashboard from './pages/AlumnoDashboard'; // Evaluaciones con login
-import ExamenAlumno from './pages/ExamenAlumno';
-import RevisionExamenAlumno from './pages/RevisionExamenAlumno';
+import CalificacionManualPanel from './pages/CalificacionManualPanel'; 
 import RegistroAsistencia from './pages/RegistroAsistencia';
 import { supabase } from './supabaseClient';
-
-// --- Componente para Rutas Protegidas de Alumno ---
-// Este guardia revisa sessionStorage, no el estado de Supabase Auth
-const AlumnoProtectedRoute = ({ loading }) => {
-  if (loading) return <div>Verificando acceso...</div>;
-  
-  // Revisa el sessionStorage que AlumnoPortal.jsx debió crear
-  const alumnoAuthData = sessionStorage.getItem('alumnoAuth');
-  
-  // Si existe, permite el acceso. Si no, redirige al portal de login.
-  return (alumnoAuthData) ? <Outlet /> : <Navigate to="/alumno/portal" replace />;
-};
-// --- Fin Componente ---
 
 // --- Componente para Rutas Protegidas de Docente ---
 // Este guardia revisa el estado de Supabase Auth (docenteSession)
@@ -37,7 +20,6 @@ const DocenteProtectedRoute = ({ docenteSession, loading }) => {
 
 function App() {
   const [docenteSession, setDocenteSession] = useState(null);
-  // No necesitamos 'alumnoSession' en el estado, se maneja en sessionStorage
   const [loadingSession, setLoadingSession] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const syncInProgress = useRef(false);
@@ -58,7 +40,6 @@ function App() {
           triggerSync();
         }
       }
-      // No hay 'else' para 'setAlumnoSession', es irrelevante aquí.
       setLoadingSession(false);
     });
 
@@ -153,17 +134,6 @@ function App() {
         <Routes>
           {/* --- Rutas Públicas (Asistencia por QR y Login de Alumno) --- */}
           <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
-          <Route path="/alumno/portal" element={<AlumnoPortal />} />
-
-
-          {/* --- Rutas "Privadas" Alumno (protegidas por sessionStorage) --- */}
-          {/* Este guardia (AlumnoProtectedRoute) revisa sessionStorage */}
-          <Route element={<AlumnoProtectedRoute loading={loadingSession} />}>
-            <Route path="/alumno/evaluaciones" element={<AlumnoDashboard />} />
-            <Route path="/alumno/examen/:evaluacionId" element={<ExamenAlumno />} />
-            <Route path="/alumno/revision/:intentoId" element={<RevisionExamenAlumno />} />
-          </Route>
-
 
           {/* --- Rutas Privadas Docente (Protegidas por Supabase Auth) --- */}
            {/* Este guardia (DocenteProtectedRoute) revisa el estado docenteSession */}

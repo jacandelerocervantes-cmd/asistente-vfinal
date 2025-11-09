@@ -60,13 +60,24 @@ const Actividades = () => {
     };
 
     const handleDelete = async (actividad) => {
-        if (window.confirm(`¿Estás seguro de eliminar la actividad "${actividad.nombre}"?`)) {
+        if (window.confirm(`¿Estás seguro de eliminar la actividad "${actividad.nombre}"? Esto también la borrará de Google Drive.`)) {
             try {
-                const { error } = await supabase.from('actividades').delete().eq('id', actividad.id);
+                // --- INICIO DEL CAMBIO ---
+                // Ya no usamos supabase.delete() directamente
+                const { error } = await supabase.functions.invoke('eliminar-recurso', {
+                    body: {
+                        recurso_id: actividad.id,
+                        tipo_recurso: 'actividad' // Le decimos a la función qué estamos borrando
+                    }
+                });
+                // --- FIN DEL CAMBIO ---
+
                 if (error) throw error;
+                
                 // Actualización optimista para eliminar de la UI
                 setActividades(current => current.filter(a => a.id !== actividad.id));
-                alert("Actividad eliminada.");
+                alert("Actividad eliminada exitosamente de Supabase y Drive.");
+
             } catch (error) {
                 alert("Error al eliminar la actividad: " + error.message);
             }

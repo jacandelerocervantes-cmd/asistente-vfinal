@@ -152,11 +152,18 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
                     </div>
                     <div className="form-group">
                         <label htmlFor="tipo_entrega">Tipo de Entrega</label>
-                        <select id="tipo_entrega" value={tipoEntrega} onChange={(e) => setTipoEntrega(e.target.value)}>
+                        <select 
+                            id="tipo_entrega" 
+                            value={tipoEntrega} 
+                            onChange={(e) => setTipoEntrega(e.target.value)}
+                            disabled={isEditing} // <-- AÑADE ESTA LÍNEA
+                        >
                             <option value="individual">Individual</option>
                             <option value="grupal">Grupal</option>
                             <option value="mixta">Mixta</option>
                         </select>
+                        {/* Mensaje de ayuda opcional */}
+                        {isEditing && <small>El tipo de entrega no se puede modificar después de crear la actividad.</small>}
                     </div>
                 </div>
 

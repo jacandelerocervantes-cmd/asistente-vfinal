@@ -12,8 +12,8 @@ import {
 } from 'react-icons/fa';
 
 // Componente de Fila de Alumno (para limpiar el renderizado)
-const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error, grupoMap }) => { // <--- CORRECCIÓN 1: Recibir grupoMap
-    const { id, matricula, apellido, nombre, email, grupo_id, user_id } = alumno; // <--- CORRECCIÓN 2: Usar grupo_id
+const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error }) => { // <--- CORRECCIÓN 1: Quitar grupoMap
+    const { id, matricula, apellido, nombre, email, user_id } = alumno; // <--- CORRECCIÓN 2: Quitar grupo_id
     
     const accountState = creatingState;
     const hasUserId = !!user_id;
@@ -33,8 +33,9 @@ const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcce
             <td>{apellido || ''}</td>
             <td>{nombre || ''}</td>
             <td>{email || '-'}</td>
-            <td>{grupoMap.get(grupo_id) || '-'}</td> {/* <--- CORRECCIÓN 3: Usar grupoMap */}
-            <td style={{ textAlign: 'center' }}>
+            {/* --- CORRECCIÓN 3: ELIMINA ESTA CELDA (TD) --- */}
+            {/* <td>{grupoMap.get(grupo_id) || '-'}</td> */}
+            <td style={{ textAlign: 'center' }}> 
                 {hasUserId || accountState === 'exists' || accountState === 'success' ? (
                     <FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso de alumno activado"/>
                 ) : accountState === 'loading' ? (
@@ -71,18 +72,18 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
     // --- Carga de Datos ---
     const fetchGrupos = useCallback(async () => {
-        if (!materiaId) return;
-        setLoading(true);
-        try {
-            const { data, error: grupoError } = await supabase
-                .from('grupos')
-                .select('id, nombre')
-                .eq('materia_id', materiaId)
-                .order('nombre');
-            if (grupoError) throw grupoError;
-            setGrupos(data || []);
-        } catch (err) { setError(prev => (prev ? prev + " | " : "") + "Error al cargar grupos."); }
-        finally { setLoading(false); }
+         if (!materiaId) return;
+         setLoading(true);
+         try {
+             // Usamos RPC para contar miembros de forma eficiente
+             const { data, error: grupoError } = await supabase.rpc('obtener_grupos_con_conteo', {
+                 materia_param_id: materiaId
+             });
+ 
+             if (grupoError) throw grupoError;
+             setGrupos(data || []);
+         } catch (err) { setError(prev => (prev ? prev + " | " : "") + "Error al cargar grupos."); }
+         finally { setLoading(false); }
     }, [materiaId]);
 
     const fetchAlumnos = useCallback(async () => {
@@ -95,8 +96,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
-                // <--- CORRECCIÓN 4: Quitar la unión ambigua
-                .select(`id, matricula, apellido, nombre, email, grupo_id, user_id`) 
+                .select(`id, matricula, apellido, nombre, email, user_id`) 
                 .eq('materia_id', materiaId)
                 .order('apellido', { ascending: true });
 
@@ -113,19 +113,17 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         } else { setAlumnos([]); setGrupos([]); setLoading(false); }
     }, [materiaId, fetchAlumnos, fetchGrupos]);
 
-    // --- Mapa de Grupos ---
-    const grupoMap = useMemo(() => new Map(grupos.map(g => [g.id, g.nombre])), [grupos]);
-
     // --- Filtrar Alumnos (para la lista principal) ---
     const filteredAlumnos = useMemo(() => {
         return alumnos.filter(alumno =>
-            // <--- CORRECCIÓN 5: Usar el mapa para buscar el nombre del grupo
-            `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''} ${grupoMap.get(alumno.grupo_id) || ''}`.toLowerCase().includes(searchTerm.toLowerCase())
+            `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''}`
+                .toLowerCase().includes(searchTerm.toLowerCase())
         );
-    }, [alumnos, searchTerm, grupoMap]); // <--- CORRECCIÓN 6: Añadir grupoMap como dependencia
+    }, [alumnos, searchTerm]); // <--- CORRECCIÓN 6: Quitar grupoMap
 
     const visibleAlumnoIds = useMemo(() => filteredAlumnos.map(a => a.id), [filteredAlumnos]);
 
+    // --- REEMPLAZA ESTA FUNCIÓN COMPLETA ---
 
     // --- Handlers Formularios y CRUD Individual ---
     const handleEditAlumno = (alumno) => {
@@ -161,17 +159,25 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         setEditingGrupo(grupo); setShowGrupoForm(true);
     };
      const handleDeleteGrupo = async (grupoId) => {
-         const alumnosEnGrupo = alumnos.filter(a => a.grupo_id === grupoId).length;
+         // --- CORRECCIÓN: Contar miembros desde 'alumnos_grupos' ---
+         const { data: miembros, error: countError } = await supabase
+             .from('alumnos_grupos')
+             .select('id', { count: 'exact' })
+             .eq('grupo_id', grupoId);
+             
+         const alumnosEnGrupo = countError ? 0 : (miembros ? miembros.length : 0);
          let confirmMessage = `¿Eliminar este grupo?`;
-         if (alumnosEnGrupo > 0) confirmMessage += ` ${alumnosEnGrupo} alumno(s) quedarán sin asignar.`;
+         if (alumnosEnGrupo > 0) confirmMessage += ` ${alumnosEnGrupo} alumno(s) serán desasignados de este grupo.`;
 
         if (window.confirm(confirmMessage)) {
              setLoading(true); setError('');
              try {
-                await supabase.from('alumnos').update({ grupo_id: null }).eq('grupo_id', grupoId); // Desasignar alumnos
+                 // --- CORRECCIÓN: Eliminar la actualización de 'alumnos' ---
+                 // Simplemente borramos el grupo. La tabla 'alumnos_grupos' se limpiará sola.
                  const { error } = await supabase.from('grupos').delete().eq('id', grupoId);
                  if (error) throw error;
-                 fetchGrupos(); fetchAlumnos(); // Recargar ambos
+                 
+                 fetchGrupos(); // Recargar grupos
              } catch (err) {
                  setError("Error al eliminar grupo: " + err.message);
              } finally { setLoading(false); }
@@ -219,18 +225,37 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
     const handleAssignGroup = async (grupoId) => {
          const numSelected = selectedAlumnos.size;
-         setLoading(true); setError(''); setShowAssignGroupModal(false);
+         const idsToUpdate = Array.from(selectedAlumnos);
+         
+         setLoading(true); 
+         setError(''); 
+         setShowAssignGroupModal(false);
+         
          try {
-             const idsToUpdate = Array.from(selectedAlumnos);
-             const { error: updateError } = await supabase
-                 .from('alumnos')
-                 .update({ grupo_id: grupoId })
-                 .in('id', idsToUpdate);
-             if (updateError) throw updateError;
+             const { data: { user } } = await supabase.auth.getUser();
+             if (!user) throw new Error("Usuario no autenticado");
+
+             // Prepara los registros para la tabla pivote
+             const registrosNuevos = idsToUpdate.map(alumnoId => ({
+                 alumno_id: alumnoId,
+                 grupo_id: grupoId,
+                 user_id: user.id // El docente que hace la asignación
+             }));
+
+             // Inserta los registros en la tabla pivote
+             // 'ignoreDuplicates: true' evita errores si el alumno ya estaba en el grupo.
+             const { error: insertError } = await supabase
+                 .from('alumnos_grupos')
+                 .insert(registrosNuevos, { onConflict: 'alumno_id, grupo_id', ignoreDuplicates: true });
+
+             if (insertError) throw insertError;
+             
              setSelectedAlumnos(new Set());
-             fetchAlumnos();
+             fetchAlumnos(); // Recarga la lista de alumnos (aunque aquí no se vea el cambio)
+             fetchGrupos(); // Recarga los grupos (para actualizar contadores de miembros, si los añades)
+             
          } catch (err) {
-             setError("Error al asignar grupo: " + err.message);
+             setError("Error al asignar grupo: " + (err.message || 'Error desconocido'));
          } finally { setLoading(false); }
      };
 
@@ -309,7 +334,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             {error && <p className="error-message">{error}</p>}
 
             {/* Modales */}
-            {showAlumnoForm && <AlumnoForm alumno={editingAlumno} materiaId={materiaId} grupos={grupos} onSave={handleSaveAlumno} onCancel={handleCancelAlumno} />}
+            {showAlumnoForm && <AlumnoForm alumno={editingAlumno} materiaId={materiaId} onSave={handleSaveAlumno} onCancel={handleCancelAlumno} />}
             {showGrupoForm && <GrupoForm grupo={editingGrupo} materiaId={materiaId} onSave={handleSaveGrupo} onCancel={handleCancelGrupo} />}
             {showCSVUploader && <CSVUploader materiaId={materiaId} onUploadComplete={handleSaveAlumno} onCancel={() => setShowCSVUploader(false)} />}
             {showAssignGroupModal && <AsignarGrupoModal grupos={grupos} onClose={() => setShowAssignGroupModal(false)} onAssign={handleAssignGroup} />}
@@ -337,12 +362,12 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                 <table className="alumnos-table inside-group">
                                     <thead><tr><th>Nombre del Grupo</th><th>Miembros</th><th style={{textAlign: 'right'}}>Acciones</th></tr></thead>
                                     <tbody>
-                                        {grupos.length > 0 ? grupos.map(grupo => {
-                                            const miembrosCount = alumnos.filter(a => a.grupo_id === grupo.id).length;
+                                        {grupos.length > 0 ? grupos.map(grupo => { // eslint-disable-next-line no-unused-vars
+                                             // --- CORRECCIÓN: Usar el nuevo 'miembros_count' ---
                                             return (
                                                 <tr key={grupo.id}>
                                                     <td>{grupo.nombre}</td>
-                                                    <td>{miembrosCount}</td>
+                                                    <td>{grupo.miembros_count}</td> {/* <-- USAR ESTA PROPIEDAD */}
                                                     <td style={{textAlign: 'right'}}>
                                                         <button onClick={() => handleEditGrupo(grupo)} className="btn-secondary btn-small icon-button" title="Editar Nombre"><FaEdit /></button>
                                                         <button onClick={() => handleDeleteGrupo(grupo.id)} className="btn-danger btn-small icon-button" title="Eliminar Grupo" style={{marginLeft:'5px'}}><FaTrash /></button>
@@ -384,8 +409,6 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                             <th>Apellido</th>
                                             <th>Nombre</th>
                                             <th>Correo</th>
-                                            <th>Grupo</th>
-                                            <th>Acceso</th>
                                             <th style={{textAlign: 'right'}}>Acciones</th>
                                         </tr>
                                     </thead>
@@ -401,8 +424,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 onCrearAcceso={handleCrearAcceso}
                                                 creatingState={creatingAccountStates[alumno.id]}
                                                 error={error}
-                                                grupoMap={grupoMap} // <--- CORRECCIÓN 7: Pasar el mapa
-                                             />
+                                            />
                                          )) : (
                                             <tr><td colSpan="8">No hay alumnos {searchTerm ? 'que coincidan con la búsqueda.' : 'en esta materia.'}</td></tr>
                                          )}

@@ -20,6 +20,7 @@ const Asistencia = () => {
     const [sesionesCerradasHoy, setSesionesCerradasHoy] = useState(new Set());
     const [realtimeStatus, setRealtimeStatus] = useState('DISCONNECTED');
     const [unidadesCerradas, setUnidadesCerradas] = useState(new Set());
+    const [isSyncing, setIsSyncing] = useState(false); // <-- AÑADIR ESTADO
 
     const channelRef = useRef(null);
 
@@ -188,6 +189,45 @@ const Asistencia = () => {
         setSesionActiva(false);
     };
     
+    // --- AÑADE ESTA NUEVA FUNCIÓN ---
+    const handleSyncFromSheets = async () => {
+        if (!window.confirm("¿Sincronizar desde Google Sheets?\nEsto sobrescribirá los datos de asistencia en Supabase con cualquier cambio que hayas hecho manualmente en el Sheet.\nEste proceso puede tardar.")) {
+            return;
+        }
+        setIsSyncing(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('sync-asistencia-from-sheets', {
+                body: { materia_id: parseInt(materia_id, 10) }
+            });
+            if (error) throw error;
+            
+            // data = { message: "...", insertados: X, actualizados: Y, omitidos: Z }
+            alert(`${data.message}\nInsertados: ${data.insertados}\nActualizados: ${data.actualizados}\nOmitidos: ${data.omitidos_matricula_no_encontrada}`);
+            
+            // Forzar recarga de los datos de asistencia en la vista actual (si hay una sesión activa)
+            if (sesionActiva) {
+                const fechaHoy = new Date().toISOString().slice(0, 10);
+                const { data: registrosPrevios } = await supabase
+                    .from('asistencias')
+                    .select('alumno_id, presente')
+                    .eq('materia_id', materia_id)
+                    .eq('unidad', unidad)
+                    .eq('sesion', sesion)
+                    .eq('fecha', fechaHoy);
+                
+                const mapaAsistencias = new Map();
+                registrosPrevios.forEach(r => mapaAsistencias.set(r.alumno_id, r.presente));
+                setAsistenciasHoy(mapaAsistencias);
+            }
+
+        } catch (error) {
+            alert("Error al sincronizar: " + error.message);
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+    // --- FIN NUEVA FUNCIÓN ---
+    
     const cerrarSesionAsistencia = async () => {
         if (!window.confirm("¿Estás seguro de cerrar la sesión?")) return;
         try {
@@ -296,6 +336,16 @@ const Asistencia = () => {
                 </div>
                 
                 <div className="controles-cierre">
+                    {/* --- AÑADE ESTE BOTÓN --- */}
+                    <button 
+                        onClick={handleSyncFromSheets} 
+                        className="btn-secondary"
+                        disabled={isSyncing || loading || sesionActiva}
+                        title="Leer el Google Sheet y actualizar la base de datos"
+                    >
+                        {isSyncing ? 'Sincronizando...' : '🔄 Sincronizar desde Sheet'}
+                    </button>
+                    {/* --- FIN DEL BOTÓN --- */}
                     <button 
                         onClick={cerrarUnidad} 
                         className="btn-danger"

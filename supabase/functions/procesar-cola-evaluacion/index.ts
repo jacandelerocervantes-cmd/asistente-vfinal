@@ -172,9 +172,9 @@ serve(async (req: Request) => {
     const textoRubrica = rubricJson.texto_rubrica;
     console.log("Texto rúbrica OK.");
 
-    // --- CORRECCIÓN: Pausa de 1.5s para evitar el Rate Limit de Google ---
-    console.log(`Pausando 1.5s antes de llamar a Google API para la calificación ${calificacionId}...`);
-    await sleep(1500); 
+    // --- CORRECCIÓN: Pausa de 5s para evitar el Rate Limit de Google ---
+    console.log(`Pausando 5s antes de llamar a Google API para la calificación ${calificacionId}...`);
+    await sleep(10000) ;
 
     // Obtener texto del trabajo
     const workPayload = { action: 'get_student_work_text', drive_file_id: calificacion.evidencia_drive_file_id };
@@ -182,8 +182,21 @@ serve(async (req: Request) => {
     const workRes = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify(workPayload), headers: { 'Content-Type': 'application/json' } });
     if (!workRes.ok) throw new Error(`Error red trabajo (${workRes.status}): ${await workRes.text()}`);
     const workJson = await workRes.json();
-    if (workJson.status !== 'success') throw new Error(`Apps Script (get_student_work_text) falló: ${workJson.message}`);
-    const textoTrabajo = workJson.texto_trabajo;
+    if (workJson.status !== 'success') {
+        throw new Error(`Apps Script (get_student_work_text) falló: ${workJson.message}`);
+    }
+
+    // --- INICIO MANEJO DE REVISIÓN MANUAL ---
+    // La función de Apps Script ahora devuelve 'requiere_revision_manual'
+    if (workJson.requiere_revision_manual === true) {
+        console.log(`El trabajo ${calificacionId} requiere revisión manual. Marcando y finalizando.`);
+        await supabaseAdmin.from('calificaciones').update({ estado: 'requiere_revision_manual', progreso_evaluacion: 'Revisión manual necesaria (archivo no legible o imagen).' }).eq('id', calificacionId);
+        await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado' }).eq('id', trabajo.id); // El trabajo se completó (aunque la calificación no fue automática)
+        console.log(`--- FIN EJECUCIÓN (Revisión Manual): Trabajo ID ${trabajoId} ---`);
+        return new Response(JSON.stringify({ message: `Trabajo ${trabajoId} marcado para revisión manual.` }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const textoTrabajo = workJson.texto_trabajo; // Solo si no requiere revisión manual
+    // --- FIN MANEJO DE REVISIÓN MANUAL ---
     console.log("Texto trabajo OK.");
 
     // 4. Calificar con IA (Gemini)

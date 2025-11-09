@@ -10,12 +10,6 @@ const NOMBRE_SHEET_LISTA_ALUMNOS = "Lista de Alumnos";
 const NOMBRE_SHEET_ASISTENCIA = "Reporte de Asistencia";
 const NOMBRE_SHEET_MAESTRO_RUBRICAS = "Rúbricas de la Materia";
 const NOMBRE_SHEET_PLAGIO = "Reportes de Plagio";
-// --- Nombres de Subcarpetas Estándar ---
-const FOLDER_ASISTENCIA = "Asistencia";
-const FOLDER_ACTIVIDADES = "Actividades";
-const FOLDER_EVALUACIONES = "Evaluaciones";
-const FOLDER_MATERIAL = "Material Didáctico";
-const FOLDER_REPORTES_ACTIVIDAD = "Reportes por Actividad";
 
 
 // ==========================================================================================
@@ -53,7 +47,6 @@ function doPost(e) {
       case 'create_materias_batch':
         return crearRespuestaExitosa(handleCreateMateriasBatch(payload));
       // AÑADE ESTA LÍNEA NUEVA:
-        return crearRespuestaExitosa(handleCreateMateriasBatch(payload));      
       case 'create_materia_struct':
         return crearRespuestaExitosa(handleCreateMateriaStruct(payload));
       case 'create_activity_folder':
@@ -86,6 +79,8 @@ function doPost(e) {
         return crearRespuestaExitosa(handleGuardarCalificacionesEvaluacion(payload));
       case 'create_materia_struct':
         return crearRespuestaExitosa(handleCreateMateriaStruct(payload));
+      case 'eliminar_recurso_drive': // <-- AÑADE ESTE CASO
+        return crearRespuestaExitosa(handleEliminarRecurso(payload));
       // Las funciones obsoletas se han quitado del switch
       default:
         // Si la acción no coincide con ninguna conocida
@@ -121,11 +116,6 @@ function crearRespuestaExitosa(data) {
 function crearRespuestaError(message) {
   // Simplificar mensajes de error comunes para el usuario final
   let userFriendlyMessage = message;
-  // Log the full technical error for debugging
-  Logger.log(`crearRespuestaError: Technical Error - ${message}`);
-
-  // Provide a more generic but helpful message to the user
-  let userFriendlyMessage = "Ocurrió un error inesperado en el servidor.";
   if (message.includes("exceeded maximum execution time")) {
     userFriendlyMessage = "La operación tardó demasiado tiempo y fue cancelada. Intenta de nuevo o contacta al administrador.";
   } else if (message.includes("service invoked too many times")) {
@@ -133,8 +123,6 @@ function crearRespuestaError(message) {
   } else if (message.includes("Acción desconocida")) {
      userFriendlyMessage = "La acción solicitada no es válida.";
   }
-  } // Keep it simple, avoid trying to parse every possible error message.
-
   // Añadir más mapeos de errores técnicos a mensajes amigables si es necesario
   return ContentService.createTextOutput(JSON.stringify({ status: "error", message: userFriendlyMessage }))
     .setMimeType(ContentService.MimeType.JSON);
@@ -182,14 +170,10 @@ function handleCreateMateriasBatch(payload) {
       try {
         const editores = carpetaDocente.getEditors().map(u => u.getEmail());
         if (!editores.includes(docente.email)) {
-        // This is more efficient as it avoids iterating over all editors if the user is already one.
-        if (carpetaDocente.getAccess(docente.email) !== DriveApp.Permission.EDIT) {
           carpetaDocente.addEditor(docente.email);
           Logger.log(`Permisos añadidos para ${docente.email} en "${carpetaDocente.getName()}"`);
-          Logger.log(`Permisos de edición añadidos para ${docente.email} en la carpeta "${carpetaDocente.getName()}".`);
         }
       } catch(permError) {
-      } catch (permError) {
         Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
       }
 
@@ -210,10 +194,6 @@ function handleCreateMateriasBatch(payload) {
           const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
           getOrCreateFolder(carpetaMateria, "Evaluaciones");
           getOrCreateFolder(carpetaMateria, "Material Didáctico");
-          const carpetaAsistencia = getOrCreateFolder(carpetaMateria, FOLDER_ASISTENCIA);
-          const carpetaActividades = getOrCreateFolder(carpetaMateria, FOLDER_ACTIVIDADES);
-          getOrCreateFolder(carpetaMateria, FOLDER_EVALUACIONES);
-          getOrCreateFolder(carpetaMateria, FOLDER_MATERIAL);
 
           const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
           if (numeroDeUnidades > 0) {
@@ -222,8 +202,6 @@ function handleCreateMateriasBatch(payload) {
               const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
               getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
               getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-              getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`); // This is specific, so no constant
-              getOrCreateFolder(carpetaUnidad, FOLDER_REPORTES_ACTIVIDAD);
             }
           } else {
               Logger.log("Advertencia: La materia no tiene un número válido de unidades definidas.");
@@ -276,14 +254,12 @@ function handleCreateActivityFolder(payload) {
 
   const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, FOLDER_ACTIVIDADES);
   // Usar 'General' si la unidad no es válida o no se proporciona
   const nombreCarpetaUnidad = (unidad && !isNaN(parseInt(unidad, 10)) && parseInt(unidad, 10) > 0) ? `Unidad ${unidad}` : 'General';
   const carpetaUnidad = getOrCreateFolder(carpetaActividades, nombreCarpetaUnidad);
 
   // Asegurar que exista la carpeta de reportes detallados en la unidad
   getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-  getOrCreateFolder(carpetaUnidad, FOLDER_REPORTES_ACTIVIDAD);
 
   // Crear carpeta para esta actividad específica
   const carpetaActividad = getOrCreateFolder(carpetaUnidad, nombre_actividad); // Usar getOrCreate por si ya existe
@@ -382,7 +358,6 @@ function handleGuardarReportePlagio(payload) {
   if (!carpetaMateriaId) throw new Error(`URL de Drive inválida: ${drive_url_materia}`);
   const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, FOLDER_ACTIVIDADES);
   const sheetPlagioSS = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO); // Spreadsheet
 
   // Crear/Obtener una hoja dentro del Spreadsheet con la fecha de hoy
@@ -739,8 +714,9 @@ function handleGetStudentWorkText(payload) {
   try {
     // --- CORRECCIÓN: Obtener SIEMPRE el mimeType real de Google Drive ---
     // El mimeType pasado desde Supabase (basado en la extensión .pdf) puede ser incorrecto
+    // si el alumno subió un Google Doc con la extensión .pdf
     // si el alumno subió un Google Doc con la extensión .pdf. Se especifica `fields` para evitar el error "Invalid field selection name".
-    const partialFile = Drive.Files.get(drive_file_id, { fields: 'mimeType, name' }); // Pedir name para logs
+    const partialFile = Drive.Files.get(drive_file_id, { fields: 'mimeType, title' }); // Pedir name para logs
     mimeType = partialFile.mimeType;
     // --- FIN DE LA CORRECCIÓN ---
     Logger.log(`Extrayendo texto de fileId: ${drive_file_id}. MimeType (Provisto: ${fileMimeType}, Real: ${mimeType})`);
@@ -1142,522 +1118,4 @@ function handleGuardarCalificacionesEvaluacion(payload) {
 
   SpreadsheetApp.flush();
   return { message: `Se registraron ${filasParaAnadir.length} calificaciones en Google Sheets.` };
-}
-
-
-// ==========================================================================================
-// FUNCIONES AUXILIARES DE DRIVE Y SHEETS (OPTIMIZADAS Y SIN DUPLICADOS)
-// ==========================================================================================
-
-/**
- * Obtiene o crea una carpeta dentro de una carpeta padre.
- * @param {Folder} carpetaPadre El objeto Folder padre.
- * @param {string} nombreSubcarpeta El nombre deseado para la subcarpeta.
- * @return {Folder} El objeto Folder de la subcarpeta encontrada o creada.
- */
-function getOrCreateFolder(carpetaPadre, nombreSubcarpeta) {
-  // Validaciones robustas
-  if (!carpetaPadre || typeof carpetaPadre.getFoldersByName !== 'function') {
-      Logger.log(`ERROR: carpetaPadre inválida en getOrCreateFolder para "${nombreSubcarpeta || ''}"`);
-      throw new Error(`Error interno: Objeto carpetaPadre inválido.`);
-  }
-  const nombreNormalizado = String(nombreSubcarpeta || '').trim(); // Asegurar string y trim
-  if (!nombreNormalizado) {
-      Logger.log(`ERROR: Nombre de subcarpeta vacío.`);
-      throw new Error(`Error interno: Nombre de subcarpeta no puede estar vacío.`);
-  }
-
-  try {
-    // Buscar carpeta existente por nombre exacto
-    const carpetas = carpetaPadre.getFoldersByName(nombreNormalizado);
-    if (carpetas.hasNext()) {
-      // Logger.log(`Carpeta encontrada: "${nombreNormalizado}" en "${carpetaPadre.getName()}"`);
-      return carpetas.next(); // Devolver la existente
-    } else {
-      // Si no existe, crearla
-      Logger.log(`Creando carpeta: "${nombreNormalizado}" dentro de "${carpetaPadre.getName()}"`);
-      return carpetaPadre.createFolder(nombreNormalizado);
-    }
-  } catch (e) {
-      // Capturar y loguear cualquier error durante la búsqueda o creación
-      Logger.log(`ERROR en getOrCreateFolder("${carpetaPadre.getName()}", "${nombreNormalizado}"): ${e.message}`);
-      throw e; // Relanzar el error para detener la ejecución si es crítico
-  }
-  const carpetas = carpetaPadre.getFoldersByName(nombreNormalizado);
-  return carpetas.hasNext() ? carpetas.next() : carpetaPadre.createFolder(nombreNormalizado);
-}
-
-/**
- * Obtiene o crea una hoja de cálculo dentro de una carpeta específica.
- * @param {Folder} folder El objeto Folder donde buscar/crear el archivo.
- * @param {string} sheetName El nombre deseado para la hoja de cálculo.
- * @return {Spreadsheet | null} El objeto Spreadsheet encontrado o creado, o null si falla.
- */
-function getOrCreateSheet(folder, sheetName) {
-   // Validaciones robustas
-  if (!folder || typeof folder.getFilesByName !== 'function') {
-      Logger.log(`ERROR: folder inválido en getOrCreateSheet para "${sheetName || ''}"`);
-      throw new Error(`Error interno: Objeto folder inválido.`);
-  }
-   const nameNormalized = String(sheetName || '').trim();
-   if (!nameNormalized) {
-       Logger.log(`ERROR: Nombre de sheet vacío.`);
-       throw new Error(`Error interno: Nombre de sheet no puede estar vacío.`);
-   }
-
-  try {
-    // Buscar archivo existente por nombre exacto
-    const files = folder.getFilesByName(nameNormalized);
-    if (files.hasNext()) {
-      const file = files.next();
-      // Logger.log(`Sheet encontrado: "${nameNormalized}" (ID: ${file.getId()}) en "${folder.getName()}"`);
-      return SpreadsheetApp.openById(file.getId()); // Abrir y devolver el existente
-    } else {
-      // Si no existe, crear uno nuevo
-      Logger.log(`Creando sheet: "${nameNormalized}" dentro de "${folder.getName()}"`);
-      const spreadsheet = SpreadsheetApp.create(nameNormalized); // Crear con el nombre deseado
-      const fileId = spreadsheet.getId();
-
-      // Mover el archivo recién creado a la carpeta destino
-      moveFileToFolder(fileId, folder, nameNormalized);
-
-      // Renombrar/Crear la hoja principal dentro del Spreadsheet
-      try {
-        const sheets = spreadsheet.getSheets();
-        if(sheets.length > 0 && sheets[0].getName() === "Sheet1") {
-           sheets[0].setName("Datos"); // Renombrar la hoja por defecto "Sheet1"
-        } else if (sheets.length === 0) {
-           spreadsheet.insertSheet("Datos"); // Crear hoja "Datos" si no hay ninguna
-        }
-      } catch (renameError) {
-          // Loguear si falla el renombrado/creación de hoja, pero continuar
-          Logger.log(`Advertencia: no se pudo renombrar/crear hoja principal en "${nameNormalized}": ${renameError.message}`);
-      }
-
-      return spreadsheet; // Devolver el Spreadsheet recién creado
-    }
-  } catch (e) {
-      // Capturar y loguear cualquier error
-      Logger.log(`ERROR en getOrCreateSheet("${folder.getName()}", "${nameNormalized}"): ${e.message}\nStack: ${e.stack}`);
-      // Podrías devolver null o relanzar el error dependiendo de la criticidad
-      // return null;
-       throw e; // Relanzar para detener la ejecución si falla aquí
-  }
-}
-
-/**
- * Crea la hoja de cálculo "Lista de Alumnos" y la llena. Optimizado. ÚNICA DEFINICIÓN.
- * @param {Folder} carpetaPadre Carpeta "Reportes".
- * @param {Array<object>} alumnos Array de alumnos [{matricula, nombre, apellido}].
- */
-function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
-  const files = carpetaPadre.getFilesByName(NOMBRE_SHEET_LISTA_ALUMNOS);
-  if (files.hasNext()) {
-    Logger.log(`"${NOMBRE_SHEET_LISTA_ALUMNOS}" ya existe en "${carpetaPadre.getName()}".`);
-    // Opcional: Podríamos verificar si la lista de alumnos necesita actualizarse
-    return; // Salir si ya existe
-  }
-  Logger.log(`Creando y poblando "${NOMBRE_SHEET_LISTA_ALUMNOS}" en "${carpetaPadre.getName()}"...`);
-  let spreadsheet;
-  try {
-      spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_LISTA_ALUMNOS);
-  } catch (createError) {
-       Logger.log(`ERROR al crear Spreadsheet ${NOMBRE_SHEET_LISTA_ALUMNOS}: ${createError.message}`);
-       throw createError;
-  }
-  const sheet = spreadsheet.getSheets()[0].setName("Alumnos");
-  const headers = ["Matrícula", "Nombre", "Apellido"];
-
-  // Preparar datos (incluyendo headers)
-  const filasParaEscribir = [headers];
-  if (Array.isArray(alumnos)) {
-      alumnos.forEach((a, index) => {
-        if (!a || typeof a !== 'object') {
-           Logger.log(`Lista - Alumno ${index} inválido: ${JSON.stringify(a)}`);
-           return; // Saltar si el alumno no es un objeto válido
-        }
-        // Logger.log(`Lista - Alumno ${index}: ${JSON.stringify(a)}`); // Log detallado
-        filasParaEscribir.push([ a.matricula || '', a.nombre || '', a.apellido || '' ]);
-      });
-  } else {
-       Logger.log("Lista - 'alumnos' no es un array.");
-  }
-
-  // Escribir TODO de una vez (headers + datos)
-  if (filasParaEscribir.length > 1) { // Si hay al menos un alumno
-    try {
-      sheet.getRange(1, 1, filasParaEscribir.length, headers.length).setValues(filasParaEscribir);
-      sheet.getRange("A1:C1").setFontWeight("bold");
-      sheet.setFrozenRows(1);
-      sheet.setColumnWidth(1, 120); sheet.setColumnWidth(2, 200); sheet.setColumnWidth(3, 200);
-      Logger.log(`Se escribieron ${filasParaEscribir.length - 1} alumnos en "${NOMBRE_SHEET_LISTA_ALUMNOS}".`);
-    } catch (e) {
-      Logger.log(`ERROR al escribir en ${NOMBRE_SHEET_LISTA_ALUMNOS}: ${e.message}`);
-    }
-  } else {
-    // Si solo están los headers (no alumnos), escribir solo headers
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sheet.getRange("A1:C1").setFontWeight("bold");
-    sheet.setFrozenRows(1);
-    Logger.log(`No hay alumnos válidos para escribir en "${NOMBRE_SHEET_LISTA_ALUMNOS}".`);
-  }
-
-  // Mover archivo
-  moveFileToFolder(spreadsheet.getId(), carpetaPadre, NOMBRE_SHEET_LISTA_ALUMNOS);
-}
-
-/**
- * Crea la hoja de cálculo "Reporte de Asistencia" y la llena. Optimizado. ÚNICA DEFINICIÓN.
- * @param {Folder} carpetaPadre Carpeta "Reportes".
- * @param {Array<object>} alumnos Array de alumnos [{matricula, nombre, apellido}].
- * @param {number} numeroDeUnidades Número de unidades (puede ser 0).
- * @return {Spreadsheet | null} La hoja de cálculo o null si falla.
- */
-function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
-  const files = carpetaPadre.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
-  if (files.hasNext()) {
-    Logger.log(`"${NOMBRE_SHEET_ASISTENCIA}" ya existe en "${carpetaPadre.getName()}".`);
-    // Opcional: Podríamos verificar/actualizar hojas o alumnos aquí
-    return SpreadsheetApp.open(files.next());
-  }
-  Logger.log(`Creando y poblando "${NOMBRE_SHEET_ASISTENCIA}" en "${carpetaPadre.getName()}"...`);
-  let spreadsheet;
-   try {
-      spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_ASISTENCIA);
-  } catch (createError) {
-       Logger.log(`ERROR al crear Spreadsheet ${NOMBRE_SHEET_ASISTENCIA}: ${createError.message}`);
-       throw createError;
-  }
-  const headers = ["Matrícula", "Nombre Completo"];
-
-  // Preparar datos de alumnos
-  const filasAlumnos = Array.isArray(alumnos) ? alumnos.map((a, index) => {
-     if (!a || typeof a !== 'object') {
-           Logger.log(`Asistencia - Alumno ${index} inválido: ${JSON.stringify(a)}`);
-           return null; // Marcar para filtrar
-        }
-    // Logger.log(`Asistencia - Alumno ${index}: ${JSON.stringify(a)}`);
-    return [ a.matricula || '', `${a.nombre || ''} ${a.apellido || ''}`.trim() ];
-  }).filter(Boolean) : []; // Filtrar nulos si hubo inválidos
-  Logger.log(`Asistencia - 'filasAlumnos' válidas generadas: ${filasAlumnos.length} filas.`);
-
-  // --- INICIO DE LA LÓGICA CORREGIDA PARA ELIMINAR HOJA POR DEFECTO ---
-
-  // [Paso 1] Obtener referencia a la hoja por defecto CREADA AUTOMÁTICAMENTE
-  const defaultSheet = spreadsheet.getSheets()[0];
-  const defaultSheetName = defaultSheet ? defaultSheet.getName() : null;
-  // Guardamos la referencia ANTES de crear las de unidad.
-
-  // [Paso 2] Crear hojas por unidad
-  const numUnidadesReales = Math.max(1, numeroDeUnidades || 0); // Si es 0, creará 1 hoja "Unidad 1"
-  for (let i = 1; i <= numUnidadesReales; i++) {
-    const nombreHoja = `Unidad ${i}`;
-    let hojaUnidad;
-    try {
-        hojaUnidad = spreadsheet.insertSheet(nombreHoja);
-        Logger.log(`Hoja "${nombreHoja}" creada.`);
-    } catch (sheetError) {
-         Logger.log(`ERROR al obtener/crear hoja ${nombreHoja}: ${sheetError.message}`);
-         continue; // Saltar a la siguiente unidad si falla
-    }
-
-    // Preparar datos para esta hoja (headers + alumnos)
-    const datosParaEscribir = [headers];
-    if (filasAlumnos.length > 0) {
-      datosParaEscribir.push(...filasAlumnos); // Añadir todas las filas de alumnos
-    }
-
-    // Escribir todo de una vez
-    if (datosParaEscribir.length > 0) {
-       try {
-            hojaUnidad.getRange(1, 1, datosParaEscribir.length, headers.length).setValues(datosParaEscribir);
-            // Aplicar formato
-            hojaUnidad.getRange(1, 1, 1, headers.length).setFontWeight("bold");
-            hojaUnidad.setFrozenRows(1);
-            hojaUnidad.setFrozenColumns(2);
-            hojaUnidad.setColumnWidth(2, 250); // Ancho para Nombre Completo
-            Logger.log(`Hoja "${nombreHoja}" (re)poblada con encabezados y ${filasAlumnos.length} alumnos.`);
-       } catch (e) {
-            Logger.log(`ERROR al escribir datos en ${nombreHoja}: ${e.message}`);
-       }
-    } else {
-        // Esto no debería ocurrir si headers está presente
-        Logger.log(`Advertencia: No hay datos (ni siquiera headers?) para escribir en ${nombreHoja}.`);
-    }
-  } // Fin for unidades
-
-  // [Paso 3] Eliminar la hoja por defecto *después* de que se hayan creado las hojas de unidad.
-  // Buscamos la hoja por la referencia ANTERIOR.
-  // Comprobamos si el nombre coincide con los nombres por defecto comunes.
-  if (defaultSheet && (defaultSheetName === "Sheet1" || defaultSheetName === "Hoja 1")) {
-     try {
-        spreadsheet.deleteSheet(defaultSheet); // Usar la referencia obtenida en [Paso 1]
-        Logger.log(`Hoja por defecto residual '${defaultSheetName}' eliminada exitosamente.`);
-     } catch (e) {
-         // Ya no debería fallar, ya que hay al menos una hoja de unidad.
-         Logger.log(`Advertencia: Falló la eliminación final de la hoja por defecto residual '${defaultSheetName}': ${e.message}`);
-     }
-  }
-
-  // [Paso 4] Asegurar que la hoja "Unidad 1" sea la primera (si existe).
-  const firstUnitSheet = spreadsheet.getSheetByName("Unidad 1");
-  if (firstUnitSheet) {
-    spreadsheet.setActiveSheet(firstUnitSheet); // Establecer como activa
-    spreadsheet.moveActiveSheet(1); // Mover a la primera posición
-  }
-
-  // --- FIN DE LA LÓGICA CORREGIDA ---
-
-  // Mover archivo
-  moveFileToFolder(spreadsheet.getId(), carpetaPadre, NOMBRE_SHEET_ASISTENCIA);
-  return spreadsheet; // Devolver el objeto Spreadsheet
-}
-
-/**
- * Mueve un archivo de Google Drive a una carpeta destino, quitándolo de otras carpetas.
- * @param {string} fileId ID del archivo a mover.
- * @param {Folder} targetFolder Objeto Folder destino.
- * @param {string} fileNameForLog Nombre del archivo para usar en los logs.
- */
-function moveFileToFolder(fileId, targetFolder, fileNameForLog) {
-   try {
-      const file = DriveApp.getFileById(fileId);
-      const parents = file.getParents();
-      let needsMove = true;
-      let currentParentFound = false;
-
-      // Iterar sobre todos los padres actuales
-      while (parents.hasNext()) {
-          const parent = parents.next();
-          if (parent.getId() === targetFolder.getId()) {
-              needsMove = false; // Ya está en la carpeta destino
-          }
-          currentParentFound = true; // Marcamos que encontramos al menos un padre
-      }
-
-      // Si no estaba en la carpeta destino O si no tenía ningún padre (estaba en la raíz)
-      if (needsMove) {
-          // Quitar de todas las carpetas padre actuales (si las tenía)
-           if (currentParentFound) {
-               const currentParentsIterator = file.getParents(); // Obtener de nuevo el iterador
-               while (currentParentsIterator.hasNext()) {
-                  DriveApp.getFolderById(currentParentsIterator.next().getId()).removeFile(file);
-               }
-           } else {
-               // Si no tenía padres, estaba en la raíz
-               DriveApp.getRootFolder().removeFile(file);
-           }
-          // Añadir a la carpeta destino
-          targetFolder.addFile(file);
-          Logger.log(`Archivo "${fileNameForLog}" movido a "${targetFolder.getName()}".`);
-      } else {
-           Logger.log(`Archivo "${fileNameForLog}" ya estaba en "${targetFolder.getName()}".`);
-      }
-    } catch(moveError) {
-      // Loguear el error pero no detener el script necesariamente
-      Logger.log(`ERROR al mover archivo "${fileNameForLog}" (ID: ${fileId}) a "${targetFolder.getName()}": ${moveError.message}\nStack: ${moveError.stack}`);
-      // Considerar relanzar si es crítico: throw moveError;
-    }
-}
-
-
-/**
- * Extrae el ID de un archivo o carpeta de una URL de Google Drive.
- * @param {string} driveUrl La URL de Google Drive.
- * @return {string | null} El ID extraído o null si no se encuentra.
- */
-function extractDriveIdFromUrl(driveUrl) {
-  if (!driveUrl || typeof driveUrl !== 'string') return null;
-  // Expresión regular mejorada para capturar IDs de carpetas, archivos, y URLs de edición/vista
-  const match = driveUrl.match(/(?:folders\/|d\/|id=|\/open\?id=)([-\w]{25,})/);
-  // Devuelve el grupo capturado (el ID) o null
-  const id = match ? match[1] : null;
-  // Logger.log(`extractDriveIdFromUrl: URL='${driveUrl}', Extracted ID='${id}'`); // Log detallado
-  return id;
-}
-
-/**
- * Obtiene o crea la hoja de cálculo maestra para rúbricas.
- * @param {object} payload Datos {drive_url_materia}.
- * @return {object} Objeto con 'rubricas_spreadsheet_id'.
- */
-function handleGetOrCreateRubricSheet(payload) {
-   Logger.log("Iniciando handleGetOrCreateRubricSheet...");
-   const { drive_url_materia } = payload;
-   if (!drive_url_materia) { throw new Error("Falta 'drive_url_materia'."); }
-   const carpetaMateriaId = extractDriveIdFromUrl(drive_url_materia);
-   if (!carpetaMateriaId) { throw new Error(`URL de Drive inválida: ${drive_url_materia}`); }
-   let carpetaMateria;
-   try { carpetaMateria = DriveApp.getFolderById(carpetaMateriaId); }
-   catch(e) { throw new Error(`No se pudo acceder a la carpeta de materia con ID ${carpetaMateriaId}: ${e.message}`); }
-
-   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-   const sheet = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
-   if (!sheet) throw new Error("No se pudo crear/obtener la hoja maestra de rúbricas."); // Lanzar error si falla
-   Logger.log(`Hoja maestra de rúbricas obtenida/creada: ${sheet.getId()}`);
-   return { rubricas_spreadsheet_id: sheet.getId() };
-}
-
-// ==========================================================================================
-// FUNCIONES OBSOLETAS (MANTENIDAS PERO VACÍAS O CON LOG DE ADVERTENCIA)
-// ==========================================================================================
-
-/** @deprecated */
-function handleCreateAnnotatedFile(payload) {
-  Logger.log("ADVERTENCIA: La función 'handleCreateAnnotatedFile' está obsoleta y no realiza ninguna acción.");
-  return { message: "Función obsoleta."};
-}
-
-/** @deprecated */
-function handleWriteJustification(payload) {
-  Logger.log("ADVERTENCIA: La función 'handleWriteJustification' está obsoleta y no realiza ninguna acción.");
-  return { message: "Función obsoleta."};
-}
-
-// AÑADE ESTA NUEVA FUNCIÓN AL FINAL DE TU code.js
-
-/**
- * Crea la estructura para UNA SOLA materia, incluyendo poblado de listas.
- * @param {object} payload Datos { docente, materia }
- * @return {object} IDs y URLs de los elementos creados.
- */
-function handleCreateMateriaStruct(payload) {
-  Logger.log("--- Iniciando handleCreateMateriaStruct ---");
-  const startTime = new Date().getTime();
-
-  // Validar payload de entrada
-  if (!payload.docente || !payload.docente.email || !payload.materia) {
-    throw new Error("Payload inválido: faltan 'docente' (con email) o 'materia'.");
-  }
-  const { docente, materia } = payload;
-  Logger.log(`Docente: ${docente.email}. Procesando materia ID ${materia.id}: ${materia.nombre}`);
-
-  // Obtener carpeta raíz y carpeta del docente
-  const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
-  const nombreCarpetaDocente = docente.nombre || docente.email;
-  const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
-
-  // Asegurar permisos (por si acaso)
-  try {
-    const editores = carpetaDocente.getEditors().map(u => u.getEmail());
-    if (!editores.includes(docente.email)) {
-      carpetaDocente.addEditor(docente.email);
-    }
-  } catch (permError) {
-    Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
-  }
-
-  // --- Procesar esta única materia ---
-  const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
-  const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
-
-  const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  getOrCreateFolder(carpetaMateria, "Evaluaciones");
-  getOrCreateFolder(carpetaMateria, "Material Didáctico");
-
-  const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
-  if (numeroDeUnidades > 0) {
-    for (let i = 1; i <= numeroDeUnidades; i++) {
-      const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
-      getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
-      getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-    }
-  }
-
-  const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
-  Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos.`);
-
-  // ¡AQUÍ ESTÁ LA DIFERENCIA! Llamamos a las funciones que pueblan las listas
-  crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
-  const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
-
-  const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
-  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
-
-  const results = {
-    drive_url: carpetaMateria.getUrl(),
-    rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
-    plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
-    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
-  };
-
-  const endTime = new Date().getTime();
-  Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);
-  SpreadsheetApp.flush();
-  return results; // Devolver los IDs de esta materia
-}
-
-// AÑADE ESTA NUEVA FUNCIÓN AL FINAL DE TU code.js
-
-/**
- * Crea la estructura para UNA SOLA materia, incluyendo poblado de listas.
- * @param {object} payload Datos { docente, materia }
- * @return {object} IDs y URLs de los elementos creados.
- */
-function handleCreateMateriaStruct(payload) {
-  Logger.log("--- Iniciando handleCreateMateriaStruct ---");
-  const startTime = new Date().getTime();
-
-  // Validar payload de entrada
-  if (!payload.docente || !payload.docente.email || !payload.materia) {
-    throw new Error("Payload inválido: faltan 'docente' (con email) o 'materia'.");
-  }
-  const { docente, materia } = payload;
-  Logger.log(`Docente: ${docente.email}. Procesando materia ID ${materia.id}: ${materia.nombre}`);
-
-  // Obtener carpeta raíz y carpeta del docente
-  const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
-  const nombreCarpetaDocente = docente.nombre || docente.email;
-  const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
-
-  // Asegurar permisos (por si acaso)
-  try {
-    const editores = carpetaDocente.getEditors().map(u => u.getEmail());
-    if (!editores.includes(docente.email)) {
-      carpetaDocente.addEditor(docente.email);
-    }
-  } catch (permError) {
-    Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
-  }
-
-  // --- Procesar esta única materia ---
-  const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
-  const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
-
-  const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  getOrCreateFolder(carpetaMateria, "Evaluaciones");
-  getOrCreateFolder(carpetaMateria, "Material Didáctico");
-
-  const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
-  if (numeroDeUnidades > 0) {
-    for (let i = 1; i <= numeroDeUnidades; i++) {
-      const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
-      getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
-      getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-    }
-  }
-
-  const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
-  Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos.`);
-
-  // ¡AQUÍ ESTÁ LA DIFERENCIA! Llamamos a las funciones que pueblan las listas
-  crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
-  const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
-
-  const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
-  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
-
-  const results = {
-    drive_url: carpetaMateria.getUrl(),
-    rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
-    plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
-    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
-  };
-
-  const endTime = new Date().getTime();
-  Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);
-  SpreadsheetApp.flush();
-  return results; // Devolver los IDs de esta materia
 }

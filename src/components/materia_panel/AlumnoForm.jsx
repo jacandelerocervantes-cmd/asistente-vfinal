@@ -5,7 +5,7 @@ import './AlumnoForm.css';
 import { FaSave, FaTimes, FaSpinner } from 'react-icons/fa'; // Añadir FaSpinner
 
 // Recibe la lista de grupos como prop
-const AlumnoForm = ({ alumno, materiaId, grupos = [], onSave, onCancel }) => {
+const AlumnoForm = ({ alumno, materiaId, onSave, onCancel }) => { // Se quita la prop 'grupos'
     
     // Estado inicial
     const initialState = {
@@ -13,7 +13,6 @@ const AlumnoForm = ({ alumno, materiaId, grupos = [], onSave, onCancel }) => {
         nombre: '',
         apellido: '',
         email: '',
-        grupo_id: '', // Usar string vacío para "Sin asignar"
     };
     
     const [formData, setFormData] = useState(initialState);
@@ -32,8 +31,6 @@ const AlumnoForm = ({ alumno, materiaId, grupos = [], onSave, onCancel }) => {
                 nombre: alumno.nombre || '',
                 apellido: alumno.apellido || '',
                 email: alumno.email || '',
-                // Asegurar que grupo_id sea un string para el <select>
-                grupo_id: alumno.grupo_id?.toString() || '', 
             });
             console.log("Cargando datos para editar:", alumno);
         } else {
@@ -69,9 +66,7 @@ const AlumnoForm = ({ alumno, materiaId, grupos = [], onSave, onCancel }) => {
                 nombre: formData.nombre.trim(),
                 apellido: formData.apellido.trim(),
                 // Convertir '' a null para el email
-                email: formData.email.trim() || null, 
-                // Convertir '' (del select) a null para la BD
-                grupo_id: formData.grupo_id ? parseInt(formData.grupo_id, 10) : null,
+                email: formData.email.trim() || null,
             };
 
             let response;
@@ -147,15 +142,6 @@ const AlumnoForm = ({ alumno, materiaId, grupos = [], onSave, onCancel }) => {
                     <div className="form-group">
                         <label htmlFor="email">Correo Electrónico (Opcional, para acceso)</label>
                         <input type="email" id="email" name="email" value={formData.email} onChange={handleChange} disabled={loading} placeholder="ejemplo@correo.com"/>
-                    </div>
-                    <div className="form-group">
-                        <label htmlFor="grupo_id">Grupo (Opcional)</label>
-                        <select id="grupo_id" name="grupo_id" value={formData.grupo_id} onChange={handleChange} disabled={loading}>
-                            <option value="">-- Sin asignar --</option>
-                            {grupos.map(g => (
-                                <option key={g.id} value={g.id}>{g.nombre}</option>
-                            ))}
-                        </select>
                     </div>
 
                     <div className="form-actions">
