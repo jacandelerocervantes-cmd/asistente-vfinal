@@ -45,49 +45,17 @@ function handleCreateMateriasBatch(payload) {
       const results = { drive_urls: {}, rubricas_spreadsheet_ids: {}, plagio_spreadsheet_ids: {}, calificaciones_spreadsheet_ids: {} };
 
       for (const materia of materias) {
-          const materiaStartTime = new Date().getTime();
           if (!materia || typeof materia !== 'object' || !materia.id || !materia.nombre || !materia.semestre) {
               Logger.log(`Advertencia: Datos incompletos para una materia, saltando. Datos: ${JSON.stringify(materia)}`);
               continue;
           }
-          Logger.log(`Procesando materia ID ${materia.id}: ${materia.nombre} (${materia.semestre})`);
+          
+          const materiaResult = _crearEstructuraParaMateria_(carpetaDocente, materia);
 
-          const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
-          const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
-
-          const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
-          const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-          getOrCreateFolder(carpetaMateria, "Evaluaciones");
-          getOrCreateFolder(carpetaMateria, "Material Didáctico");
-
-          const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
-          if (numeroDeUnidades > 0) {
-            Logger.log(`Creando estructura para ${numeroDeUnidades} unidades...`);
-            for (let i = 1; i <= numeroDeUnidades; i++) {
-              const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
-              getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
-              getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-            }
-          } else {
-              Logger.log("Advertencia: La materia no tiene un número válido de unidades definidas.");
-          }
-
-          const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
-          Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos recibidos en payload.`);
-
-          crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
-          const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
-
-          const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
-          const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
-
-          results.drive_urls[materia.id] = carpetaMateria.getUrl();
-          results.rubricas_spreadsheet_ids[materia.id] = sheetRubricas ? sheetRubricas.getId() : null;
-          results.plagio_spreadsheet_ids[materia.id] = sheetPlagio ? sheetPlagio.getId() : null;
-          results.calificaciones_spreadsheet_ids[materia.id] = sheetAsistencia ? sheetAsistencia.getId() : null;
-
-          const materiaEndTime = new Date().getTime();
-          Logger.log(`Materia ID ${materia.id} procesada en ${(materiaEndTime - materiaStartTime) / 1000}s`);
+          results.drive_urls[materia.id] = materiaResult.drive_url;
+          results.rubricas_spreadsheet_ids[materia.id] = materiaResult.rubricas_spreadsheet_id;
+          results.plagio_spreadsheet_ids[materia.id] = materiaResult.plagio_spreadsheet_id;
+          results.calificaciones_spreadsheet_ids[materia.id] = materiaResult.calificaciones_spreadsheet_id;
       }
 
       const endTime = new Date().getTime();
@@ -172,6 +140,56 @@ function handleCreateMateriaStruct(payload) {
   Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);
   SpreadsheetApp.flush();
   return results; // Devolver los IDs de esta materia
+}
+
+/**
+ * [FUNCIÓN PRIVADA] Crea la estructura de carpetas y archivos para una materia.
+ * @param {GoogleAppsScript.Drive.Folder} carpetaDocente La carpeta del docente.
+ * @param {object} materia El objeto de la materia.
+ * @return {object} IDs y URLs de los elementos creados para esa materia.
+ */
+function _crearEstructuraParaMateria_(carpetaDocente, materia) {
+  const materiaStartTime = new Date().getTime();
+  Logger.log(`Procesando materia ID ${materia.id}: ${materia.nombre} (${materia.semestre})`);
+
+  const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
+  const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
+
+  const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
+  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+  getOrCreateFolder(carpetaMateria, "Evaluaciones");
+  getOrCreateFolder(carpetaMateria, "Material Didáctico");
+
+  const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
+  if (numeroDeUnidades > 0) {
+    Logger.log(`Creando estructura para ${numeroDeUnidades} unidades...`);
+    for (let i = 1; i <= numeroDeUnidades; i++) {
+      const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
+      getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
+      getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+    }
+  } else {
+    Logger.log("Advertencia: La materia no tiene un número válido de unidades definidas.");
+  }
+
+  const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
+  Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos.`);
+
+  crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
+  const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
+
+  const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
+  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
+
+  const materiaEndTime = new Date().getTime();
+  Logger.log(`Materia ID ${materia.id} procesada en ${(materiaEndTime - materiaStartTime) / 1000}s`);
+
+  return {
+    drive_url: carpetaMateria.getUrl(),
+    rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
+    plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
+    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
+  };
 }
 
 /**

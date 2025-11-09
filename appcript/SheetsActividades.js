@@ -10,6 +10,12 @@ function handleGuardarRubrica(payload) {
     throw new Error("Faltan datos requeridos: rubricas_spreadsheet_id, nombre_actividad, criterios (array).");
   }
 
+  // Si no hay criterios, no hay nada que guardar.
+  if (criterios.length === 0) {
+    Logger.log("No se proporcionaron criterios. No se guardará ninguna rúbrica.");
+    return { message: "No se guardó la rúbrica porque no se proporcionaron criterios." };
+  }
+
   let spreadsheet;
   try {
     spreadsheet = SpreadsheetApp.openById(rubricas_spreadsheet_id);
@@ -127,6 +133,28 @@ function handleGuardarReportePlagio(payload) {
 }
 
 /**
+ * [FUNCIÓN PRIVADA] Encuentra el índice de una columna por su nombre o la crea si no existe.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet La hoja donde buscar/crear la columna.
+ * @param {string} columnName El nombre de la columna a encontrar/crear.
+ * @return {number} El índice de la columna (basado en 0).
+ */
+function _findOrCreateColumn_(sheet, columnName) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol === 0) { // Hoja vacía
+    return -1; // Se manejará en la lógica principal
+  }
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  const colIndex = headers.indexOf(columnName);
+
+  if (colIndex !== -1) {
+    return colIndex;
+  }
+  // Si no existe, la crea y devuelve el nuevo índice
+  sheet.getRange(1, lastCol + 1).setValue(columnName).setFontWeight("bold");
+  return lastCol; // El nuevo índice es la última columna anterior
+}
+
+/**
  * Guarda las calificaciones detalladas de una actividad en su hoja específica y actualiza el resumen de la unidad.
  * @param {object} payload Datos {drive_url_materia, unidad, actividad:{nombre, id}, calificaciones:[{matricula, nombre?, equipo?, calificacion, retroalimentacion}]}.
  * @return {object} Objeto con mensaje y referencia a la celda de justificación.
@@ -184,88 +212,58 @@ function handleGuardarCalificacionDetallada(payload) {
      try { sheetResumen.setName("Resumen"); } catch(e) { Logger.log(`Advertencia: No se pudo renombrar hoja a "Resumen": ${e.message}`);}
   }
 
-  let headersResumen;
-  let colIndexActividad = -1;
-  let lastHeaderColResumen = sheetResumen.getLastColumn();
-
+  // 1. Preparar la hoja de resumen (headers y datos existentes)
   if (sheetResumen.getLastRow() < 1) {
-    headersResumen = ["Matricula", "Nombre Alumno", actividad.nombre];
-    sheetResumen.appendRow(headersResumen);
-    sheetResumen.getRange(1, 1, 1, headersResumen.length).setFontWeight("bold");
+    const initialHeaders = ["Matricula", "Nombre Alumno"];
+    sheetResumen.appendRow(initialHeaders);
+    sheetResumen.getRange(1, 1, 1, initialHeaders.length).setFontWeight("bold");
     sheetResumen.setFrozenRows(1);
     sheetResumen.setColumnWidth(2, 250);
-    colIndexActividad = 2;
-    lastHeaderColResumen = headersResumen.length;
-  } else {
-    headersResumen = sheetResumen.getRange(1, 1, 1, lastHeaderColResumen || 1).getValues()[0];
-    colIndexActividad = headersResumen.indexOf(actividad.nombre);
-    if (colIndexActividad === -1) {
-      colIndexActividad = (lastHeaderColResumen || 0);
-      lastHeaderColResumen = colIndexActividad + 1;
-      sheetResumen.getRange(1, lastHeaderColResumen).setValue(actividad.nombre).setFontWeight("bold");
+  }
+
+  const colIndexActividad = _findOrCreateColumn_(sheetResumen, actividad.nombre);
+  const dataRange = sheetResumen.getDataRange();
+  const sheetData = dataRange.getValues();
+
+  // 2. Mapear matrículas existentes a sus índices de fila para acceso rápido
+  const matriculaToRowIndex = new Map();
+  for (let i = 1; i < sheetData.length; i++) { // Empezar en 1 para saltar headers
+    const matricula = String(sheetData[i][0]).trim().toUpperCase();
+    if (matricula) {
+      matriculaToRowIndex.set(matricula, i);
     }
   }
+  Logger.log(`Mapeadas ${matriculaToRowIndex.size} matrículas del Resumen.`);
 
-  let matriculaToRowIndexResumen = new Map();
-  const firstDataRowResumen = sheetResumen.getFrozenRows() + 1;
-  const numDataRowsResumen = sheetResumen.getLastRow() - firstDataRowResumen + 1;
-  if (numDataRowsResumen > 0) {
-      const matriculasEnResumen = sheetResumen.getRange(firstDataRowResumen, 1, numDataRowsResumen, 1).getValues();
-      matriculasEnResumen.forEach((row, index) => {
-          const matricula = String(row[0]).trim().toUpperCase();
-          if (matricula && !matriculaToRowIndexResumen.has(matricula)) {
-              matriculaToRowIndexResumen.set(matricula, index + firstDataRowResumen);
-          }
-      });
-  }
-  Logger.log(`Mapeadas ${matriculaToRowIndexResumen.size} matrículas del Resumen.`);
-
-  const colNumActividad = colIndexActividad + 1;
-  const updatesResumen = {};
-  const nuevasFilasResumen = [];
-
+  // 3. Procesar calificaciones y actualizar el array `sheetData` en memoria
   calificaciones.forEach(cal => {
     const matriculaNorm = String(cal.matricula || '').trim().toUpperCase();
     if (!matriculaNorm) return;
 
-    const rowIndex = matriculaToRowIndexResumen.get(matriculaNorm);
+    const rowIndex = matriculaToRowIndex.get(matriculaNorm);
     const calificacionValor = cal.calificacion !== undefined ? cal.calificacion : '';
 
     if (rowIndex) {
-      if (!updatesResumen[rowIndex]) updatesResumen[rowIndex] = {};
-      updatesResumen[rowIndex][colNumActividad] = calificacionValor;
+      // Actualizar fila existente en memoria
+      sheetData[rowIndex][colIndexActividad] = calificacionValor;
     } else {
-      const nuevaFila = Array(lastHeaderColResumen).fill('');
+      // Añadir nueva fila al array en memoria
+      const nuevaFila = Array(sheetData[0].length).fill('');
       nuevaFila[0] = cal.matricula;
       nuevaFila[1] = cal.nombre || '';
       nuevaFila[colIndexActividad] = calificacionValor;
-      nuevasFilasResumen.push(nuevaFila);
-      matriculaToRowIndexResumen.set(matriculaNorm, sheetResumen.getLastRow() + nuevasFilasResumen.length);
+      sheetData.push(nuevaFila);
+      // Actualizar el mapa para que no se dupliquen si vienen en el mismo payload
+      matriculaToRowIndex.set(matriculaNorm, sheetData.length - 1);
     }
   });
 
-  if (nuevasFilasResumen.length > 0) {
-      try {
-        sheetResumen.getRange(sheetResumen.getLastRow() + 1, 1, nuevasFilasResumen.length, lastHeaderColResumen)
-                    .setValues(nuevasFilasResumen);
-        Logger.log(`Añadidas ${nuevasFilasResumen.length} nuevas filas al Resumen.`);
-      } catch(e) { Logger.log(`ERROR añadiendo nuevas filas al Resumen: ${e.message}`);}
-  }
-
-  const rangesToUpdate = [];
-  const valuesToUpdate = [];
-  for (const rowIdx in updatesResumen) {
-      for (const colIdx in updatesResumen[rowIdx]) {
-          rangesToUpdate.push(sheetResumen.getRange(parseInt(rowIdx, 10), parseInt(colIdx, 10)));
-          valuesToUpdate.push(updatesResumen[rowIdx][colIdx]);
-      }
-  }
-  if (rangesToUpdate.length > 0) {
-      try {
-          Logger.log(`Actualizando ${rangesToUpdate.length} celdas existentes en Resumen...`);
-          rangesToUpdate.forEach((range, i) => range.setValue(valuesToUpdate[i]));
-          Logger.log(`Actualizaciones en Resumen completadas.`);
-      } catch(e) { Logger.log(`ERROR actualizando celdas en Resumen: ${e.message}`);}
+  // 4. Escribir todos los datos de vuelta a la hoja en una sola operación
+  if (sheetData.length > 0) {
+    sheetResumen.getRange(1, 1, sheetData.length, sheetData[0].length).setValues(sheetData);
+    Logger.log("Hoja de resumen actualizada en una sola operación.");
+  } else {
+    Logger.log("No hay datos para escribir en la hoja de resumen.");
   }
 
   let justificacionCellRef = null;

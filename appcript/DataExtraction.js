@@ -227,3 +227,66 @@ function handleGetFolderContents(payload) {
   Logger.log(`Encontrados ${count} archivos en la carpeta "${carpeta.getName()}".`);
   return listaArchivos;
 }
+
+/**
+ * Lee todos los datos de asistencia de la hoja de cálculo de una materia.
+ * @param {object} payload Datos { calificaciones_spreadsheet_id }.
+ * @return {object} Objeto con la clave 'asistencias' (array de objetos).
+ */
+function handleLeerDatosAsistencia(payload) {
+  Logger.log("Iniciando handleLeerDatosAsistencia...");
+  const { calificaciones_spreadsheet_id } = payload;
+  if (!calificaciones_spreadsheet_id) {
+    throw new Error("Se requiere el 'calificaciones_spreadsheet_id'.");
+  }
+
+  try {
+    const spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
+    const sheet = spreadsheet.getSheetByName(NOMBRE_SHEET_ASISTENCIA);
+    if (!sheet) {
+      throw new Error(`No se encontró la hoja "${NOMBRE_SHEET_ASISTENCIA}".`);
+    }
+
+    // Leer todos los datos de la hoja de una sola vez para eficiencia
+    const allData = sheet.getDataRange().getValues();
+    
+    // La primera fila contiene los encabezados (Matrícula, Alumno, U1-S1, U1-S2, etc.)
+    const headers = allData[0];
+    const matriculaIndex = headers.indexOf("Matrícula");
+    
+    if (matriculaIndex === -1) {
+      throw new Error("No se encontró la columna 'Matrícula' en la hoja de asistencia.");
+    }
+
+    const asistencias = [];
+    // Iterar sobre las filas de datos (a partir de la segunda fila)
+    for (let i = 1; i < allData.length; i++) {
+      const row = allData[i];
+      const matricula = row[matriculaIndex];
+      if (!matricula) continue; // Omitir filas sin matrícula
+
+      // Iterar sobre las columnas de asistencia (a partir de la columna después de "Alumno")
+      for (let j = matriculaIndex + 2; j < headers.length; j++) {
+        const header = headers[j]; // Ej: "U1-S1"
+        const [unidad, sesion] = header.replace('U', '').split('-S');
+        const fecha = row[j]; // La celda contiene la fecha de la asistencia
+
+        if (fecha && (fecha instanceof Date || String(fecha).trim() !== '')) {
+          asistencias.push({
+            matricula: String(matricula),
+            unidad: parseInt(unidad, 10),
+            sesion: parseInt(sesion, 10),
+            fecha: new Date(fecha).toISOString().slice(0, 10) // Formatear a YYYY-MM-DD
+          });
+        }
+      }
+    }
+
+    Logger.log(`Procesadas ${asistencias.length} registros de asistencia.`);
+    return { asistencias };
+
+  } catch (e) {
+    Logger.log(`Error en handleLeerDatosAsistencia: ${e.message}`);
+    throw new Error(`No se pudieron leer los datos de asistencia. ${e.message}`);
+  }
+}
