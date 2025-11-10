@@ -407,8 +407,8 @@ const CalificacionPanel = () => {
     // Manejador para abrir modal de justificación
     const handleOpenJustificacion = async (entrega, entregable) => { // No usar tipos
         // Validaciones robustas
-        if (!entrega || !actividad?.materias?.calificaciones_spreadsheet_id) {
-             alert("Faltan datos de la materia o la entrega.");
+        if (!entrega || !entrega.justificacion_spreadsheet_id) {
+             alert("Faltan datos de la entrega (ID de Spreadsheet de justificación no encontrado).");
              return;
          }
          if (!entrega.justificacion_sheet_cell) {
@@ -423,7 +423,7 @@ const CalificacionPanel = () => {
         try {
             const { data, error } = await supabase.functions.invoke('get-justification-text', {
                 body: {
-                    spreadsheet_id: actividad.materias.calificaciones_spreadsheet_id,
+                    spreadsheet_id: entrega.justificacion_spreadsheet_id, // <-- ¡Usa el ID de la entrega!
                     justificacion_sheet_cell: entrega.justificacion_sheet_cell,
                 }
             });

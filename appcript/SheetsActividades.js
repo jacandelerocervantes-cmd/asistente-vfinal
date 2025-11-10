@@ -160,121 +160,126 @@ function _findOrCreateColumn_(sheet, columnName) {
  * @return {object} Objeto con mensaje y referencia a la celda de justificación.
  */
 function handleGuardarCalificacionDetallada(payload) {
-  Logger.log(`Iniciando handleGuardarCalificacionDetallada para actividad "${payload?.actividad?.nombre}"...`);
-  const { drive_url_materia, unidad, actividad, calificaciones } = payload;
-  if (!drive_url_materia || !unidad || !actividad || typeof actividad !== 'object' || !actividad.nombre || !calificaciones) { throw new Error("Faltan datos requeridos (drive_url_materia, unidad, actividad {nombre}, calificaciones)."); }
-  if (!Array.isArray(calificaciones) || calificaciones.length === 0) { throw new Error("El array 'calificaciones' está vacío o no es un array."); }
+    Logger.log(`Iniciando handleGuardarCalificacionDetallada para actividad "${payload?.actividad?.nombre}"...`);
 
-  const carpetaMateriaId = extractDriveIdFromUrl(drive_url_materia);
-  if (!carpetaMateriaId) throw new Error(`URL de Drive inválida: ${drive_url_materia}`);
-  const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  const nombreCarpetaUnidad = `Unidad ${unidad}`;
-  const carpetaUnidad = getOrCreateFolder(carpetaActividades, nombreCarpetaUnidad);
+    const { drive_url_materia, unidad, actividad, calificaciones } = payload;
 
-  const carpetaReportesDetallados = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-  const nombreSheetDetallado = actividad.nombre.replace(/[/\\?%*:|"<>]/g, '_');
-  const reporteDetalladoSS = getOrCreateSheet(carpetaReportesDetallados, nombreSheetDetallado);
-  const sheetDetallado = reporteDetalladoSS.getSheets()[0];
-  if (sheetDetallado.getName() !== "Detalle") {
-      try { sheetDetallado.setName("Detalle"); } catch(e) { Logger.log(`Advertencia: No se pudo renombrar hoja a "Detalle": ${e.message}`); }
-  }
-
-  const headersDetallado = ["Matricula", "Nombre Alumno", "Equipo", "Calificacion", "Retroalimentacion y observaciones"];
-  if (sheetDetallado.getLastRow() < 1) {
-    sheetDetallado.appendRow(headersDetallado);
-    sheetDetallado.getRange(1, 1, 1, headersDetallado.length).setFontWeight("bold");
-    sheetDetallado.setFrozenRows(1);
-    sheetDetallado.setColumnWidth(2, 250);
-    sheetDetallado.setColumnWidth(5, 400);
-  }
-
-  const filasDetallado = calificaciones.map(cal => [
-      cal.matricula || '',
-      cal.nombre || '',
-      cal.equipo || '',
-      cal.calificacion !== undefined ? cal.calificacion : '',
-      cal.retroalimentacion || ''
-  ]);
-  if (filasDetallado.length > 0) {
-      try {
-        sheetDetallado.getRange(sheetDetallado.getLastRow() + 1, 1, filasDetallado.length, headersDetallado.length)
-             .setValues(filasDetallado)
-             .setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
-      } catch(e) { Logger.log(`ERROR escribiendo en sheet detallado: ${e.message}`); }
-  }
-  const ultimaFilaDetalle = sheetDetallado.getLastRow();
-
-  const nombreResumen = `Resumen Calificaciones - Unidad ${unidad}`;
-  const resumenUnidadSS = getOrCreateSheet(carpetaUnidad, nombreResumen);
-  const sheetResumen = resumenUnidadSS.getSheets()[0];
-  if (sheetResumen.getName() !== "Resumen") {
-     try { sheetResumen.setName("Resumen"); } catch(e) { Logger.log(`Advertencia: No se pudo renombrar hoja a "Resumen": ${e.message}`);}
-  }
-
-  // 1. Preparar la hoja de resumen (headers y datos existentes)
-  if (sheetResumen.getLastRow() < 1) {
-    const initialHeaders = ["Matricula", "Nombre Alumno"];
-    sheetResumen.appendRow(initialHeaders);
-    sheetResumen.getRange(1, 1, 1, initialHeaders.length).setFontWeight("bold");
-    sheetResumen.setFrozenRows(1);
-    sheetResumen.setColumnWidth(2, 250);
-  }
-
-  const colIndexActividad = _findOrCreateColumn_(sheetResumen, actividad.nombre);
-  const dataRange = sheetResumen.getDataRange();
-  const sheetData = dataRange.getValues();
-
-  // 2. Mapear matrículas existentes a sus índices de fila para acceso rápido
-  const matriculaToRowIndex = new Map();
-  for (let i = 1; i < sheetData.length; i++) { // Empezar en 1 para saltar headers
-    const matricula = String(sheetData[i][0]).trim().toUpperCase();
-    if (matricula) {
-      matriculaToRowIndex.set(matricula, i);
+    if (!drive_url_materia || !unidad || !actividad || typeof actividad !== 'object' || !actividad.nombre || !calificaciones) {
+        throw new Error("Faltan datos requeridos (drive_url_materia, unidad, actividad {nombre}, calificaciones).");
     }
-  }
-  Logger.log(`Mapeadas ${matriculaToRowIndex.size} matrículas del Resumen.`);
-
-  // 3. Procesar calificaciones y actualizar el array `sheetData` en memoria
-  calificaciones.forEach(cal => {
-    const matriculaNorm = String(cal.matricula || '').trim().toUpperCase();
-    if (!matriculaNorm) return;
-
-    const rowIndex = matriculaToRowIndex.get(matriculaNorm);
-    const calificacionValor = cal.calificacion !== undefined ? cal.calificacion : '';
-
-    if (rowIndex) {
-      // Actualizar fila existente en memoria
-      sheetData[rowIndex][colIndexActividad] = calificacionValor;
-    } else {
-      // Añadir nueva fila al array en memoria
-      const nuevaFila = Array(sheetData[0].length).fill('');
-      nuevaFila[0] = cal.matricula;
-      nuevaFila[1] = cal.nombre || '';
-      nuevaFila[colIndexActividad] = calificacionValor;
-      sheetData.push(nuevaFila);
-      // Actualizar el mapa para que no se dupliquen si vienen en el mismo payload
-      matriculaToRowIndex.set(matriculaNorm, sheetData.length - 1);
+    if (!Array.isArray(calificaciones) || calificaciones.length === 0) {
+        throw new Error("El array 'calificaciones' está vacío o no es un array.");
     }
-  });
 
-  // 4. Escribir todos los datos de vuelta a la hoja en una sola operación
-  if (sheetData.length > 0) {
-    sheetResumen.getRange(1, 1, sheetData.length, sheetData[0].length).setValues(sheetData);
-    Logger.log("Hoja de resumen actualizada en una sola operación.");
-  } else {
-    Logger.log("No hay datos para escribir en la hoja de resumen.");
-  }
+    // 1. Encontrar/Crear el Spreadsheet "Resumen" para esta Unidad
+    const carpetaMateriaId = extractDriveIdFromUrl(drive_url_materia);
+    if (!carpetaMateriaId) throw new Error(`URL de Drive inválida: ${drive_url_materia}`);
+    const carpetaMateria = DriveApp.getFolderById(carpetaMateriaId);
+    const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+    const nombreCarpetaUnidad = `Unidad ${unidad}`;
+    const carpetaUnidad = getOrCreateFolder(carpetaActividades, nombreCarpetaUnidad);
 
-  let justificacionCellRef = null;
-  if (ultimaFilaDetalle > 1) {
-      const columnaRetro = headersDetallado.indexOf("Retroalimentacion y observaciones") + 1 || 4;
-      justificacionCellRef = `'${sheetDetallado.getName()}'!${sheetDetallado.getRange(ultimaFilaDetalle, columnaRetro).getA1Notation()}`;
-  }
-   Logger.log("Referencia de celda de justificación generada: " + justificacionCellRef);
+    const nombreResumen = `Resumen Calificaciones - Unidad ${unidad}`;
+    const resumenUnidadSS = getOrCreateSheet(carpetaUnidad, nombreResumen); // Este es el Archivo B
+    const spreadsheetIdUnidad = resumenUnidadSS.getId(); // <-- ID del Archivo B
 
-  SpreadsheetApp.flush();
-  return { message: "Reportes generados/actualizados.", justificacion_cell_ref: justificacionCellRef };
+    // 2. Crear/Obtener la PESTAÑA para la Actividad (ej. "Actividad 1")
+    const nombreSheetDetallado = actividad.nombre.replace(/[/\\?%*:|<>]/g, '_').substring(0, 100);
+    let sheetDetallado = resumenUnidadSS.getSheetByName(nombreSheetDetallado);
+
+    if (!sheetDetallado) {
+        sheetDetallado = resumenUnidadSS.insertSheet(nombreSheetDetallado);
+        Logger.log(`Hoja (pestaña) "${nombreSheetDetallado}" creada en Spreadsheet ID ${spreadsheetIdUnidad}.`);
+    }
+
+    // 3. Escribir detalles (justificación) en esa PESTAÑA
+    const headersDetallado = ["Matricula", "Nombre Alumno", "Equipo", "Calificacion", "Retroalimentacion y observaciones"];
+    if (sheetDetallado.getLastRow() < 1) {
+        sheetDetallado.appendRow(headersDetallado);
+        sheetDetallado.getRange(1, 1, 1, headersDetallado.length).setFontWeight("bold").setFrozenRows(1);
+        sheetDetallado.setColumnWidth(2, 250);
+        sheetDetallado.setColumnWidth(5, 400);
+    }
+
+    const filasDetallado = calificaciones.map(cal => [
+        cal.matricula || '', cal.nombre || '', cal.equipo || '',
+        cal.calificacion !== undefined ? cal.calificacion : '',
+        cal.retroalimentacion || ''
+    ]);
+
+    let primeraFilaNueva = 1;
+    if (filasDetallado.length > 0) {
+        primeraFilaNueva = sheetDetallado.getLastRow() + 1;
+        sheetDetallado.getRange(primeraFilaNueva, 1, filasDetallado.length, headersDetallado.length)
+            .setValues(filasDetallado).setWrapStrategy(SpreadsheetApp.WrapStrategy.WRAP);
+    }
+
+    // 4. Actualizar la PESTAÑA "Resumen" (la que tiene solo calificaciones)
+    let sheetResumen = resumenUnidadSS.getSheetByName("Resumen");
+    if (!sheetResumen) {
+        try {
+            sheetResumen = resumenUnidadSS.getSheets()[0];
+            sheetResumen.setName("Resumen");
+        } catch (e) {
+            sheetResumen = resumenUnidadSS.insertSheet("Resumen", 0);
+        }
+    }
+
+    if (sheetResumen) {
+        if (sheetResumen.getLastRow() < 1) {
+            const initialHeaders = ["Matricula", "Nombre Alumno"];
+            sheetResumen.appendRow(initialHeaders);
+            sheetResumen.getRange(1, 1, 1, initialHeaders.length).setFontWeight("bold");
+            sheetResumen.setFrozenRows(1);
+            sheetResumen.setColumnWidth(2, 250);
+        }
+        const colIndexActividad = _findOrCreateColumn_(sheetResumen, actividad.nombre);
+        const dataRange = sheetResumen.getDataRange();
+        const sheetData = dataRange.getValues();
+        const matriculaToRowIndex = new Map();
+        for (let i = 1; i < sheetData.length; i++) {
+            const matricula = String(sheetData[i][0]).trim().toUpperCase();
+            if (matricula) {
+                matriculaToRowIndex.set(matricula, i);
+            }
+        }
+        calificaciones.forEach(cal => {
+            const matriculaNorm = String(cal.matricula || '').trim().toUpperCase();
+            if (!matriculaNorm) return;
+            const rowIndex = matriculaToRowIndex.get(matriculaNorm);
+            const calificacionValor = cal.calificacion !== undefined ? cal.calificacion : '';
+
+            if (rowIndex) {
+                sheetData[rowIndex][colIndexActividad] = calificacionValor;
+            } else {
+                const nuevaFila = Array(sheetData[0].length).fill('');
+                nuevaFila[0] = cal.matricula;
+                nuevaFila[1] = cal.nombre || '';
+                nuevaFila[colIndexActividad] = calificacionValor;
+                sheetData.push(nuevaFila);
+                matriculaToRowIndex.set(matriculaNorm, sheetData.length - 1);
+            }
+        });
+        if (sheetData.length > 0) {
+            sheetResumen.getRange(1, 1, sheetData.length, sheetData[0].length).setValues(sheetData);
+        }
+        Logger.log("Hoja de resumen actualizada.");
+    }
+
+    // 5. Crear la referencia de celda (limpia, sin comillas)
+    let justificacionCellRef = null;
+    const columnaRetro = headersDetallado.indexOf("Retroalimentacion y observaciones") + 1 || 5;
+    justificacionCellRef = `${sheetDetallado.getName()}!${sheetDetallado.getRange(primeraFilaNueva, columnaRetro).getA1Notation()}`;
+    Logger.log("Referencia de celda generada: " + justificacionCellRef);
+
+    SpreadsheetApp.flush();
+
+    // 6. DEVOLVER EL ID DEL ARCHIVO B
+    return {
+        message: "Reportes generados/actualizados.",
+        justificacion_cell_ref: justificacionCellRef,
+        justificacion_spreadsheet_id: spreadsheetIdUnidad // <-- ¡ID DEL ARCHIVO CORRECTO!
+    };
 }
 
 /**

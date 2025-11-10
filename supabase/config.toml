@@ -404,7 +404,7 @@ entrypoint = "./functions/obtener-entregas-drive/index.ts"
 
 [functions.procesar-cola-evaluacion]
 enabled = true
-verify_jwt = false  # <--- CAMBIA ESTO DE 'true' A 'false'
+verify_jwt = false
 import_map = "./deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -503,7 +503,7 @@ entrypoint = "./functions/crear-usuarios-alumnos-batch/index.ts"
 
 [functions.sync-drive-on-first-login]
 enabled = true
-verify_jwt = false  # <--- CAMBIA ESTO
+verify_jwt = false
 import_map = "./deno.json"
 entrypoint = "./functions/sync-drive-on-first-login/index.ts"
 
@@ -543,7 +543,7 @@ entrypoint = "./functions/encolar-comprobacion-plagio/index.ts"
 
 [functions.procesar-cola-plagio]
 enabled = true
-verify_jwt = false  # <--- CAMBIA ESTO
+verify_jwt = false
 import_map = "./deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx

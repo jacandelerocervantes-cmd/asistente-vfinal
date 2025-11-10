@@ -94,49 +94,72 @@ serve(async (req: Request) => {
   const supabaseAdmin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   try {
-    // 1. Obtener UN trabajo pendiente
-    const { data: trabajoData, error: trabajoError } = await supabaseAdmin
-      .from('cola_de_trabajos')
-      .select(`
-    id,
-    user_id,
-    calificaciones (
-      id,
-      actividad_id,
-      alumno_id,
-      grupo_id,
-      user_id,
-      evidencia_drive_file_id,
-      actividades (
-        id,
-        nombre,
-        unidad,
-        rubrica_spreadsheet_id,
-        rubrica_sheet_range,
-        materias (
-          id,
-          drive_url,
-          rubricas_spreadsheet_id,
-          calificaciones_spreadsheet_id
-        )
-      )
-    )
-  `)
-  // --- FIN SECCIÓN CORREGIDA ---
-      .eq('estado', 'pendiente')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (trabajoError) { console.error("Error en BD al buscar trabajo:", trabajoError); throw new Error(`Error BD buscando trabajo: ${trabajoError.message}`); }
-    if (!trabajoData) {
+    
+    // --- INICIO DE LA MODIFICACIÓN ---
+
+    // 1. Llamar a la RPC atómica para obtener y bloquear un trabajo
+    console.log("Paso 1: Buscando trabajo en cola con RPC...");
+    const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('obtener_siguiente_trabajo_evaluacion');
+
+    if (rpcError) {
+      console.error("Error en RPC al buscar trabajo:", rpcError);
+      throw new Error(`Error BD (RPC): ${rpcError.message}`);
+    }
+
+    // rpcData será un array, tomamos el primer (y único) resultado
+    const trabajoObtenido = Array.isArray(rpcData) ? rpcData[0] : null;
+
+    if (!trabajoObtenido || !trabajoObtenido.job_id) {
       console.log("Paso 1: No hay trabajos pendientes.");
       return new Response(JSON.stringify({ message: "No hay trabajos pendientes." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
+    trabajoId = trabajoObtenido.job_id; // ¡Ahora tenemos el ID de forma segura!
+    console.log(`Paso 1: Trabajo ID: ${trabajoId} bloqueado para procesamiento.`);
+
+    // 2. Ahora que tenemos el ID, obtenemos los datos completos
+    const { data: trabajoData, error: trabajoError } = await supabaseAdmin
+      .from('cola_de_trabajos')
+      .select(`
+        id,
+        user_id,
+        calificaciones (
+          id,
+          actividad_id,
+          alumno_id,
+          grupo_id,
+          user_id,
+          evidencia_drive_file_id,
+          actividades (
+            id,
+            nombre,
+            unidad,
+            rubrica_spreadsheet_id,
+            rubrica_sheet_range,
+            materias (
+              id,
+              drive_url,
+              rubricas_spreadsheet_id,
+              calificaciones_spreadsheet_id
+            )
+          )
+        )
+      `)
+      .eq('id', trabajoId) // <-- Usamos el ID que obtuvimos
+      .single(); // <-- Usamos .single() porque sabemos que el ID existe
+
+    // --- FIN DE LA MODIFICACIÓN ---
+
+    if (trabajoError) { console.error(`Error en BD al buscar datos del trabajo ${trabajoId}:`, trabajoError); throw new Error(`Error BD buscando trabajo: ${trabajoError.message}`); }
+    if (!trabajoData) {
+      // Esto no debería pasar si la RPC funcionó
+      throw new Error(`Trabajo ID ${trabajoId} no encontrado después de RPC.`);
+    }
+
     // --- Validación robusta de datos ---
     const trabajo = trabajoData as unknown as TrabajoCola;
-    trabajoId = trabajo.id;
-    console.log(`Paso 1: Encontrado Trabajo ID: ${trabajoId}`);
+    // trabajoId ya está asignado
+    console.log(`Paso 1: Datos completos obtenidos para Trabajo ID: ${trabajoId}`);
 
     const calificacion = trabajo.calificaciones;
     // Validar que la relación con calificaciones exista
@@ -162,10 +185,9 @@ serve(async (req: Request) => {
     console.log("Paso 1: Validación de datos OK.");
     // --- Fin Validación ---
 
-    // 2. Marcar como 'procesando'
-    console.log(`Paso 2: Marcando trabajo ${trabajoId} y calificación ${calificacionId} como 'procesando'`);
-    await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'procesando' }).eq('id', trabajo.id);
+    // El RPC ya actualizó el estado del trabajo a 'procesando'.
     await supabaseAdmin.from('calificaciones').update({ estado: 'procesando', progreso_evaluacion: '1/4: Obteniendo textos...' }).eq('id', calificacionId);
+    console.log(`Paso 2: Calificación ${calificacionId} marcada como 'procesando'`);
 
     // 3. Obtener textos desde Google Apps Script
     const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
@@ -283,16 +305,24 @@ serve(async (req: Request) => {
     }
 
     // Llamar a Apps Script
-    const reportePayload = { action: 'guardar_calificacion_detallada', drive_url_materia: materia.drive_url, unidad: actividad.unidad, actividad: { nombre: actividad.nombre, id: actividad.id }, calificaciones: calificacionesParaReporte };
+    const reportePayload = { 
+      action: 'guardar_calificacion_detallada',
+      drive_url_materia: materia.drive_url, // <-- CAMBIAR A ESTO
+      unidad: actividad.unidad, 
+      actividad: { nombre: actividad.nombre, id: actividad.id }, 
+      calificaciones: calificacionesParaReporte 
+    };
     console.log("Payload para guardar_calificacion_detallada:", reportePayload);
     const reporteRes = await fetch(appsScriptUrl, { method: 'POST', body: JSON.stringify(reportePayload), headers: { 'Content-Type': 'application/json' } });
-    if (!reporteRes.ok) throw new Error(`Apps Script (guardar...) falló (${reporteRes.status}): ${await reporteRes.text()}`);
+    const reporteText = await reporteRes.text();
+    if (!reporteRes.ok) throw new Error(`Apps Script (guardar...) falló (${reporteRes.status}): ${reporteText}`);
     const reporteJson = await reporteRes.json();
     // Capturar el error específico de Apps Script si lo reporta
     if (reporteJson.status !== 'success') throw new Error(`Apps Script (guardar...) reportó error: ${reporteJson.message}`);
     console.log("Resultados guardados en Google Sheets OK.");
     // Guardar referencia a la celda devuelta por Apps Script
     const justificacionSheetCell = reporteJson.justificacion_cell_ref || null;
+    const justificacionSpreadsheetId = reporteJson.justificacion_spreadsheet_id || null; // <-- Captura el nuevo ID
     console.log("Referencia celda justificación:", justificacionSheetCell);
 
     // 6. Actualizar Supabase (final)
@@ -300,7 +330,7 @@ serve(async (req: Request) => {
     console.log("Paso 6: Actualizando estado final en Supabase...");
 
     // Actualizar calificación principal
-    const { error: updateCalifError } = await supabaseAdmin.from('calificaciones').update({ calificacion_obtenida: calificacion_total, justificacion_sheet_cell: justificacionSheetCell, estado: 'calificado', progreso_evaluacion: 'Completado' }).eq('id', calificacionId);
+    const { error: updateCalifError } = await supabaseAdmin.from('calificaciones').update({ calificacion_obtenida: calificacion_total, justificacion_sheet_cell: justificacionSheetCell, justificacion_spreadsheet_id: justificacionSpreadsheetId, estado: 'calificado', progreso_evaluacion: 'Completado' }).eq('id', calificacionId);
     if (updateCalifError) throw new Error(`Error al actualizar calificación ${calificacionId}: ${updateCalifError.message}`);
 
     // Propagación para grupos
@@ -319,6 +349,7 @@ serve(async (req: Request) => {
             progreso_evaluacion: 'Completado (Grupal)',
             grupo_id: calificacion.grupo_id, // Mantener referencia al grupo
             justificacion_sheet_cell: justificacionSheetCell, // Propagar referencia
+            justificacion_spreadsheet_id: justificacionSpreadsheetId, // <-- PROPAGA EL ID
             evidencia_drive_file_id: calificacion.evidencia_drive_file_id // Propagar evidencia
         }));
         if (calificacionesAlumnos.length > 0) {
