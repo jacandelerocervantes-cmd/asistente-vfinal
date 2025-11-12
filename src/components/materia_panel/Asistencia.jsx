@@ -253,23 +253,6 @@ const Asistencia = () => {
         }
     };
 
-    const cerrarUnidad = async () => {
-        if (!window.confirm(`¿Estás seguro de cerrar la UNIDAD ${unidad}? Esta acción generará el reporte final en Google Sheets y bloqueará la unidad.`)) return;
-        try {
-            const { error } = await supabase.functions.invoke('cerrar-unidad-asistencia', {
-                body: { materia_id: parseInt(materia_id, 10), unidad: parseInt(unidad, 10) }
-            });
-            if (error) throw error;
-            
-            setUnidadesCerradas(prev => new Set(prev).add(parseInt(unidad, 10)));
-            showNotification(`Unidad ${unidad} cerrada y reporte enviado a Google Sheets.`, 'success');
-
-        } catch (error) {
-            const errorMessage = error.context?.details || error.message || "Error desconocido al cerrar la unidad.";
-            showNotification(errorMessage, 'error');
-        }
-    };
-
     const handleManualToggle = async (alumno_id) => {
         const presenteActual = asistenciasHoy.get(alumno_id) || false;
         const nuevoEstado = !presenteActual;
@@ -354,13 +337,6 @@ const Asistencia = () => {
                         {isSyncing ? 'Sincronizando...' : '🔄 Sincronizar desde Sheet'}
                     </button>
                     {/* --- FIN DEL BOTÓN --- */}
-                    <button 
-                        onClick={cerrarUnidad} 
-                        className="btn-danger"
-                        disabled={unidadActualCerrada}
-                    >
-                        {unidadActualCerrada ? `Unidad ${unidad} ya está cerrada` : `Cerrar Unidad ${unidad}`}
-                    </button>
                 </div>
             </div>
 

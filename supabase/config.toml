@@ -606,3 +606,36 @@ entrypoint = "./functions/material-upload-file/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/material-upload-file/*.html" ]
+
+[functions.get-unit-component-counts]
+enabled = true
+verify_jwt = true
+import_map = "./functions/get-unit-component-counts/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/get-unit-component-counts/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/get-unit-component-counts/*.html" ]
+
+[functions.calculate-final-unit-grade]
+enabled = true
+verify_jwt = true
+import_map = "./functions/calculate-final-unit-grade/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/calculate-final-unit-grade/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/calculate-final-unit-grade/*.html" ]
+
+[functions.calculate-final-course-grade]
+enabled = true
+verify_jwt = true
+import_map = "./functions/calculate-final-course-grade/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/calculate-final-course-grade/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/calculate-final-course-grade/*.html" ]

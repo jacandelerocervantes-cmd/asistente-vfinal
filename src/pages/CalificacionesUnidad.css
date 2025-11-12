@@ -1,0 +1,129 @@
+/* src/components/materia_panel/CalificacionesUnidad.css */
+
+.calificaciones-unidad-panel {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.calificaciones-unidad-panel h3 {
+    color: var(--color-primary);
+}
+
+.calificaciones-unidad-panel p {
+    color: #555;
+    margin-bottom: var(--spacing-md);
+}
+
+.calif-selector-container {
+    max-width: 400px;
+}
+
+.calif-ponderacion-container h4 {
+    color: var(--color-secondary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.ponderacion-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.ponderacion-item {
+    display: grid;
+    grid-template-columns: 1fr 100px 80px;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 1px solid var(--color-background-light);
+}
+
+.ponderacion-item label {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--color-text-dark);
+    grid-column: 1 / 4; /* Ocupa toda la fila */
+}
+
+.ponderacion-item .item-info {
+    font-size: 0.9rem;
+    color: #777;
+    font-style: italic;
+    grid-column: 1 / 4; /* Ocupa toda la fila */
+    margin-top: -8px; /* Acerca la info al label */
+}
+
+.ponderacion-item input {
+    width: 100px;
+    padding: 8px;
+    font-size: 1.1rem;
+    text-align: right;
+    grid-column: 2 / 3; /* Columna 2 */
+    justify-self: end;
+}
+
+.ponderacion-item .item-percent {
+    font-size: 1.1rem;
+    font-weight: 500;
+    color: var(--color-primary);
+    grid-column: 3 / 4; /* Columna 3 */
+    justify-self: start;
+}
+
+.ponderacion-total {
+    font-size: 1.3rem;
+    font-weight: bold;
+    text-align: right;
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    background-color: #c6f6d5; /* Verde éxito */
+    color: #22543d;
+}
+
+.ponderacion-total.total-error {
+    background-color: #fed7d7; /* Rojo error */
+    color: #742a2a;
+}
+
+.calif-ponderacion-container .form-actions {
+    justify-content: flex-end;
+}
+
+/* --- ESTILOS AÑADIDOS FASE 5 --- */
+.calif-final-curso-container {
+    border-top: 3px solid var(--color-primary);
+}
+
+.calif-final-curso-container h4 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-md);
+}
+
+.calif-final-curso-container p {
+    margin-bottom: var(--spacing-md);
+}
+
+.calif-final-curso-container .form-actions {
+    justify-content: flex-end;
+}
+
+/* --- ESTILOS AÑADIDOS FASE 5 --- */
+.calif-final-curso-container {
+    border-top: 3px solid var(--color-primary);
+}
+
+.calif-final-curso-container h4 {
+    color: var(--color-primary);
+    margin-bottom: var(--spacing-md);
+}
+
+.calif-final-curso-container p {
+    margin-bottom: var(--spacing-md);
+}
+
+.calif-final-curso-container .form-actions {
+    justify-content: flex-end;
+}

@@ -7,6 +7,7 @@ import Alumnos from '../components/materia_panel/Alumnos';
 import Actividades from '../components/materia_panel/Actividades';
 import Evaluaciones from '../components/materia_panel/Evaluaciones';
 import MaterialDidactico from '../components/materia_panel/MaterialDidactico'; // <-- Importado
+import CalificacionesUnidad from '../components/materia_panel/CalificacionesUnidad'; // <-- AÑADIDO
 import BancoPreguntasPanel from '../components/banco_preguntas/BancoPreguntasPanel';
 import { FaArrowLeft } from 'react-icons/fa';
 import './MateriaPanel.css';
@@ -91,7 +92,7 @@ const MateriaPanel = ({ session }) => {
                 <button className={`tab-button ${activeTab === 'actividades' ? 'active' : ''}`} onClick={() => handleSetTab('actividades')}>Actividades</button>
                 <button className={`tab-button ${activeTab === 'evaluaciones' ? 'active' : ''}`} onClick={() => handleSetTab('evaluaciones')}>Evaluaciones</button>
                 <button className={`tab-button ${activeTab === 'material' ? 'active' : ''}`} onClick={() => handleSetTab('material')}>Material Didáctico</button>
-                {/* La pestaña 'Calificaciones' ha sido eliminada */}
+                <button className={`tab-button ${activeTab === 'calificaciones' ? 'active' : ''}`} onClick={() => handleSetTab('calificaciones')}>Calificaciones</button>
             </div>
 
             {/* --- Contenido de Pestañas Actualizado --- */}
@@ -101,7 +102,7 @@ const MateriaPanel = ({ session }) => {
                 {activeTab === 'actividades' && <Actividades materiaId={materiaIdNumerico} nombreMateria={materia.nombre} />}
                 {activeTab === 'evaluaciones' && <Evaluaciones materia={materia} />}
                 {activeTab === 'material' && <MaterialDidactico materia={materia} />}
-                {/* El renderizado de 'CalificacionesGlobales' ha sido eliminado */}
+                {activeTab === 'calificaciones' && <CalificacionesUnidad materia={materia} />}
             </div>
         </div>
     );

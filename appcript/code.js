@@ -87,6 +87,12 @@ function doPost(e) {
         return crearRespuestaExitosa(handleEliminarRecurso(payload));
       case 'leer_datos_asistencia': // <-- AÑADE ESTE CASO
         return crearRespuestaExitosa(handleLeerDatosAsistencia(payload));
+      
+      // --- INICIO FASE 2: CALIFICACIONES DE UNIDAD ---
+      case 'get_component_counts_for_unit':
+        return crearRespuestaExitosa(handleGetComponentCountsForUnit(payload));
+      case 'calculate_and_save_final_grade':
+        return crearRespuestaExitosa(handleCalculateAndSaveFinalGrade(payload));
       // Las funciones obsoletas se han quitado del switch
       default:
         // Si la acción no coincide con ninguna conocida
