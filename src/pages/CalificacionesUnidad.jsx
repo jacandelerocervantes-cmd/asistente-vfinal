@@ -1,7 +1,7 @@
 // src/components/materia_panel/CalificacionesUnidad.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
-import { useNotification } from '../../context/NotificationContext';
+import { useNotification } from '../context/NotificationContext';
 import './CalificacionesUnidad.css'; // Crearemos este CSS
 
 const CalificacionesUnidad = ({ materia }) => {
