@@ -1,5 +1,6 @@
 // src/components/materia_panel/Alumnos.jsx
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../supabaseClient';
 import AlumnoForm from './AlumnoForm';
 import CSVUploader from './CSVUploader';
@@ -70,6 +71,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     const [showAssignGroupModal, setShowAssignGroupModal] = useState(false);
     const [expandedSections, setExpandedSections] = useState(new Set(['lista_alumnos', 'gestion_grupos'])); // Ambas expandidas por defecto
 
+    const { showNotification } = useNotification();
     // --- Carga de Datos ---
     const fetchGrupos = useCallback(async () => {
          if (!materiaId) return;
@@ -82,7 +84,10 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
  
              if (grupoError) throw grupoError;
              setGrupos(data || []);
-         } catch (err) { setError(prev => (prev ? prev + " | " : "") + "Error al cargar grupos."); }
+         } catch (err) {
+            const errorMessage = err.context?.details || err.message || "Error al cargar grupos.";
+            setError(prev => (prev ? prev + " | " : "") + errorMessage);
+         }
          finally { setLoading(false); }
     }, [materiaId]);
 
@@ -102,7 +107,10 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
             if (fetchError) throw fetchError;
             setAlumnos(data || []);
-        } catch (err) { setError("No se pudieron cargar los alumnos: " + err.message); setAlumnos([]); }
+        } catch (err) {
+            const errorMessage = err.context?.details || err.message || "Error desconocido al cargar alumnos.";
+            setError("No se pudieron cargar los alumnos: " + errorMessage); setAlumnos([]);
+        }
         finally { setLoading(false); }
     }, [materiaId]);
 
@@ -142,7 +150,8 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                 if (alumnoUserId) console.warn(`Alumno ${alumnoId} borrado, cuenta Auth ${alumnoUserId} permanece.`);
                 fetchAlumnos(); // Recargar
             } catch (err) {
-                setError("Error al eliminar alumno: " + err.message);
+                const errorMessage = err.context?.details || err.message || "Error desconocido al eliminar alumno.";
+                setError(errorMessage);
             }
         }
     };
@@ -179,7 +188,8 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                  
                  fetchGrupos(); // Recargar grupos
              } catch (err) {
-                 setError("Error al eliminar grupo: " + err.message);
+                 const errorMessage = err.context?.details || err.message || "Error desconocido al eliminar grupo.";
+                 setError(errorMessage);
              } finally { setLoading(false); }
          }
      };
@@ -217,7 +227,8 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                  setSelectedAlumnos(new Set());
                  fetchAlumnos();
              } catch (err) {
-                 setError("Error en eliminación masiva: " + err.message);
+                 const errorMessage = err.context?.details || err.message || "Error desconocido en eliminación masiva.";
+                 setError(errorMessage);
              } finally { setLoading(false); }
      };
 
@@ -255,13 +266,14 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
              fetchGrupos(); // Recarga los grupos (para actualizar contadores de miembros, si los añades)
              
          } catch (err) {
-             setError("Error al asignar grupo: " + (err.message || 'Error desconocido'));
+             const errorMessage = err.context?.details || err.message || "Error desconocido al asignar grupo.";
+             setError(errorMessage);
          } finally { setLoading(false); }
      };
 
     // --- Handler Creación de Cuenta Individual ---
     const handleCrearAcceso = async (alumno) => {
-        if (!alumno.email || !alumno.matricula) { alert("Se requiere correo y matrícula."); return; }
+        if (!alumno.email || !alumno.matricula) { showNotification("Se requiere correo y matrícula.", 'error'); return; }
         if (!window.confirm(`¿Crear cuenta de acceso para ${alumno.nombre} (${alumno.email})?\nPass inicial: ${alumno.matricula}`)) return;
         setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'loading' })); setError('');
         try {
@@ -278,7 +290,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                  setAlumnos(prev => prev.map(a => a.id === alumno.id ? { ...a, user_id: 'temp-id' } : a));
              }
         } catch (err) {
-            const message = err.context?.details || err.message || 'Error desconocido.';
+            const message = err.context?.details || err.message || 'Error desconocido al crear cuenta.';
             setError(`Error cuenta ${alumno.email}: ${message}`);
             setCreatingAccountStates(prev => ({ ...prev, [alumno.id]: 'error' }));
         }

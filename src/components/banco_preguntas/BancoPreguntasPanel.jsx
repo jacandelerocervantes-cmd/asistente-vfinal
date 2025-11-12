@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import PreguntaBancoForm from './PreguntaBancoForm'; // Componente para añadir/editar preguntas del banco
+import { useNotification } from '../../context/NotificationContext'; // Importar hook
 import PreguntaBancoCard from './PreguntaBancoCard'; // Componente para mostrar cada pregunta en la lista
 import './BancoPreguntasPanel.css'; // Crearemos este CSS
 
@@ -18,6 +19,7 @@ const BancoPreguntasPanel = ({ materiaId = null, modoSeleccion = false, onSelecc
     const [filtroUnidad, setFiltroUnidad] = useState(''); // Filtro por unidad
     const [filtroTema, setFiltroTema] = useState(''); // Filtro por tema/palabra clave
     const [materiasDocente, setMateriasDocente] = useState([]); // Para el dropdown de filtro
+    const { showNotification } = useNotification(); // Usar el contexto
 
     // Cargar materias del docente para el filtro
     useEffect(() => {
@@ -87,7 +89,8 @@ const BancoPreguntasPanel = ({ materiaId = null, modoSeleccion = false, onSelecc
 
         } catch (error) {
             console.error("Error cargando preguntas del banco:", error);
-            alert("No se pudieron cargar las preguntas del banco: " + error.message);
+            const errorMessage = error.context?.details || error.message || "Error desconocido al cargar preguntas.";
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false);
         }
@@ -105,10 +108,11 @@ const BancoPreguntasPanel = ({ materiaId = null, modoSeleccion = false, onSelecc
                 // setLoading(true); // O un spinner específico
                 const { error } = await supabase.from('banco_preguntas').delete().eq('id', pregunta.id);
                 if (error) throw error;
-                alert("Pregunta eliminada del banco.");
+                showNotification("Pregunta eliminada del banco.", 'success');
                 fetchPreguntasBanco(); // Recargar lista
             } catch (error) {
-                alert("Error al eliminar la pregunta: " + error.message);
+                const errorMessage = error.context?.details || error.message || "Error desconocido al eliminar.";
+                showNotification(errorMessage, 'error');
                 // setLoading(false);
             }
         }

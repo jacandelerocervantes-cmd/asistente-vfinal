@@ -59,10 +59,18 @@ function doPost(e) {
         return crearRespuestaExitosa({ message: handleLogAsistencia(payload) });
       case 'cerrar_unidad': // Para generar resumen de asistencia y proteger hoja
         return crearRespuestaExitosa({ message: handleCerrarUnidadAsistencia(payload) }); // Renombrada para claridad
+      
+      // --- INICIO FASE 1: ACCIONES PARA MATERIAL DIDÁCTICO ---
+      case 'get_folder_contents': // (Esta función está en DataExtraction.js)
+        return crearRespuestaExitosa({ archivos: handleGetFolderContents(payload) });
+      case 'create_folder':
+        return crearRespuestaExitosa(handleCreateFolder(payload));
+      case 'upload_file':
+        return crearRespuestaExitosa(handleUploadFile(payload));
+      // --- FIN FASE 1 ---
+        
       case 'get_multiple_file_contents':
         return crearRespuestaExitosa({ contenidos: handleGetMultipleFileContents(payload) });
-      case 'get_folder_contents':
-        return crearRespuestaExitosa({ archivos: handleGetFolderContents(payload) });
       case 'get_rubric_text':
         return crearRespuestaExitosa(handleGetRubricText(payload));
       case 'get_rubric_data':
@@ -126,7 +134,79 @@ function crearRespuestaError(message) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-// AÑADE ESTA NUEVA FUNCIÓN AL FINAL DE TU code.js
+// ==========================================================================================
+// INICIO FASE 1: NUEVAS FUNCIONES PARA MATERIAL DIDÁCTICO
+// ==========================================================================================
+
+/**
+ * Crea una nueva carpeta (Tema o Subtema) dentro de una carpeta padre.
+ * @param {object} payload Datos { parentFolderId, newFolderName }
+ * @return {object} { id, name } de la carpeta creada.
+ */
+function handleCreateFolder(payload) {
+  Logger.log("Iniciando handleCreateFolder...");
+  const { parentFolderId, newFolderName } = payload;
+  if (!parentFolderId || !newFolderName) {
+    throw new Error("Faltan 'parentFolderId' o 'newFolderName'.");
+  }
+
+  try {
+    const parentFolder = DriveApp.getFolderById(parentFolderId);
+    const newFolder = parentFolder.createFolder(newFolderName);
+    Logger.log(`Carpeta "${newFolderName}" creada con ID ${newFolder.getId()} dentro de ${parentFolderId}.`);
+    return { id: newFolder.getId(), name: newFolder.getName() };
+  } catch (e) {
+    Logger.log(`Error en handleCreateFolder: ${e.message}`);
+    throw new Error(`No se pudo crear la carpeta: ${e.message}`);
+  }
+}
+
+/**
+ * Sube un archivo (convertido de Base64) a una carpeta destino.
+ * @param {object} payload Datos { targetFolderId, fileName, mimeType, base64Data }
+ * @return {object} { id, name } del archivo subido.
+ */
+function handleUploadFile(payload) {
+  Logger.log("Iniciando handleUploadFile...");
+  const { targetFolderId, fileName, mimeType, base64Data } = payload;
+  if (!targetFolderId || !fileName || !mimeType || !base64Data) {
+    throw new Error("Faltan datos para subir el archivo (targetFolderId, fileName, mimeType, base64Data).");
+  }
+
+  try {
+    const targetFolder = DriveApp.getFolderById(targetFolderId);
+    
+    // Decodificar el string Base64.
+    // El string de DataURL (ej. 'data:application/pdf;base64,JVBER...')
+    // debe ser limpiado para obtener solo los datos Base64.
+    const splitData = base64Data.split(',');
+    let decodedData;
+    if (splitData.length > 1) {
+      decodedData = Utilities.base64Decode(splitData[1]);
+    } else {
+      // Asumir que ya venía limpio
+      decodedData = Utilities.base64Decode(base64Data);
+    }
+    
+    // Crear el blob y el archivo
+    const blob = Utilities.newBlob(decodedData, mimeType, fileName);
+    const file = targetFolder.createFile(blob);
+    
+    Logger.log(`Archivo "${fileName}" (MIME: ${mimeType}) subido con ID ${file.getId()} a la carpeta ${targetFolderId}.`);
+    return { id: file.getId(), name: file.getName() };
+  } catch (e) {
+    Logger.log(`Error en handleUploadFile: ${e.message}`);
+    // Error común: Payload demasiado grande (límite de ~50MB para UrlFetch)
+    if (e.message.includes("request size") || e.message.includes("Request payload size")) {
+        throw new Error("El archivo es demasiado grande para ser subido por este método (Límite ~50MB).");
+    }
+    throw new Error(`No se pudo subir el archivo: ${e.message}`);
+  }
+}
+
+// ==========================================================================================
+// FIN FASE 1
+// ==========================================================================================
 
 /**
  * Crea la estructura para UNA SOLA materia, incluyendo poblado de listas.
@@ -160,39 +240,8 @@ function handleCreateMateriaStruct(payload) {
   }
 
   // --- Procesar esta única materia ---
-  const nombreCarpetaMateria = `${materia.nombre} - ${materia.semestre}`;
-  const carpetaMateria = getOrCreateFolder(carpetaDocente, nombreCarpetaMateria);
-
-  const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
-  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
-  getOrCreateFolder(carpetaMateria, "Evaluaciones");
-  getOrCreateFolder(carpetaMateria, "Material Didáctico");
-
-  const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
-  if (numeroDeUnidades > 0) {
-    for (let i = 1; i <= numeroDeUnidades; i++) {
-      const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${i}`);
-      getOrCreateSheet(carpetaUnidad, `Resumen Calificaciones - Unidad ${i}`);
-      getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
-    }
-  }
-
-  const alumnosDeMateria = Array.isArray(materia.alumnos) ? materia.alumnos : [];
-  Logger.log(`Materia ID ${materia.id} tiene ${alumnosDeMateria.length} alumnos.`);
-
-  // ¡AQUÍ ESTÁ LA DIFERENCIA! Llamamos a las funciones que pueblan las listas
-  crearListaDeAlumnosSheet(carpetaAsistencia, alumnosDeMateria);
-  const sheetAsistencia = crearAsistenciasSheet(carpetaAsistencia, alumnosDeMateria, numeroDeUnidades);
-
-  const sheetRubricas = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_MAESTRO_RUBRICAS);
-  const sheetPlagio = getOrCreateSheet(carpetaActividades, NOMBRE_SHEET_PLAGIO);
-
-  const results = {
-    drive_url: carpetaMateria.getUrl(),
-    rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
-    plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
-    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
-  };
+  // MODIFICADO: Llamar a la función privada que ahora devuelve más IDs
+  const results = _crearEstructuraParaMateria_(carpetaDocente, materia);
 
   const endTime = new Date().getTime();
   Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);

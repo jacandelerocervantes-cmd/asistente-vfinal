@@ -1,6 +1,7 @@
 // src/components/materia_panel/ActividadForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useNotification } from '../../context/NotificationContext'; // <-- 1. IMPORTAR EL HOOK
 
 const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
     const [nombre, setNombre] = useState('');
@@ -11,6 +12,8 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
     const [loading, setLoading] = useState(false);
     const [loadingRubric, setLoadingRubric] = useState(false);
     const isEditing = Boolean(actividadToEdit);
+    
+    const { showNotification } = useNotification(); // <-- 2. OBTENER LA FUNCIÓN
 
     // useEffect para cargar todos los datos de la actividad en modo edición
     useEffect(() => {
@@ -30,14 +33,13 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
                 if (data.criterios && data.criterios.length > 0) {
                     setCriterios(data.criterios);
                 }
-            }).catch(error => {
-                alert("Error al cargar los detalles de la actividad: " + error.message);
+            }).catch(error => { (errorMessage, 'error');
+                // alert("Error al cargar los detalles de la actividad: " + error.message); // <-- REEMPLAZADO
             }).finally(() => {
                 setLoading(false);
             });
         }
-    }, [actividadToEdit, isEditing]);
-
+    }, [actividadToEdit, isEditing, showNotification]); // <-- Añadir showNotification a dependencias
 
     const handleCriterioChange = (index, field, value) => {
         const nuevosCriterios = [...criterios];
@@ -60,8 +62,9 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
 
     const handleSuggestRubric = async () => {
         if (!descripcion) {
-            alert("Por favor, escribe una descripción de la actividad para que la IA pueda generar una rúbrica.");
-            return;
+            // --- 3. REFACTORIZAR ERROR ---
+            showNotification("Escribe una descripción para generar la rúbrica.", 'warning');
+            // alert("Por f
         }
         setLoadingRubric(true);
         try {
@@ -73,28 +76,30 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
 
             if (data.criterios && data.criterios.length > 0) {
                 setCriterios(data.criterios);
+                showNotification("Rúbrica generada con éxito.", 'success'); // <-- Éxito
             } else {
-                alert("La IA no pudo generar una rúbrica válida. Inténtalo de nuevo.");
+                showNotification("La IA no pudo generar una rúbrica válida.", 'warning');
+                // alert("La IA no pudo generar..."); // <-- REEMPLAZADO
             }
 
-        } catch (error) {
-            alert("Error al generar la rúbrica con IA: " + error.message);
+            const errorMessage = error.context?.details || error.message || "Error al generar la rúbrica.";
+            showNotification(errorMessage, 'error');
+            // alert("Error al generar la rúbrica con IA: " + error.message); // <-- REEMPLAZADO
         } finally {
-            setLoadingRubric(false);
-        }
-    };
+            setLoadingRub 
 
     const totalPuntos = criterios.reduce((sum, crit) => sum + (Number(crit.puntos) || 0), 0);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (totalPuntos !== 100) {
-            alert(`La suma de los puntos de la rúbrica debe ser exactamente 100. Actualmente suma: ${totalPuntos}.`);
+            // --- 3. REFACTORIZAR ERROR ---
+            showNotification(`La suma debe ser 100. Actualmente es: ${totalPuntos}.`, 'error');
+            // alert(`La suma de los puntos...`); // <-- REEMPLAZADO
             return;
         }
         setLoading(true);
         try {
-            const functionName = isEditing ? 'actualizar-actividad' : 'crear-actividad';
             
             const payload = {
                 materia_id: materia.id,
@@ -116,18 +121,18 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
 
             if (error) throw error;
 
-            alert(data.message);
+            showNotification(data.message, 'success'); // <-- 4. REFACTORIZAR ÉXITO
+            // alert(data.message); // <-- REEMPLAZADO
             onSave(data.actividad);
 
-        } catch (error) {
-            alert(`Error al ${isEditing ? 'actualizar' : 'crear'} la actividad: ${error.message}`);
-        } finally {
-            setLoading(false);
+        } catch (error) { // --- 3. REFACTORIZAR ERROR (Estándar) ---
+            const errorMessage = error.context?.details || error.message || "Error al guardar la actividad.";
+            showNotification(errorMessage, 'error');
+            // alert(`Error al ${isEditing ? 'actualizar' : 'crear'}...`); // <-- REEMPLAZADO
+        } fietLoading(false);
         }
     };
 
-    // Muestra un mensaje de carga específico mientras se obtienen los datos para editar
-    if (loading && isEditing) {
         return <p>Cargando datos de la actividad...</p>;
     }
 

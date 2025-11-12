@@ -573,3 +573,36 @@ entrypoint = "./functions/sync-asistencia-from-sheets/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/sync-asistencia-from-sheets/*.html" ]
+
+[functions.material-get-contents]
+enabled = true
+verify_jwt = true
+import_map = "./functions/material-get-contents/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/material-get-contents/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/material-get-contents/*.html" ]
+
+[functions.material-create-folder]
+enabled = true
+verify_jwt = true
+import_map = "./functions/material-create-folder/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/material-create-folder/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/material-create-folder/*.html" ]
+
+[functions.material-upload-file]
+enabled = true
+verify_jwt = true
+import_map = "./functions/material-upload-file/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/material-upload-file/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/material-upload-file/*.html" ]

@@ -1,5 +1,6 @@
 // src/components/banco_preguntas/PreguntaBancoForm.jsx
 import React, { useState, useEffect } from 'react';
+import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../supabaseClient';
 // No es necesario importar ConfigSopaLetras/ConfigCrucigrama si están definidos abajo
 // Asegúrate de importar el CSS si lo tienes
@@ -182,6 +183,7 @@ const PreguntaBancoForm = ({ preguntaToEdit, materiasDocente, onSave, onCancel }
 
     const [loading, setLoading] = useState(false); // Estado de carga para el envío
     const isEditing = Boolean(preguntaToEdit); // Determina si estamos editando o creando
+    const { showNotification } = useNotification(); // Hook de notificaciones
 
     // Efecto para cargar datos cuando 'preguntaToEdit' cambia (modo edición)
     useEffect(() => {
@@ -409,12 +411,13 @@ const PreguntaBancoForm = ({ preguntaToEdit, materiasDocente, onSave, onCancel }
                 await supabase.from('banco_opciones').delete().eq('banco_pregunta_id', savedPreguntaId);
             }
 
-            alert(`Pregunta ${isEditing ? 'actualizada' : 'añadida'} al banco.`);
+            showNotification(`Pregunta ${isEditing ? 'actualizada' : 'añadida'} al banco.`, 'success');
             onSave();
 
         } catch (error) {
             console.error("Error guardando pregunta en el banco:", error);
-            alert("Error al guardar: " + (error instanceof Error ? error.message : String(error)));
+            const errorMessage = error.context?.details || error.message || "Error desconocido al guardar la pregunta.";
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false); // Desbloquear UI
         }

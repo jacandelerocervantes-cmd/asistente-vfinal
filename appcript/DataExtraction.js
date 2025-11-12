@@ -128,6 +128,15 @@ function handleGetStudentWorkText(payload) {
     // ÚLTIMO RECURSO: Intentar OCR en cualquier otra cosa (ej. imágenes)
     else {
       Logger.log(`Tipo MIME ${mimeType} no soportado directamente. Intentando OCR como último recurso...`);
+      // --- INICIO BLOQUE MANEJO REVISIÓN MANUAL ---
+      // Si es un tipo de archivo que definitivamente no es texto (imagen, video, zip)
+      if (mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType === 'application/zip') {
+          Logger.log(`Archivo ${fileName} (${mimeType}) requiere revisión manual.`);
+          // Devolvemos una estructura especial para que la Edge Function la interprete
+          return { texto_trabajo: null, requiere_revision_manual: true };
+      }
+      // --- FIN BLOQUE ---
+      
       const blob = file.getBlob();
       const resource = { title: `[OCR TEMP fallback] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
       const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
@@ -210,6 +219,10 @@ function handleGetMultipleFileContents(payload) {
   const contenidos = drive_file_ids.map(fileId => {
     try {
       const resultado = handleGetStudentWorkText({ drive_file_id: fileId });
+      // Manejar el caso de revisión manual
+      if (resultado.requiere_revision_manual) {
+           return { fileId: fileId, texto: null, error: "Archivo requiere revisión manual (ej. imagen)." };
+      }
       return { fileId: fileId, texto: resultado.texto_trabajo };
     } catch (e) {
       Logger.log(`Error al leer archivo ${fileId} en handleGetMultipleFileContents: ${e.message}`);
@@ -224,14 +237,15 @@ function handleGetMultipleFileContents(payload) {
 
 /**
  * Lista los archivos dentro de una carpeta de Google Drive.
+ * Lista las carpetas y archivos dentro de una carpeta de Google Drive.
  * @param {object} payload Datos {drive_folder_id}.
- * @return {object} Objeto con la clave 'archivos' (array de {id, nombre}).
+ * @return {object} Objeto con claves 'folders' y 'files' (arrays de {id, name, webViewLink, iconLink}).
  */
 function handleGetFolderContents(payload) {
   Logger.log(`Iniciando handleGetFolderContents para folder ID ${payload.drive_folder_id}...`);
   const { drive_folder_id } = payload;
   if (!drive_folder_id) {
-    throw new Error("Se requiere el 'drive_folder_id' para listar los archivos.");
+    throw new Error("Se requiere el 'drive_folder_id' para listar el contenido.");
   }
 
   let carpeta;
@@ -241,20 +255,45 @@ function handleGetFolderContents(payload) {
     throw new Error(`No se pudo encontrar o acceder a la carpeta con ID '${drive_folder_id}'. Verifica el ID y los permisos. Error: ${e.message}`);
   }
 
-  const archivos = carpeta.getFiles();
-  const listaArchivos = [];
-  let count = 0;
-  while (archivos.hasNext()) {
-    const archivo = archivos.next();
-    listaArchivos.push({ id: archivo.getId(), nombre: archivo.getName() });
-    count++;
+  const listaFolders = [];
+  const folders = carpeta.getFolders();
+  while (folders.hasNext()) {
+    const folder = folders.next();
+    listaFolders.push({
+      id: folder.getId(),
+      name: folder.getName(),
+      type: 'folder'
+    });
   }
-  Logger.log(`Encontrados ${count} archivos en la carpeta "${carpeta.getName()}".`);
-  return listaArchivos;
+
+  const listaFiles = [];
+  const files = carpeta.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    let fileDetails = {};
+    try {
+      fileDetails = Drive.Files.get(file.getId(), { fields: 'webViewLink, iconLink, mimeType' });
+    } catch (e) {
+      Logger.log(`No se pudo obtener metadatos extra para ${file.getName()}: ${e.message}`);
+    }
+
+    listaFiles.push({
+      id: file.getId(),
+      name: file.getName(),
+      type: 'file',
+      mimeType: fileDetails.mimeType || file.getMimeType(),
+      webViewLink: fileDetails.webViewLink || file.getUrl(), // webViewLink es mejor para abrir
+      iconLink: fileDetails.iconLink || null // Link al ícono del tipo de archivo
+    });
+  }
+
+  Logger.log(`Encontrados ${listaFolders.length} carpetas y ${listaFiles.length} archivos en "${carpeta.getName()}".`);
+  return { folders: listaFolders, files: listaFiles };
 }
 
 /**
  * Lee todos los datos de asistencia de la hoja de cálculo de una materia.
+ * (Función duplicada de SheetsAsistencia.js, revisar si se puede unificar)
  * @param {object} payload Datos { calificaciones_spreadsheet_id }.
  * @return {object} Objeto con la clave 'asistencias' (array de objetos).
  */
@@ -291,7 +330,7 @@ function handleLeerDatosAsistencia(payload) {
       if (!matricula) continue; // Omitir filas sin matrícula
 
       // Iterar sobre las columnas de asistencia (a partir de la columna después de "Alumno")
-      for (let j = matriculaIndex + 2; j < headers.length; j++) {
+      for (let j = matriculaIndex + 1; j < headers.length; j++) {
         const header = headers[j]; // Ej: "U1-S1"
         const [unidad, sesion] = header.replace('U', '').split('-S');
         const fecha = row[j]; // La celda contiene la fecha de la asistencia

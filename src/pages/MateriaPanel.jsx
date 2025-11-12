@@ -1,11 +1,12 @@
 // src/pages/MateriaPanel.jsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'; // <-- Se importa useSearchParams
 import { supabase } from '../supabaseClient';
 import Asistencia from '../components/materia_panel/Asistencia';
 import Alumnos from '../components/materia_panel/Alumnos';
 import Actividades from '../components/materia_panel/Actividades';
 import Evaluaciones from '../components/materia_panel/Evaluaciones';
+import MaterialDidactico from '../components/materia_panel/MaterialDidactico'; // <-- Importado
 import BancoPreguntasPanel from '../components/banco_preguntas/BancoPreguntasPanel';
 import { FaArrowLeft } from 'react-icons/fa';
 import './MateriaPanel.css';
@@ -13,8 +14,12 @@ import './MateriaPanel.css';
 const MateriaPanel = ({ session }) => {
     const { id } = useParams();
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams(); // <-- Añadido
     const [materia, setMateria] = useState(null);
-    const [activeTab, setActiveTab] = useState('alumnos'); // Iniciar en Alumnos
+    
+    // Leer la pestaña de la URL o usar 'alumnos' por defecto
+    const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'alumnos'); // <-- Modificado
+    
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -54,6 +59,12 @@ const MateriaPanel = ({ session }) => {
         fetchMateria();
     }, [materiaIdNumerico]); // Depender del ID numérico
 
+    // Función para cambiar de pestaña y actualizar la URL
+    const handleSetTab = (tabName) => {
+        setActiveTab(tabName);
+        setSearchParams({ tab: tabName }); // Actualizar el parámetro 'tab' en la URL
+    };
+
     // (Función handleDeleteMateria si la necesitas)
 
     if (loading) return <div className="container">Cargando...</div>;
@@ -73,20 +84,24 @@ const MateriaPanel = ({ session }) => {
 
             <h2 style={{marginTop: '0.5rem'}}>{materia.nombre} <span className="materia-semestre">({materia.semestre})</span></h2>
 
+            {/* --- Pestañas Actualizadas --- */}
             <div className="tabs">
-                <button className={`tab-button ${activeTab === 'alumnos' ? 'active' : ''}`} onClick={() => setActiveTab('alumnos')}>Alumnos </button>
-                <button className={`tab-button ${activeTab === 'asistencia' ? 'active' : ''}`} onClick={() => setActiveTab('asistencia')}>Asistencia</button>
-                <button className={`tab-button ${activeTab === 'actividades' ? 'active' : ''}`} onClick={() => setActiveTab('actividades')}>Actividades</button>
-                <button className={`tab-button ${activeTab === 'evaluaciones' ? 'active' : ''}`} onClick={() => setActiveTab('evaluaciones')}>Evaluaciones</button>
+                <button className={`tab-button ${activeTab === 'alumnos' ? 'active' : ''}`} onClick={() => handleSetTab('alumnos')}>Alumnos</button>
+                <button className={`tab-button ${activeTab === 'asistencia' ? 'active' : ''}`} onClick={() => handleSetTab('asistencia')}>Asistencia</button>
+                <button className={`tab-button ${activeTab === 'actividades' ? 'active' : ''}`} onClick={() => handleSetTab('actividades')}>Actividades</button>
+                <button className={`tab-button ${activeTab === 'evaluaciones' ? 'active' : ''}`} onClick={() => handleSetTab('evaluaciones')}>Evaluaciones</button>
+                <button className={`tab-button ${activeTab === 'material' ? 'active' : ''}`} onClick={() => handleSetTab('material')}>Material Didáctico</button>
+                {/* La pestaña 'Calificaciones' ha sido eliminada */}
             </div>
 
+            {/* --- Contenido de Pestañas Actualizado --- */}
             <div className="tab-content">
-                {/* --- CORRECCIÓN: Pasar ID numérico a todas las pestañas --- */}
-                {activeTab === 'asistencia' && <Asistencia materiaId={materiaIdNumerico} nombreMateria={materia.nombre} materia={materia} />}
                 {activeTab === 'alumnos' && <Alumnos materiaId={materiaIdNumerico} nombreMateria={materia.nombre} />}
+                {activeTab === 'asistencia' && <Asistencia materiaId={materiaIdNumerico} nombreMateria={materia.nombre} materia={materia} />}
                 {activeTab === 'actividades' && <Actividades materiaId={materiaIdNumerico} nombreMateria={materia.nombre} />}
                 {activeTab === 'evaluaciones' && <Evaluaciones materia={materia} />}
-                {/* --- FIN CORRECCIÓN --- */}
+                {activeTab === 'material' && <MaterialDidactico materia={materia} />}
+                {/* El renderizado de 'CalificacionesGlobales' ha sido eliminado */}
             </div>
         </div>
     );

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import * as qrCodeLib from 'qrcode.react';
+import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../supabaseClient';
 import './Asistencia.css';
 
@@ -22,6 +23,7 @@ const Asistencia = () => {
     const [unidadesCerradas, setUnidadesCerradas] = useState(new Set());
     const [isSyncing, setIsSyncing] = useState(false); // <-- AÑADIR ESTADO
 
+    const { showNotification } = useNotification();
     const channelRef = useRef(null);
 
     useEffect(() => {
@@ -57,7 +59,8 @@ const Asistencia = () => {
 
             } catch (error) {
                 console.error("Error cargando datos iniciales:", error);
-                alert("No se pudieron cargar los datos de la materia.");
+                const errorMessage = error.context?.details || error.message || "Error desconocido al cargar datos.";
+                showNotification(errorMessage, 'error');
             } finally {
                 setLoading(false);
             }
@@ -143,7 +146,7 @@ const Asistencia = () => {
             const interval = setInterval(() => setTimer(t => t - 1), 1000);
             return () => clearInterval(interval);
         } else if (timer === 0 && sesionActiva) {
-            alert("El tiempo para el registro ha terminado.");
+            showNotification("El tiempo para el registro ha terminado.", 'info');
             setSesionActiva(false);
         }
     }, [sesionActiva, timer]);
@@ -180,7 +183,8 @@ const Asistencia = () => {
 
         } catch (error) {
             console.error("Error al generar la sesión de QR:", error);
-            alert("No se pudo iniciar la sesión de asistencia. Inténtalo de nuevo.");
+            const errorMessage = error.context?.details || error.message || "No se pudo iniciar la sesión.";
+            showNotification(errorMessage, 'error');
         }
     };
 
@@ -202,7 +206,7 @@ const Asistencia = () => {
             if (error) throw error;
             
             // data = { message: "...", insertados: X, actualizados: Y, omitidos: Z }
-            alert(`${data.message}\nInsertados: ${data.insertados}\nActualizados: ${data.actualizados}\nOmitidos: ${data.omitidos_matricula_no_encontrada}`);
+            showNotification(`${data.message} (I: ${data.insertados}, A: ${data.actualizados}, O: ${data.omitidos_matricula_no_encontrada})`, 'success');
             
             // Forzar recarga de los datos de asistencia en la vista actual (si hay una sesión activa)
             if (sesionActiva) {
@@ -221,7 +225,8 @@ const Asistencia = () => {
             }
 
         } catch (error) {
-            alert("Error al sincronizar: " + error.message);
+            const errorMessage = error.context?.details || error.message || "Error desconocido al sincronizar.";
+            showNotification(errorMessage, 'error');
         } finally {
             setIsSyncing(false);
         }
@@ -235,7 +240,7 @@ const Asistencia = () => {
                 body: { materia_id: parseInt(materia_id, 10), unidad: parseInt(unidad, 10), sesion: parseInt(sesion, 10) }
             });
             if (error) throw error;
-            alert("Sesión cerrada y datos procesados.");
+            showNotification("Sesión cerrada y datos procesados.", 'success');
             setSesionesCerradasHoy(prev => {
                 const newSet = new Set(prev);
                 newSet.add(`${unidad}-${sesion}`);
@@ -243,7 +248,8 @@ const Asistencia = () => {
             });
             handleCancelar();
         } catch (error) {
-            alert("Error al cerrar la sesión: " + error.message);
+            const errorMessage = error.context?.details || error.message || "Error desconocido al cerrar sesión.";
+            showNotification(errorMessage, 'error');
         }
     };
 
@@ -256,10 +262,11 @@ const Asistencia = () => {
             if (error) throw error;
             
             setUnidadesCerradas(prev => new Set(prev).add(parseInt(unidad, 10)));
-            alert(`Unidad ${unidad} cerrada y reporte enviado a Google Sheets.`);
+            showNotification(`Unidad ${unidad} cerrada y reporte enviado a Google Sheets.`, 'success');
 
         } catch (error) {
-            alert("Error al cerrar la unidad: " + error.message);
+            const errorMessage = error.context?.details || error.message || "Error desconocido al cerrar la unidad.";
+            showNotification(errorMessage, 'error');
         }
     };
 
@@ -285,7 +292,8 @@ const Asistencia = () => {
         
         if (error) {
             console.error("Error en asistencia manual:", error);
-            alert("Error al registrar manualmente: " + error.message);
+            const errorMessage = error.context?.details || error.message || "Error al registrar manualmente.";
+            showNotification(errorMessage, 'error');
             
             const mapaRevertido = new Map(asistenciasHoy);
             mapaRevertido.set(alumno_id, presenteActual);

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
+import { useNotification } from '../context/NotificationContext';
 import PlagioReportModal from '../components/materia_panel/PlagioReportModal';
 import JustificacionModal from '../components/materia_panel/JustificacionModal';
 import './CalificacionPanel.css';
@@ -27,6 +28,7 @@ const CalificacionPanel = () => {
     const [fileIdToNameMap, setFileIdToNameMap] = useState(new Map());
     const [itemsSiendoProcesados, setItemsSiendoProcesados] = useState(new Set());
 
+    const { showNotification } = useNotification();
     const fetchData = useCallback(async () => {
         // setLoading(true); // Evitar setLoading en cada re-fetch
         try {
@@ -182,7 +184,8 @@ const CalificacionPanel = () => {
 
         } catch (error) {
             console.error("Error cargando datos:", error);
-            alert("Error al cargar los datos: " + (error instanceof Error ? error.message : String(error)));
+            const errorMessage = error.context?.details || error.message || "Error desconocido al cargar datos.";
+            showNotification(errorMessage, 'error');
         } finally {
             setLoading(false);
         }
@@ -333,13 +336,14 @@ const CalificacionPanel = () => {
             if (error) throw error;
 
             // La respuesta ahora es solo una confirmación. El resultado se verá en la hoja de cálculo.
-            alert(data.message || "La comprobación de plagio ha sido iniciada. El reporte se generará en segundo plano.");
+            showNotification(data.message || "La comprobación de plagio ha sido iniciada. El reporte se generará en segundo plano.", 'info');
             // Ya no se muestra el modal directamente, el usuario debe ir a la hoja de cálculo.
             // setPlagioReportData(Array.isArray(data?.reporte_plagio) ? data.reporte_plagio : []); 
             // setShowPlagioReport(true);
         } catch (error) {
             console.error("Error en handlePlagioCheck:", error);
-            alert("Error al comprobar el plagio: " + (error instanceof Error ? error.message : String(error)));
+            const errorMessage = error.context?.details || error.message || "Error desconocido al comprobar plagio.";
+            showNotification(errorMessage, 'error');
         } finally {
             setIsActionRunning(false); // Desbloquear UI
         }
@@ -379,7 +383,8 @@ const CalificacionPanel = () => {
             // alert(data.message); 
         } catch (error) {
             console.error("Error en handleEvaluarConIA:", error);
-            alert("Error al iniciar la evaluación con IA: " + (error instanceof Error ? error.message : String(error)));
+            const errorMessage = error.context?.details || error.message || "Error al iniciar la evaluación con IA.";
+            showNotification(errorMessage, 'error');
             // --- Rollback en caso de fallo al enviar ---
             setItemsSiendoProcesados(prev => {
                 const newSet = new Set(prev);
@@ -408,11 +413,11 @@ const CalificacionPanel = () => {
     const handleOpenJustificacion = async (entrega, entregable) => { // No usar tipos
         // Validaciones robustas
         if (!entrega || !entrega.justificacion_spreadsheet_id) {
-             alert("Faltan datos de la entrega (ID de Spreadsheet de justificación no encontrado).");
+             showNotification("Faltan datos de la entrega (ID de Spreadsheet de justificación no encontrado).", 'error');
              return;
          }
          if (!entrega.justificacion_sheet_cell) {
-             alert("No se encontró referencia a la justificación.");
+             showNotification("No se encontró referencia a la justificación.", 'error');
              return;
          }
         
@@ -434,7 +439,8 @@ const CalificacionPanel = () => {
 
         } catch (error) {
             console.error("Error en handleOpenJustificacion:", error);
-            alert("Error al cargar la retroalimentación: " + (error instanceof Error ? error.message : String(error)));
+            const errorMessage = error.context?.details || error.message || "Error al cargar la retroalimentación.";
+            showNotification(errorMessage, 'error');
             setShowJustificacion(false);
         } finally {
             setLoadingJustificacion(false);
@@ -448,7 +454,7 @@ const CalificacionPanel = () => {
             const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
             window.open(url, '_blank', 'noopener,noreferrer');
         } else {
-            alert("No se encontró el enlace al archivo de rúbricas.");
+            showNotification("No se encontró el enlace al archivo de rúbricas.", 'error');
         }
     };
     

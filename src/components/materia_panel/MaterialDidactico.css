@@ -1,0 +1,128 @@
+/* src/components/materia_panel/MaterialDidactico.css */
+
+.material-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+/* Formulario de subida y creación */
+.material-form-container {
+  padding: var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: #fdfdfd;
+}
+.material-form-container h3 {
+  color: var(--color-primary);
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+}
+.material-form-container .form-group {
+  margin-bottom: var(--spacing-md);
+}
+.material-form-container .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-lg);
+}
+.upload-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-weight: bold;
+  color: var(--color-primary);
+}
+
+/* Breadcrumbs (migas de pan) */
+.material-breadcrumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: #f9fafb;
+  border-radius: var(--border-radius);
+}
+.breadcrumb-item {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 1rem;
+}
+.breadcrumb-item:hover {
+  text-decoration: underline;
+}
+.breadcrumb-separator {
+  color: #999;
+}
+
+/* Lista de carpetas y archivos */
+.material-list-container {
+  margin-top: var(--spacing-md);
+}
+.material-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.material-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: #fff;
+  transition: box-shadow 0.2s, transform 0.2s;
+  cursor: pointer;
+}
+.material-item:hover {
+  box-shadow: var(--shadow-light);
+  transform: translateY(-2px);
+}
+
+.material-item.folder {
+  border-left: 5px solid #f0ad4e; /* Amarillo/Naranja para carpetas */
+}
+.material-item.file {
+  border-left: 5px solid #5bc0de; /* Azul claro para archivos */
+}
+
+.material-item-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+.material-item-icon.folder { color: #f0ad4e; }
+.material-item-icon.file { color: #5bc0de; }
+.material-item-icon img { /* Para el ícono de Google */
+  width: 24px;
+  height: 24px;
+  vertical-align: middle;
+}
+
+.material-item-name {
+  font-weight: 500;
+  word-break: break-all; /* Para nombres largos */
+}
+
+.material-empty {
+  text-align: center;
+  color: #777;
+  padding: var(--spacing-xl);
+  grid-column: 1 / -1;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

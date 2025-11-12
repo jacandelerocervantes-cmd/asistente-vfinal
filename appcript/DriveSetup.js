@@ -42,7 +42,7 @@ function handleCreateMateriasBatch(payload) {
         Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
       }
 
-      const results = { drive_urls: {}, rubricas_spreadsheet_ids: {}, plagio_spreadsheet_ids: {}, calificaciones_spreadsheet_ids: {} };
+      const results = { drive_urls: {}, rubricas_spreadsheet_ids: {}, plagio_spreadsheet_ids: {}, calificaciones_spreadsheet_ids: {}, drive_folder_material_ids: {} };
 
       for (const materia of materias) {
           if (!materia || typeof materia !== 'object' || !materia.id || !materia.nombre || !materia.semestre) {
@@ -56,6 +56,7 @@ function handleCreateMateriasBatch(payload) {
           results.rubricas_spreadsheet_ids[materia.id] = materiaResult.rubricas_spreadsheet_id;
           results.plagio_spreadsheet_ids[materia.id] = materiaResult.plagio_spreadsheet_id;
           results.calificaciones_spreadsheet_ids[materia.id] = materiaResult.calificaciones_spreadsheet_id;
+          results.drive_folder_material_ids[materia.id] = materiaResult.drive_folder_material_id;
       }
 
       const endTime = new Date().getTime();
@@ -108,7 +109,7 @@ function handleCreateMateriaStruct(payload) {
   const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
   getOrCreateFolder(carpetaMateria, "Evaluaciones");
-  getOrCreateFolder(carpetaMateria, "Material Didáctico");
+  const carpetaMaterialDidactico = getOrCreateFolder(carpetaMateria, "Material Didáctico");
 
   const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
   if (numeroDeUnidades > 0) {
@@ -133,7 +134,8 @@ function handleCreateMateriaStruct(payload) {
     drive_url: carpetaMateria.getUrl(),
     rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
     plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
-    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
+    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null,
+    drive_folder_material_id: carpetaMaterialDidactico ? carpetaMaterialDidactico.getId() : null
   };
 
   const endTime = new Date().getTime();
@@ -158,7 +160,7 @@ function _crearEstructuraParaMateria_(carpetaDocente, materia) {
   const carpetaAsistencia = getOrCreateFolder(carpetaMateria, "Asistencia");
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
   getOrCreateFolder(carpetaMateria, "Evaluaciones");
-  getOrCreateFolder(carpetaMateria, "Material Didáctico");
+  const carpetaMaterialDidactico = getOrCreateFolder(carpetaMateria, "Material Didáctico");
 
   const numeroDeUnidades = parseInt(materia.unidades, 10) || 0;
   if (numeroDeUnidades > 0) {
@@ -188,7 +190,8 @@ function _crearEstructuraParaMateria_(carpetaDocente, materia) {
     drive_url: carpetaMateria.getUrl(),
     rubricas_spreadsheet_id: sheetRubricas ? sheetRubricas.getId() : null,
     plagio_spreadsheet_id: sheetPlagio ? sheetPlagio.getId() : null,
-    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null
+    calificaciones_spreadsheet_id: sheetAsistencia ? sheetAsistencia.getId() : null,
+    drive_folder_material_id: carpetaMaterialDidactico ? carpetaMaterialDidactico.getId() : null
   };
 }
 

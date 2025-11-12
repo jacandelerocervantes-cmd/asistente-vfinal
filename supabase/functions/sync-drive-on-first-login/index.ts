@@ -94,13 +94,15 @@ serve(async (req: Request) => {
       }
       
       // 5. Actualizar CADA materia en la base de datos CON LOS IDs correctos
-      const { drive_url, rubricas_spreadsheet_id, plagio_spreadsheet_id, calificaciones_spreadsheet_id } = scriptResponse;
+      // MODIFICADO: Añadir drive_folder_material_id
+      const { drive_url, rubricas_spreadsheet_id, plagio_spreadsheet_id, calificaciones_spreadsheet_id, drive_folder_material_id } = scriptResponse;
       
       const { error: updateError } = await supabaseAdmin.from('materias').update({
           drive_url: drive_url,
           rubricas_spreadsheet_id: rubricas_spreadsheet_id,
           plagio_spreadsheet_id: plagio_spreadsheet_id,
-          calificaciones_spreadsheet_id: calificaciones_spreadsheet_id
+          calificaciones_spreadsheet_id: calificaciones_spreadsheet_id,
+          drive_folder_material_id: drive_folder_material_id // <-- CAMPO AÑADIDO
       }).eq('id', materia.id);
 
       if(updateError) {

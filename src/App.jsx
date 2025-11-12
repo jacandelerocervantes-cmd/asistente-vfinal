@@ -9,6 +9,7 @@ import CalificacionPanel from './pages/CalificacionPanel';
 import CalificacionManualPanel from './pages/CalificacionManualPanel'; 
 import RegistroAsistencia from './pages/RegistroAsistencia';
 import { supabase } from './supabaseClient';
+import { NotificationProvider } from './context/NotificationContext'; // <-- 1. IMPORTAR
 
 // --- Componente para Rutas Protegidas de Docente ---
 // Este guardia revisa el estado de Supabase Auth (docenteSession)
@@ -128,38 +129,41 @@ function App() {
   }
 
   return (
-    <Router>
-      {/* Pasamos solo la sesión de docente al Layout (para la UserBar) */}
-      <Layout session={docenteSession}> 
-        <Routes>
-          {/* --- Rutas Públicas (Asistencia por QR y Login de Alumno) --- */}
-          <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
+    // --- 2. ENVOLVER LA APP CON EL PROVIDER ---
+    <NotificationProvider>
+      <Router>
+        {/* Pasamos solo la sesión de docente al Layout (para la UserBar) */}
+        <Layout session={docenteSession}> 
+          <Routes>
+            {/* --- Rutas Públicas (Asistencia por QR y Login de Alumno) --- */}
+            <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
 
-          {/* --- Rutas Privadas Docente (Protegidas por Supabase Auth) --- */}
-           {/* Este guardia (DocenteProtectedRoute) revisa el estado docenteSession */}
-           <Route element={<DocenteProtectedRoute docenteSession={docenteSession} loading={loadingSession} />}>
-                <Route path="/dashboard" element={<MateriasDashboard session={docenteSession} />} />
-                <Route path="/materia/:id" element={<MateriaPanel session={docenteSession} />} />
-                <Route path="/actividad/:id" element={<CalificacionPanel />} />
-                <Route path="/evaluacion/:evaluacionId/calificar" element={<CalificacionManualPanel />} />
-           </Route>
+            {/* --- Rutas Privadas Docente (Protegidas por Supabase Auth) --- */}
+             {/* Este guardia (DocenteProtectedRoute) revisa el estado docenteSession */}
+             <Route element={<DocenteProtectedRoute docenteSession={docenteSession} loading={loadingSession} />}>
+                  <Route path="/dashboard" element={<MateriasDashboard session={docenteSession} />} />
+                  <Route path="/materia/:id" element={<MateriaPanel session={docenteSession} />} />
+                  <Route path="/actividad/:id" element={<CalificacionPanel />} />
+                  <Route path="/evaluacion/:evaluacionId/calificar" element={<CalificacionManualPanel />} />
+             </Route>
 
-          {/* --- Ruta Raíz (Login Docente) --- */}
-          <Route
-            path="/"
-            element={
-              loadingSession ? <div>Cargando...</div> :
-              docenteSession ? <Navigate to="/dashboard" replace /> :
-              <Auth /> // Si no hay sesión de docente, mostrar el login de docente
-            }
-          />
+            {/* --- Ruta Raíz (Login Docente) --- */}
+            <Route
+              path="/"
+              element={
+                loadingSession ? <div>Cargando...</div> :
+                docenteSession ? <Navigate to="/dashboard" replace /> :
+                <Auth /> // Si no hay sesión de docente, mostrar el login de docente
+              }
+            />
 
-          {/* Ruta comodín (404) */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+            {/* Ruta comodín (404) */}
+            <Route path="*" element={<Navigate to="/" replace />} />
 
-        </Routes>
-      </Layout>
-    </Router>
+          </Routes>
+        </Layout>
+      </Router>
+    </NotificationProvider> // <-- 3. CERRAR EL PROVIDER
   );
 }
 
