@@ -22,18 +22,19 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
             supabase.functions.invoke('get-activity-details', {
                 body: { actividad_id: actividadToEdit.id }
             }).then(({ data, error }) => {
-                if (error) {
-                    throw error;
-                }
+                if (error) throw error;
+                
                 // Llena el formulario con los datos obtenidos
                 setNombre(data.nombre);
                 setUnidad(data.unidad);
                 setTipoEntrega(data.tipo_entrega);
-                setDescripcion(data.descripcion || ''); // Usa un string vacío si la descripción es nula
+                setDescripcion(data.descripcion || ''); 
                 if (data.criterios && data.criterios.length > 0) {
                     setCriterios(data.criterios);
                 }
-            }).catch(error => { (errorMessage, 'error');
+            }).catch(error => {
+                const errorMessage = error.context?.details || error.message || "Error al cargar detalles.";
+                showNotification(errorMessage, 'error');
                 // alert("Error al cargar los detalles de la actividad: " + error.message); // <-- REEMPLAZADO
             }).finally(() => {
                 setLoading(false);
@@ -64,7 +65,8 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
         if (!descripcion) {
             // --- 3. REFACTORIZAR ERROR ---
             showNotification("Escribe una descripción para generar la rúbrica.", 'warning');
-            // alert("Por f
+            // alert("Por favor, escribe una descripción..."); // <-- REEMPLAZADO
+            return;
         }
         setLoadingRubric(true);
         try {
@@ -81,12 +83,15 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
                 showNotification("La IA no pudo generar una rúbrica válida.", 'warning');
                 // alert("La IA no pudo generar..."); // <-- REEMPLAZADO
             }
-
+        } catch (error) {
+            // --- 3. REFACTORIZAR ERROR (Estándar) ---
             const errorMessage = error.context?.details || error.message || "Error al generar la rúbrica.";
             showNotification(errorMessage, 'error');
             // alert("Error al generar la rúbrica con IA: " + error.message); // <-- REEMPLAZADO
         } finally {
-            setLoadingRub 
+            setLoadingRubric(false);
+        }
+    };
 
     const totalPuntos = criterios.reduce((sum, crit) => sum + (Number(crit.puntos) || 0), 0);
 
@@ -100,6 +105,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
         }
         setLoading(true);
         try {
+            const functionName = isEditing ? 'actualizar-actividad' : 'crear-actividad';
             
             const payload = {
                 materia_id: materia.id,
@@ -129,10 +135,13 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
             const errorMessage = error.context?.details || error.message || "Error al guardar la actividad.";
             showNotification(errorMessage, 'error');
             // alert(`Error al ${isEditing ? 'actualizar' : 'crear'}...`); // <-- REEMPLAZADO
-        } fietLoading(false);
+        } finally {
+            setLoading(false);
         }
     };
 
+    // ... (return JSX sin cambios) ...
+    if (loading && isEditing) {
         return <p>Cargando datos de la actividad...</p>;
     }
 

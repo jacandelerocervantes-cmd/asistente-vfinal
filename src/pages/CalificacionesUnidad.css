@@ -109,21 +109,3 @@
 .calif-final-curso-container .form-actions {
     justify-content: flex-end;
 }
-
-/* --- ESTILOS AÑADIDOS FASE 5 --- */
-.calif-final-curso-container {
-    border-top: 3px solid var(--color-primary);
-}
-
-.calif-final-curso-container h4 {
-    color: var(--color-primary);
-    margin-bottom: var(--spacing-md);
-}
-
-.calif-final-curso-container p {
-    margin-bottom: var(--spacing-md);
-}
-
-.calif-final-curso-container .form-actions {
-    justify-content: flex-end;
-}
