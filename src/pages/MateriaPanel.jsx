@@ -7,7 +7,7 @@ import Alumnos from '../components/materia_panel/Alumnos';
 import Actividades from '../components/materia_panel/Actividades';
 import Evaluaciones from '../components/materia_panel/Evaluaciones';
 import MaterialDidactico from '../components/materia_panel/MaterialDidactico'; // <-- Importado
-import CalificacionesUnidad from '../components/materia_panel/CalificacionesUnidad'; // <-- AÑADIDO
+import CalificacionesUnidad from './CalificacionesUnidad'; // <-- RUTA CORREGIDA
 import BancoPreguntasPanel from '../components/banco_preguntas/BancoPreguntasPanel';
 import { FaArrowLeft } from 'react-icons/fa';
 import './MateriaPanel.css';
