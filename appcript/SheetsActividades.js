@@ -329,3 +329,60 @@ function getOrCreateSheet(folder, sheetName) {
        throw e;
   }
 }
+
+/**
+ * MANEJA LA ENTREGA DE UN ALUMNO.
+ * Recibe un archivo en Base64 y lo guarda en la carpeta "Entregas"
+ * de la actividad correspondiente.
+ * Nombra el archivo usando el formato: "[MATRICULA] - Nombre Apellido - NombreArchivo.ext"
+ *
+ * @param {object} payload - El objeto con los datos.
+ * @param {string} payload.actividad_drive_folder_id - El ID de la carpeta principal de la actividad.
+ * @param {object} payload.alumno - Objeto con { id, nombre, apellido, matricula }.
+ * @param {string} payload.fileName - El nombre original del archivo.
+ * @param {string} payload.mimeType - El tipo MIME del archivo.
+ * @param {string} payload.base64Data - El contenido del archivo en Base64 (ej. "data:image/png;base64,iVBORw...")
+ * @returns {object} { fileUrl: string, fileId: string } - El enlace para ver el archivo y su ID.
+ */
+function handleEntregaActividad(payload) {
+  const { 
+    actividad_drive_folder_id, 
+    alumno, 
+    fileName, 
+    mimeType, 
+    base64Data 
+  } = payload;
+
+  if (!actividad_drive_folder_id || !alumno || !fileName || !mimeType || !base64Data) {
+    throw new Error("Faltan datos para la entrega: se requiere ID de carpeta, datos del alumno, nombre de archivo, tipo y contenido.");
+  }
+
+  try {
+    const parentFolder = DriveApp.getFolderById(actividad_drive_folder_id);
+    
+    const entregasFolder = getOrCreateFolder(parentFolder, DRIVE_ENTREGAS_FOLDER_NAME);
+
+    const alumnoNombre = `${alumno.nombre || ''} ${alumno.apellido || ''}`.trim();
+    const alumnoMatricula = alumno.matricula || 'SIN_MATRICULA';
+    const newFileName = `[${alumnoMatricula}] - ${alumnoNombre} - ${fileName}`;
+
+    const data = base64Data.split(',')[1];
+    if (!data) {
+      throw new Error("El formato Base64 es inválido. Debe incluir el prefijo (ej. 'data:image/png;base64,').");
+    }
+    const decodedData = Utilities.base64Decode(data);
+    const blob = Utilities.newBlob(decodedData, mimeType, newFileName);
+
+    const file = entregasFolder.createFile(blob);
+    Logger.log(`Archivo entregado: ${newFileName} (ID: ${file.getId()}) en la carpeta ${entregasFolder.getName()}`);
+
+    return {
+      fileUrl: file.getUrl(),
+      fileId: file.getId()
+    };
+
+  } catch (e) {
+    Logger.log(`Error en handleEntregaActividad: ${e.message}`);
+    throw new Error(`Error al procesar la entrega en Google Drive: ${e.message}`);
+  }
+}
