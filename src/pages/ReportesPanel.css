@@ -1,0 +1,94 @@
+/* src/pages/ReportesPanel.css */
+
+.reportes-panel {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.reportes-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+}
+
+.reportes-header h3 {
+    color: var(--color-primary);
+    margin: 0;
+}
+
+.reportes-header .form-group {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: 0; /* Anular margen por defecto de form-group */
+}
+
+.reportes-header .form-group label {
+    font-weight: bold;
+    font-size: 1rem;
+}
+
+.reportes-header select {
+    padding: 8px 12px;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--color-border);
+    font-size: 1rem;
+}
+
+.reportes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--spacing-lg);
+}
+
+.report-kpi {
+    padding: var(--spacing-lg);
+    text-align: center;
+    background-color: #fdfdfd;
+}
+
+.report-kpi h4 {
+    color: var(--color-text-dark);
+    font-size: 1.1rem;
+    margin-bottom: var(--spacing-md);
+}
+
+.report-kpi .kpi-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--color-primary);
+}
+
+.report-chart {
+    /* Ocupa todo el ancho disponible en la cuadrícula */
+    grid-column: 1 / -1; 
+    padding: var(--spacing-lg);
+}
+
+.report-chart h4 {
+    color: var(--color-secondary);
+    text-align: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+/* Asegurar que recharts se vea bien */
+.recharts-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.recharts-tooltip-wrapper {
+    background-color: #fff !important;
+    border: 1px solid var(--color-border) !important;
+    border-radius: var(--border-radius) !important;
+    box-shadow: var(--shadow-light) !important;
+}
+
+.recharts-tooltip-label {
+    color: var(--color-primary) !important;
+    font-weight: bold !important;
+}

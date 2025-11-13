@@ -93,6 +93,12 @@ function doPost(e) {
         return crearRespuestaExitosa(handleGetComponentCountsForUnit(payload));
       case 'calculate_and_save_final_grade':
         return crearRespuestaExitosa(handleCalculateAndSaveFinalGrade(payload));
+      
+      // --- INICIO FASE 9: LECTURA DE REPORTES ---
+      case 'get_final_course_grades':
+        return crearRespuestaExitosa(handleGetFinalCourseGrades(payload));
+      case 'get_final_unit_grades':
+        return crearRespuestaExitosa(handleGetFinalUnitGrades(payload));
       // Las funciones obsoletas se han quitado del switch
       default:
         // Si la acción no coincide con ninguna conocida

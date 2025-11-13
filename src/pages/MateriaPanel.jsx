@@ -8,6 +8,7 @@ import Actividades from '../components/materia_panel/Actividades';
 import Evaluaciones from '../components/materia_panel/Evaluaciones';
 import MaterialDidactico from '../components/materia_panel/MaterialDidactico'; // <-- Importado
 import CalificacionesUnidad from './CalificacionesUnidad'; // <-- RUTA CORREGIDA
+import ReportesPanel from './ReportesPanel'; // <-- 1. IMPORTAR NUEVO COMPONENTE
 import BancoPreguntasPanel from '../components/banco_preguntas/BancoPreguntasPanel';
 import { FaArrowLeft } from 'react-icons/fa';
 import './MateriaPanel.css';
@@ -93,6 +94,8 @@ const MateriaPanel = ({ session }) => {
                 <button className={`tab-button ${activeTab === 'evaluaciones' ? 'active' : ''}`} onClick={() => handleSetTab('evaluaciones')}>Evaluaciones</button>
                 <button className={`tab-button ${activeTab === 'material' ? 'active' : ''}`} onClick={() => handleSetTab('material')}>Material Didáctico</button>
                 <button className={`tab-button ${activeTab === 'calificaciones' ? 'active' : ''}`} onClick={() => handleSetTab('calificaciones')}>Calificaciones</button>
+                {/* --- 2. AÑADIR NUEVA PESTAÑA --- */}
+                <button className={`tab-button ${activeTab === 'reportes' ? 'active' : ''}`} onClick={() => handleSetTab('reportes')}>Reportes</button>
             </div>
 
             {/* --- Contenido de Pestañas Actualizado --- */}
@@ -103,6 +106,8 @@ const MateriaPanel = ({ session }) => {
                 {activeTab === 'evaluaciones' && <Evaluaciones materia={materia} />}
                 {activeTab === 'material' && <MaterialDidactico materia={materia} />}
                 {activeTab === 'calificaciones' && <CalificacionesUnidad materia={materia} />}
+                {/* --- 3. AÑADIR RENDERIZADO DEL NUEVO PANEL --- */}
+                {activeTab === 'reportes' && <ReportesPanel materia={materia} />}
             </div>
         </div>
     );

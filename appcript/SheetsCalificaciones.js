@@ -462,3 +462,99 @@ function handleCalculateAndSaveFinalCourseGrade(payload) {
   
   return { status: "success", message: "Reporte de Calificación Final del Curso generado exitosamente." };
 }
+
+/**
+ * LEE DATOS: Obtiene las calificaciones finales del curso.
+ * Lee la hoja "Calificación Final del CURSO" y devuelve solo la columna de calificaciones.
+ *
+ * @param {object} payload - El payload con { spreadsheetId }.
+ * @returns {object} Un objeto con la clave 'grades' que contiene un array de calificaciones (ej. [95, 88, 72.5])
+ */
+function handleGetFinalCourseGrades(payload) {
+  const { spreadsheetId } = payload;
+  if (!spreadsheetId) {
+    throw new Error("Se requiere el 'spreadsheetId' de calificaciones.");
+  }
+
+  try {
+    const sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName(FINAL_COURSE_GRADE_SHEET_NAME);
+    if (!sheet) {
+      // Si la hoja no existe, es probable que no se haya corrido el reporte.
+      // Devolvemos un array vacío en lugar de un error.
+      Logger.log(`La hoja "${FINAL_COURSE_GRADE_SHEET_NAME}" no existe. Devolviendo vacío.`);
+      return { grades: [] }; 
+    }
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      return { grades: [] }; // Hoja vacía
+    }
+
+    // Encontrar la última columna (la de "CALIFICACIÓN FINAL CURSO")
+    const lastCol = sheet.getLastColumn();
+    
+    // Obtener solo la columna de calificaciones, empezando de la fila 2
+    const gradesRange = sheet.getRange(2, lastCol, lastRow - 1, 1);
+    const gradesValues = gradesRange.getValues();
+
+    // Convertir a array de números
+    const grades = gradesValues
+      .map(row => parseFloat(row[0])) // Convertir a número
+      .filter(grade => !isNaN(grade)); // Filtrar cualquier valor no numérico
+
+    Logger.log(`Se obtuvieron ${grades.length} calificaciones del curso.`);
+    return { grades: grades };
+
+  } catch (error) {
+    Logger.log(`Error en handleGetFinalCourseGrades: ${error.message}`);
+    throw new Error(`Error al leer las calificaciones del curso: ${error.message}`);
+  }
+}
+
+/**
+ * LEE DATOS: Obtiene las calificaciones finales de una unidad específica.
+ * Lee la hoja "Calificación Final - UX" y devuelve la columna de calificaciones.
+ *
+ * @param {object} payload - El payload con { spreadsheetId, unidad }.
+ * @returns {object} Un objeto con la clave 'grades' que contiene un array de calificaciones (ej. [95, 88, 72.5])
+ */
+function handleGetFinalUnitGrades(payload) {
+  const { spreadsheetId, unidad } = payload;
+  if (!spreadsheetId || !unidad) {
+    throw new Error("Se requiere 'spreadsheetId' y 'unidad'.");
+  }
+
+  const sheetName = `${FINAL_UNIT_GRADE_SHEET_PREFIX}${unidad}`;
+
+  try {
+    const sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName(sheetName);
+    if (!sheet) {
+      Logger.log(`La hoja "${sheetName}" no existe. Devolviendo vacío.`);
+      return { grades: [] };
+    }
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 2) {
+      return { grades: [] }; // Hoja vacía
+    }
+
+    // Encontrar la última columna (la de "CALIFICACIÓN FINAL UNIDAD")
+    const lastCol = sheet.getLastColumn();
+
+    // Obtener solo la columna de calificaciones, empezando de la fila 2
+    const gradesRange = sheet.getRange(2, lastCol, lastRow - 1, 1);
+    const gradesValues = gradesRange.getValues();
+
+    // Convertir a array de números
+    const grades = gradesValues
+      .map(row => parseFloat(row[0])) // Convertir a número
+      .filter(grade => !isNaN(grade)); // Filtrar cualquier valor no numérico
+
+    Logger.log(`Se obtuvieron ${grades.length} calificaciones de la unidad ${unidad}.`);
+    return { grades: grades };
+
+  } catch (error) {
+    Logger.log(`Error en handleGetFinalUnitGrades: ${error.message}`);
+    throw new Error(`Error al leer las calificaciones de la unidad ${unidad}: ${error.message}`);
+  }
+}
