@@ -3,16 +3,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { useNotification } from '../context/NotificationContext';
-import './ReportesPanel.css'; // Crearemos este CSS
+import { FaSpinner, FaUsers, FaExclamationTriangle } from 'react-icons/fa'; // Importar iconos
+import './ReportesPanel.css'; 
 
 // --- Función para procesar los datos para el histograma ---
 const processGradesForHistogram = (grades) => {
+    // ... (sin cambios)
     const buckets = {
-        '0-59 (Rep.)': 0,
-        '60-69': 0,
-        '70-79': 0,
-        '80-89': 0,
-        '90-100': 0,
+        '0-59 (Rep.)': 0, '60-69': 0, '70-79': 0, '80-89': 0, '90-100': 0,
     };
     grades.forEach(grade => {
         if (grade < 60) buckets['0-59 (Rep.)']++;
@@ -33,6 +31,50 @@ const processGradesForHistogram = (grades) => {
 // Colores para las gráficas
 const COLORS = ['#e53e3e', '#f6e05e', '#48bb78', '#38a169', '#2f855a'];
 
+// --- NUEVO COMPONENTE: Tabla de Alumnos en Riesgo ---
+const AtRiskTable = ({ students }) => {
+    if (students.length === 0) {
+        return <p>¡Buenas noticias! No se detectaron alumnos en riesgo por el momento.</p>;
+    }
+
+    // Función para formatear el valor de riesgo
+    const formatRiskValue = (reason, value) => {
+        const roundedValue = parseFloat(value).toFixed(1);
+        if (reason === 'Asistencia') {
+            return `${roundedValue}%`;
+        }
+        return `${roundedValue} pts`;
+    };
+
+    return (
+        <div className="table-responsive">
+            <table className="alumnos-table">
+                <thead>
+                    <tr>
+                        <th>Alumno</th>
+                        <th>Razón Principal</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {students.map((student) => (
+                        <tr key={student.alumno_id}>
+                            <td>{student.nombre_completo}</td>
+                            <td>
+                                <span className={`risk-reason ${student.razon_riesgo.toLowerCase()}`}>
+                                    {student.razon_riesgo}
+                                </span>
+                            </td>
+                            <td>{formatRiskValue(student.razon_riesgo, student.valor_riesgo)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+
 const ReportesPanel = ({ materia }) => {
     const [view, setView] = useState('curso'); // 'curso' o 'U1', 'U2', ...
     const [loading, setLoading] = useState(false);
@@ -40,49 +82,44 @@ const ReportesPanel = ({ materia }) => {
     const [gradeData, setGradeData] = useState([]); // Array de notas [95, 88, 72]
     const { showNotification } = useNotification();
 
+    // --- NUEVOS ESTADOS PARA FASE 4 ---
+    const [atRiskStudents, setAtRiskStudents] = useState([]);
+    const [loadingRisk, setLoadingRisk] = useState(false);
+    const [riskError, setRiskError] = useState('');
+    const [riskReportFetched, setRiskReportFetched] = useState(false); // Para saber si ya se buscó
+
     useEffect(() => {
+        // ... (Este useEffect para las gráficas de resumen no cambia)
         const fetchReportData = async () => {
             if (!materia) return;
+            if (!materia.calificaciones_spreadsheet_id) {
+                const errorMsg = "Esta materia no tiene un 'calificaciones_spreadsheet_id' para leer los reportes de resumen.";
+                setError(errorMsg);
+                showNotification(errorMsg, 'error');
+                return;
+            }
             setLoading(true);
             setError('');
             setGradeData([]);
             try {
                 let functionName = '';
                 let body = { 
-                    materia_id: materia.id,
                     sheets_ids: {
                         calificaciones_spreadsheet_id: materia.calificaciones_spreadsheet_id,
                     }
                 };
 
                 if (view === 'curso') {
-                    functionName = 'get-course-statistics'; // <-- Próxima función a crear
+                    functionName = 'get-course-statistics';
                 } else {
-                    functionName = 'get-unit-statistics'; // <-- Próxima función a crear
+                    functionName = 'get-unit-statistics';
                     body.unidad = parseInt(view.replace('U', ''), 10);
                 }
-
-                // --- SIMULACIÓN MIENTRAS CREAS EL BACKEND ---
-                // Simular que estamos llamando a la función
-                await new Promise(res => setTimeout(res, 600)); 
-                // Simular fallo si no tenemos el ID de sheets (necesario para la real)
-                if (!materia.calificaciones_spreadsheet_id) {
-                    throw new Error("La materia no tiene un 'calificaciones_spreadsheet_id' para leer los reportes.");
-                }
-                // Simular datos aleatorios
-                const data = { grades: Array.from({ length: 30 }, () => Math.floor(Math.random() * 50) + 50) }; 
-                showNotification(`Datos de simulación cargados para ${view}. Total: ${data.grades.length} alumnos.`, 'info');
-                // --- FIN SIMULACIÓN ---
-
-                /* --- CÓDIGO REAL (cuando las funciones existan) ---
                 const { data, error: invokeError } = await supabase.functions.invoke(functionName, { body });
                 if (invokeError) throw invokeError;
                 if (!data.grades) throw new Error("La función no devolvió un array de calificaciones.");
                 
                 setGradeData(data.grades || []);
-                */
-
-                setGradeData(data.grades); // <-- Mantener esto de la simulación por ahora
 
             } catch (err) {
                 const errorMessage = err.context?.details || err.message || "Error al cargar estadísticas.";
@@ -94,17 +131,41 @@ const ReportesPanel = ({ materia }) => {
         };
 
         fetchReportData();
-    }, [view, materia, showNotification]); // Añadir showNotification
+    }, [view, materia, showNotification]);
 
-    // Procesamos los datos para la gráfica cada vez que cambian
+    // --- NUEVO HANDLER: Para buscar alumnos en riesgo ---
+    const handleFetchAtRiskStudents = async () => {
+        setLoadingRisk(true);
+        setRiskError('');
+        setRiskReportFetched(true); // Marcamos que ya se intentó buscar
+        try {
+            const { data, error: invokeError } = await supabase.functions.invoke('get-at-risk-students', {
+                body: { materia_id: materia.id }
+            });
+            if (invokeError) throw invokeError;
+            
+            setAtRiskStudents(data.at_risk_students || []);
+            showNotification(`Análisis completado. Se encontraron ${data.at_risk_students.length} alumnos en riesgo.`, 'info');
+
+        } catch (err) {
+            const errorMessage = err.context?.details || err.message || "Error al analizar alumnos en riesgo.";
+            setRiskError(errorMessage);
+            showNotification(errorMessage, 'error');
+        } finally {
+            setLoadingRisk(false);
+        }
+    };
+
+    // --- (useMemo para average, passRate y histogramData no cambian) ---
     const histogramData = useMemo(() => processGradesForHistogram(gradeData), [gradeData]);
     const average = useMemo(() => gradeData.length ? (gradeData.reduce((a, b) => a + b, 0) / gradeData.length).toFixed(1) : 0, [gradeData]);
     const passRate = useMemo(() => gradeData.length ? ((gradeData.filter(g => g >= 60).length / gradeData.length) * 100).toFixed(0) : 0, [gradeData]);
 
     return (
         <div className="reportes-panel">
+            {/* --- SECCIÓN 1: Reporte de Resumen (Gráficas) --- */}
             <div className="reportes-header card">
-                <h3>Reportes de Rendimiento</h3>
+                <h3>Reporte de Resumen (Finales)</h3>
                 <div className="form-group">
                     <label htmlFor="reporte-view">Seleccionar Vista:</label>
                     <select id="reporte-view" value={view} onChange={(e) => setView(e.target.value)}>
@@ -116,7 +177,7 @@ const ReportesPanel = ({ materia }) => {
                 </div>
             </div>
 
-            {loading && <p>Cargando estadísticas...</p>}
+            {loading && <p>Cargando estadísticas de resumen...</p>}
             {error && <p className="error-message">{error}</p>}
             
             {!loading && !error && gradeData.length > 0 && (
@@ -161,6 +222,30 @@ const ReportesPanel = ({ materia }) => {
                     <p>Asegúrate de haber generado el reporte final en la pestaña "Calificaciones" primero.</p>
                 </div>
             )}
+
+            {/* --- SECCIÓN 2: Panel de Alumnos en Riesgo (Nuevo) --- */}
+            <div className="at-risk-panel card">
+                <div className="at-risk-header">
+                    <h3><FaExclamationTriangle /> Panel de Alumnos en Riesgo (Datos Actuales)</h3>
+                    <button 
+                        className="btn-primary" 
+                        onClick={handleFetchAtRiskStudents} 
+                        disabled={loadingRisk}
+                    >
+                        {loadingRisk ? <FaSpinner className="spinner" /> : '🔍 Analizar Grupo Ahora'}
+                    </button>
+                </div>
+                <p className='at-risk-description'>
+                    Esta herramienta analiza los promedios actuales de actividades, evaluaciones y el porcentaje de asistencia de todos los alumnos
+                    para identificar proactivamente a aquellos con riesgo de reprobar (Asistencia &lt; 80% o Promedios &lt; 70).
+                </p>
+
+                {riskError && <p className="error-message">{riskError}</p>}
+
+                {riskReportFetched && !loadingRisk && !riskError && (
+                    <AtRiskTable students={atRiskStudents} />
+                )}
+            </div>
         </div>
     );
 };

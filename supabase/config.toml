@@ -349,7 +349,7 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 [functions.crear-actividad]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/crear-actividad/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/crear-actividad/index.ts"
@@ -360,7 +360,7 @@ entrypoint = "./functions/crear-actividad/index.ts"
 [functions.generar-rubrica-gemini]
 enabled = true
 verify_jwt =false
-import_map = "./deno.json"
+import_map = "./functions/generar-rubrica-gemini/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/generar-rubrica-gemini/index.ts"
@@ -371,7 +371,7 @@ entrypoint = "./functions/generar-rubrica-gemini/index.ts"
 [functions.comprobar-plagio-gemini]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/comprobar-plagio-gemini/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/comprobar-plagio-gemini/index.ts"
@@ -382,7 +382,7 @@ entrypoint = "./functions/comprobar-plagio-gemini/index.ts"
 [functions.iniciar-evaluacion-masiva]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/iniciar-evaluacion-masiva/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/iniciar-evaluacion-masiva/index.ts"
@@ -393,7 +393,7 @@ entrypoint = "./functions/iniciar-evaluacion-masiva/index.ts"
 [functions.obtener-entregas-drive]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/obtener-entregas-drive/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/obtener-entregas-drive/index.ts"
@@ -405,7 +405,7 @@ entrypoint = "./functions/obtener-entregas-drive/index.ts"
 [functions.procesar-cola-evaluacion]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/procesar-cola-evaluacion/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/procesar-cola-evaluacion/index.ts"
@@ -416,7 +416,7 @@ entrypoint = "./functions/procesar-cola-evaluacion/index.ts"
 [functions.generar-evaluacion-gemini]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/generar-evaluacion-gemini/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/generar-evaluacion-gemini/index.ts"
@@ -427,7 +427,7 @@ entrypoint = "./functions/generar-evaluacion-gemini/index.ts"
 [functions.sugerir-calificacion-gemini]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/sugerir-calificacion-gemini/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/sugerir-calificacion-gemini/index.ts"
@@ -438,7 +438,7 @@ entrypoint = "./functions/sugerir-calificacion-gemini/index.ts"
 [functions.sincronizar-evaluacion-sheets]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/sincronizar-evaluacion-sheets/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/sincronizar-evaluacion-sheets/index.ts"
@@ -449,7 +449,7 @@ entrypoint = "./functions/sincronizar-evaluacion-sheets/index.ts"
 [functions.generar-layout-sopa]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/generar-layout-sopa/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/generar-layout-sopa/index.ts"
@@ -460,7 +460,7 @@ entrypoint = "./functions/generar-layout-sopa/index.ts"
 [functions.generar-layout-crucigrama]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/generar-layout-crucigrama/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/generar-layout-crucigrama/index.ts"
@@ -471,7 +471,7 @@ entrypoint = "./functions/generar-layout-crucigrama/index.ts"
 [functions.log-focus-change]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/log-focus-change/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/log-focus-change/index.ts"
@@ -482,7 +482,7 @@ entrypoint = "./functions/log-focus-change/index.ts"
 [functions.crear-usuario-alumno]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/crear-usuario-alumno/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/crear-usuario-alumno/index.ts"
@@ -493,7 +493,7 @@ entrypoint = "./functions/crear-usuario-alumno/index.ts"
 [functions.crear-usuarios-alumnos-batch]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/crear-usuarios-alumnos-batch/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/crear-usuarios-alumnos-batch/index.ts"
@@ -504,14 +504,14 @@ entrypoint = "./functions/crear-usuarios-alumnos-batch/index.ts"
 [functions.sync-drive-on-first-login]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/sync-drive-on-first-login/deno.json"
 entrypoint = "./functions/sync-drive-on-first-login/index.ts"
 
 
 [functions.queue-drive-sync]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/queue-drive-sync/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/queue-drive-sync/index.ts"
@@ -522,7 +522,7 @@ entrypoint = "./functions/queue-drive-sync/index.ts"
 [functions.poll-drive-sync-status]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/poll-drive-sync-status/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/poll-drive-sync-status/index.ts"
@@ -533,7 +533,7 @@ entrypoint = "./functions/poll-drive-sync-status/index.ts"
 [functions.encolar-comprobacion-plagio]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/encolar-comprobacion-plagio/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/encolar-comprobacion-plagio/index.ts"
@@ -544,7 +544,7 @@ entrypoint = "./functions/encolar-comprobacion-plagio/index.ts"
 [functions.procesar-cola-plagio]
 enabled = true
 verify_jwt = false
-import_map = "./deno.json"
+import_map = "./functions/procesar-cola-plagio/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/procesar-cola-plagio/index.ts"
@@ -555,7 +555,7 @@ entrypoint = "./functions/procesar-cola-plagio/index.ts"
 [functions.eliminar-recurso]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/eliminar-recurso/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/eliminar-recurso/index.ts"
@@ -566,7 +566,7 @@ entrypoint = "./functions/eliminar-recurso/index.ts"
 [functions.sync-asistencia-from-sheets]
 enabled = true
 verify_jwt = true
-import_map = "./deno.json"
+import_map = "./functions/sync-asistencia-from-sheets/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/sync-asistencia-from-sheets/index.ts"
@@ -661,3 +661,36 @@ entrypoint = "./functions/get-unit-statistics/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/get-unit-statistics/*.html" ]
+
+[functions.get-student-holistic-report]
+enabled = true
+verify_jwt = true
+import_map = "./functions/get-student-holistic-report/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/get-student-holistic-report/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/get-student-holistic-report/*.html" ]
+
+[functions.get-student-ia-summary]
+enabled = true
+verify_jwt = true
+import_map = "./functions/get-student-ia-summary/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/get-student-ia-summary/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/get-student-ia-summary/*.html" ]
+
+[functions.get-at-risk-students]
+enabled = true
+verify_jwt = true
+import_map = "./functions/get-at-risk-students/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/get-at-risk-students/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/get-at-risk-students/*.html" ]

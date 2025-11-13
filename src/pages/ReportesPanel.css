@@ -92,3 +92,68 @@
     color: var(--color-primary) !important;
     font-weight: bold !important;
 }
+
+/* --- Estilos para Panel de Alumnos en Riesgo (Fase 4) --- */
+
+.at-risk-panel {
+    margin-top: var(--spacing-xl);
+    padding: var(--spacing-lg);
+    border: 2px solid var(--color-warning);
+    background-color: #fffaf0; /* Amarillo muy claro */
+}
+
+.at-risk-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.at-risk-header h3 {
+    color: #c05621; /* Naranja oscuro */
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.at-risk-description {
+    font-size: 0.9rem;
+    color: #714b2b;
+    margin-bottom: var(--spacing-lg);
+    border-bottom: 1px dashed #ddc099;
+    padding-bottom: var(--spacing-lg);
+}
+
+/* Estilos para la tabla de riesgo */
+.at-risk-panel .alumnos-table {
+    width: 100%;
+    margin-top: 0;
+}
+
+.at-risk-panel .alumnos-table th {
+    background-color: #fefcbf; /* Amarillo claro */
+    color: #714b2b;
+}
+
+.risk-reason {
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: var(--border-radius);
+    font-size: 0.9rem;
+}
+
+.risk-reason.asistencia {
+    background-color: #fed7d7; /* Rojo */
+    color: #742a2a;
+}
+.risk-reason.evaluaciones {
+    background-color: #feebc8; /* Naranja */
+    color: #7b341e;
+}
+.risk-reason.actividades {
+    background-color: #fefcbf; /* Amarillo */
+    color: #714b2b;
+}

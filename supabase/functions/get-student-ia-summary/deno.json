@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "std/": "https://deno.land/std@0.168.0/",
+    "@google/generative-ai": "npm:@google/generative-ai@^0.15.0",
+    "../_shared/cors.ts": "../_shared/cors.ts"
+  }
+}

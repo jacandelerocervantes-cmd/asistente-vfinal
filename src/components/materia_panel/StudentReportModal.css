@@ -1,0 +1,151 @@
+/* src/components/materia_panel/StudentReportModal.css */
+
+.report-modal {
+  max-width: 800px; /* Un modal más ancho para las gráficas */
+  width: 95%;
+  max-height: 90vh;
+}
+
+.report-modal .modal-body {
+  padding-top: 0;
+}
+
+.report-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xl);
+  font-size: 1.2rem;
+  color: var(--color-primary);
+}
+
+.report-content .student-name {
+  font-size: 1.5rem;
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-lg);
+  text-align: center;
+}
+
+/* Alerta de Riesgo */
+.report-alert-risk {
+  background-color: #fed7d7; /* Rojo claro */
+  color: #742a2a; /* Rojo oscuro */
+  border: 1px solid #f56565;
+  border-radius: var(--border-radius);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  font-size: 1rem;
+  font-weight: 500;
+}
+.report-alert-risk svg {
+  font-size: 1.2rem;
+}
+
+
+/* KPIs */
+.report-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-lg);
+}
+
+.report-kpi-card {
+  padding: var(--spacing-md);
+  text-align: center;
+  border-radius: var(--border-radius);
+  background-color: #f9fafb;
+  border: 1px solid var(--color-border);
+}
+.report-kpi-card h4 {
+  color: var(--color-text-dark);
+  font-size: 1rem;
+  margin-bottom: var(--spacing-sm);
+}
+.kpi-value {
+  font-size: 2.2rem;
+  font-weight: bold;
+  color: var(--color-primary);
+}
+.kpi-unit {
+  font-size: 1.2rem;
+  margin-left: 4px;
+  color: #777;
+}
+
+/* Alerta de Riesgo en KPI */
+.report-kpi-card.risk {
+  background-color: #fed7d7;
+  border-color: #f56565;
+}
+.report-kpi-card.risk .kpi-value,
+.report-kpi-card.risk h4 {
+  color: #742a2a;
+}
+.report-kpi-card.risk .kpi-unit {
+  color: #9b2c2c;
+}
+
+
+/* Gráficas */
+.report-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.report-chart-container {
+  padding: var(--spacing-md);
+}
+.report-chart-container h5 {
+  text-align: center;
+  color: var(--color-secondary);
+  margin-bottom: var(--spacing-md);
+}
+.report-chart-container p {
+  text-align: center;
+  color: #777;
+  padding: var(--spacing-lg);
+}
+
+/* Resumen IA */
+.report-ia-summary {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: 1px dashed var(--color-border);
+}
+.report-ia-summary button {
+  display: block;
+  margin: 0 auto;
+}
+.ia-recommendations {
+  margin-top: var(--spacing-md);
+  background-color: #ebf8ff; /* Azul claro */
+  border: 1px solid #90cdf4;
+  color: #2c5282;
+  border-radius: var(--border-radius);
+  padding: var(--spacing-md);
+}
+.ia-recommendations h4 {
+  color: #2c5282;
+  margin-bottom: var(--spacing-sm);
+}
+.ia-recommendations pre {
+  white-space: pre-wrap; /* Mantiene los saltos de línea */
+  line-height: 1.6;
+  font-family: inherit; /* Usa la fuente normal de la app */
+  font-size: 0.95rem;
+}
+
+/* Adaptación a móviles */
+@media (max-width: 768px) {
+  .report-charts-grid {
+    grid-template-columns: 1fr; /* Una gráfica encima de la otra */
+  }
+}

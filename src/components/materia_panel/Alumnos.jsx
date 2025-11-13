@@ -374,12 +374,11 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                 <table className="alumnos-table inside-group">
                                     <thead><tr><th>Nombre del Grupo</th><th>Miembros</th><th style={{textAlign: 'right'}}>Acciones</th></tr></thead>
                                     <tbody>
-                                        {grupos.length > 0 ? grupos.map(grupo => { // eslint-disable-next-line no-unused-vars
-                                             // --- CORRECCIÓN: Usar el nuevo 'miembros_count' ---
+                                        {grupos.length > 0 ? grupos.map(grupo => {
                                             return (
                                                 <tr key={grupo.id}>
                                                     <td>{grupo.nombre}</td>
-                                                    <td>{grupo.miembros_count}</td> {/* <-- USAR ESTA PROPIEDAD */}
+                                                    <td>{grupo.miembros_count}</td>
                                                     <td style={{textAlign: 'right'}}>
                                                         <button onClick={() => handleEditGrupo(grupo)} className="btn-secondary btn-small icon-button" title="Editar Nombre"><FaEdit /></button>
                                                         <button onClick={() => handleDeleteGrupo(grupo.id)} className="btn-danger btn-small icon-button" title="Eliminar Grupo" style={{marginLeft:'5px'}}><FaTrash /></button>
@@ -399,9 +398,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                     <div key="lista_alumnos" className="grupo-container card">
                          <div className="grupo-header" onClick={() => toggleSectionExpansion('lista_alumnos')}>
                              <span className='grupo-toggle-icon'>{expandedSections.has('lista_alumnos') ? <FaAngleDown /> : <FaAngleRight />}</span>
-                             {/* Cambiamos el checkbox por el título */}
-                             <h4>Lista de Alumnos ({filteredAlumnos.length})</h4>
-                             {/* El checkbox "Seleccionar Todos" ya está en la barra de acciones masivas */}
+                             <h4>Lista de Alumnos ({alumnos.length})</h4>
                          </div>
                          {expandedSections.has('lista_alumnos') && (
                              <div className='table-responsive'>
@@ -421,6 +418,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                             <th>Apellido</th>
                                             <th>Nombre</th>
                                             <th>Correo</th>
+                                            <th style={{textAlign: 'center'}}>Acceso</th>
                                             <th style={{textAlign: 'right'}}>Acciones</th>
                                         </tr>
                                     </thead>
@@ -434,11 +432,12 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 onEdit={handleEditAlumno}
                                                 onDelete={() => handleDeleteAlumno(alumno.id, alumno.user_id)}
                                                 onCrearAcceso={handleCrearAcceso}
+                                                onShowReport={handleShowReport} // <-- 8. PASAR EL HANDLER
                                                 creatingState={creatingAccountStates[alumno.id]}
-                                                error={error}
+                                                error={error.includes(alumno.email) ? error : null}
                                             />
                                          )) : (
-                                            <tr><td colSpan="8">No hay alumnos {searchTerm ? 'que coincidan con la búsqueda.' : 'en esta materia.'}</td></tr>
+                                            <tr><td colSpan="7">No se encontraron alumnos.</td></tr>
                                          )}
                                      </tbody>
                                  </table>
