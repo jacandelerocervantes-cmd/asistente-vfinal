@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FaEdit, FaTrash, FaArrowRight, FaFileSignature, FaCalendarAlt } from 'react-icons/fa';
 import { supabase } from '../../supabaseClient';
-import ToggleSwitch from '../common/ToggleSwitch.jsx';
+import ToggleSwitch from '../../common/ToggleSwitch.jsx';
 
 const ActividadCard = ({ actividad, onEdit, onDelete }) => {
     const { id, nombre, unidad, tipo_entrega, fecha_limite, esta_activo } = actividad;
