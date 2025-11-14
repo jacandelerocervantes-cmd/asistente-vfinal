@@ -142,37 +142,27 @@ function App() {
     // --- 2. ENVOLVER LA APP CON EL PROVIDER ---
     <NotificationProvider>
       <Router>
-        <Routes>
-          {/* --- Rutas Públicas (no usan el Layout principal) --- */}
-          <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
-          
-          {/* --- Ruta Raíz (Login Docente) --- */}
-          <Route
-            path="/"
-            element={
-              loadingSession ? <div>Cargando...</div> :
-              docenteSession ? <Navigate to="/dashboard" replace /> :
-              <Auth /> // Si no hay sesión, muestra la página de Auth (sin Layout)
-            }
-          />
+        {/* Layout ahora envuelve todas las rutas para un diseño consistente */}
+        <Layout session={docenteSession}>
+          <Routes>
+            {/* --- Rutas Públicas --- */}
+            <Route path="/asistencia/:materia_id/:unidad/:sesion" element={<RegistroAsistencia />} />
 
-          {/* --- Rutas Privadas (Protegidas y dentro del Layout principal) --- */}
-          <Route 
-            element={
-              <Layout session={docenteSession}>
-                <DocenteProtectedRoute docenteSession={docenteSession} loading={loadingSession} />
-              </Layout>
-            }
-          >
-            <Route path="/dashboard" element={<MateriasDashboard session={docenteSession} />} />
-            <Route path="/materia/:id" element={<MateriaPanel session={docenteSession} />} />
-            <Route path="/actividad/:id" element={<CalificacionPanel />} />
-            <Route path="/evaluacion/:evaluacionId/calificar" element={<CalificacionManualPanel />} />
-          </Route>
+            {/* --- Rutas Privadas Docente (Protegidas) --- */}
+            <Route element={<DocenteProtectedRoute docenteSession={docenteSession} loading={loadingSession} />}>
+              <Route path="/dashboard" element={<MateriasDashboard session={docenteSession} />} />
+              <Route path="/materia/:id" element={<MateriaPanel session={docenteSession} />} />
+              <Route path="/actividad/:id" element={<CalificacionPanel />} />
+              <Route path="/evaluacion/:evaluacionId/calificar" element={<CalificacionManualPanel />} />
+            </Route>
 
-          {/* Ruta comodín (404) */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            {/* --- Ruta Raíz (Login Docente) --- */}
+            <Route path="/" element={ loadingSession ? <div>Cargando...</div> : docenteSession ? <Navigate to="/dashboard" replace /> : <Auth /> } />
+
+            {/* Ruta comodín (404) */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
       </Router>
     </NotificationProvider> // <-- 3. CERRAR EL PROVIDER
   );

@@ -19,11 +19,8 @@ serve(async (req: Request) => {
       throw new Error('No se recibió el provider_token desde el cliente.')
     }
 
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    )
-
+    // Inicializa el cliente de Supabase. Las variables de entorno se detectan automáticamente.
+    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization')! } } });
     const userRes = await supabaseAdmin.auth.getUser(
       req.headers.get('Authorization')!.replace('Bearer ', '')
     )

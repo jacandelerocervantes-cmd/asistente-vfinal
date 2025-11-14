@@ -1,15 +1,10 @@
 /* src/pages/Auth.css */
-.auth-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-grow: 1; /* Permite que el contenedor de autenticación ocupe el espacio */
-}
-
 .auth-card {
   width: 100%;
   max-width: 400px; /* Ancho máximo para el formulario */
   text-align: center;
+  margin: auto; /* Centra la tarjeta horizontalmente */
+  padding-top: 2rem; /* Añade espacio superior para separarlo del header */
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg); /* Espacio entre elementos dentro de la tarjeta */

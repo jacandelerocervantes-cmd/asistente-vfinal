@@ -24,23 +24,13 @@ const Auth = () => {
     };
 
     return (
-        <div className="auth-page-container">
-            <div className="auth-container">
-                <div className="auth-card">
-                    <div className="auth-header">
-                        <img src="/images/tecnm_logo.png" alt="TecNM Logo" className="logo tec-logo" />
-                        <h2>Asistente Docente</h2>
-                        <img src="/images/tec_tizimin_logo.png" alt="Tec Tizimín Logo" className="logo it-logo" />
-                    </div>
-                    
-                    <div className="auth-body">
-                        <p>Inicia sesión para continuar</p>
-                        <button onClick={handleGoogleLogin} className="google-login-btn">
-                            <FaGoogle />
-                            Iniciar Sesión con Google
-                        </button>
-                    </div>
-                </div>
+        <div className="auth-card">
+            <div className="auth-body">
+                <p>Inicia sesión para continuar</p>
+                <button onClick={handleGoogleLogin} className="google-login-btn">
+                    <FaGoogle />
+                    Iniciar Sesión con Google
+                </button>
             </div>
         </div>
     );
