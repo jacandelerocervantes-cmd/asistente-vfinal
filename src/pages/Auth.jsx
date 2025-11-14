@@ -1,7 +1,8 @@
+// src/pages/Auth.jsx
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useNavigate } from 'react-router-dom';
-import { FaGoogle, FaSpinner } from 'react-icons/fa';
+import { FaGoogle, FaSpinner } from 'react-icons/fa'; // Importar FaSpinner
 import { useNotification } from '../context/NotificationContext';
 import './Auth.css';
 
@@ -11,21 +12,19 @@ const Auth = () => {
     const [syncInProgress, setSyncInProgress] = useState(false);
     const { showNotification } = useNotification();
 
-    // Función de sondeo para verificar el estado del job
+    // Función de sondeo (sin cambios)
     const pollSyncStatus = async (jobId, retries = 10) => {
         if (retries === 0) {
             setSyncInProgress(false);
             showNotification('La sincronización está tardando más de lo esperado. Se ejecutará en segundo plano.', 'warning');
             return;
         }
-
         try {
             const { data: job, error } = await supabase
                 .from('drive_sync_jobs')
                 .select('status, ultimo_error')
                 .eq('id', jobId)
                 .single();
-
             if (error) throw error;
 
             if (job.status === 'completed') {
@@ -36,7 +35,6 @@ const Auth = () => {
                 const errorMsg = job.ultimo_error?.trigger_error || job.ultimo_error?.message || 'Error desconocido';
                 showNotification(`Error de sincronización: ${errorMsg}`, 'error');
             } else {
-                // Si sigue 'pending' o 'processing', esperar 3 segundos y volver a consultar
                 setTimeout(() => pollSyncStatus(jobId, retries - 1), 3000);
             }
         } catch (error) {
@@ -45,60 +43,48 @@ const Auth = () => {
         }
     };
 
-    // Lógica de triggerSync
+    // Función de Trigger Sync (sin cambios, ya envía el body)
     const triggerSync = async (session) => {
         if (!session?.provider_token) {
-            // No es un login de Google, no hacer nada
             return; 
         }
-
         try {
-            // 1. Buscar si YA existe un trabajo para este usuario
             const { data: syncJob, error: syncError } = await supabase
                 .from('drive_sync_jobs')
-                .select('id, status') // <-- Solo necesitamos el status
+                .select('id, status')
                 .eq('user_id', session.user.id)
                 .maybeSingle();
-
             if (syncError) throw syncError;
 
-            // 2. Comprobar la lógica
-            //    La condición es: (NO hay job) O (el job falló y queremos reintentar)
             let shouldQueue = false;
             if (!syncJob) {
-                shouldQueue = true; // No existe, hay que crearlo
+                shouldQueue = true;
             } else if (syncJob.status === 'error') {
-                shouldQueue = true; // Falló, reintentar
+                shouldQueue = true;
             }
-            // Si el job ya es 'pending', 'processing' o 'completed', no hacemos nada.
 
             if (shouldQueue) {
                 console.log("Iniciando y esperando la sincronización completa...");
                 setSyncInProgress(true);
                 showNotification('Iniciando sincronización con Google Drive...', 'info');
 
-                // --- ¡AQUÍ ESTÁ LA CLAVE! ---
-                // 3. Llamar a 'queue-drive-sync' PASANDO EL TOKEN EN EL BODY
                 const { data: queueData, error: queueError } = await supabase.functions.invoke(
                     'queue-drive-sync',
                     {
                         body: {
-                            provider_token: session.provider_token // <-- Enviar el token
+                            provider_token: session.provider_token // Envía el token
                         }
                     }
                 );
-                // --- FIN DE LA CLAVE ---
+                
                 if (queueError) throw queueError;
                 
                 const jobId = queueData.job_id;
                 console.log(`Trabajo de sincronización encolado con ID: ${jobId}`);
-
-                // 4. Iniciar el sondeo para dar feedback al usuario
                 pollSyncStatus(jobId);
             } else {
                 console.log(`El trabajo de sincronización ya existe y su estado es '${syncJob.status}'. No se encolará uno nuevo.`);
             }
-
         } catch (error) {
             console.error('Error en triggerSync:', error.message);
             showNotification(`Error al iniciar sincronización: ${error.message}`, 'error');
@@ -106,25 +92,31 @@ const Auth = () => {
         }
     };
 
-    // useEffect para manejar la sesión
+    // --- useEffect CORREGIDO ---
     useEffect(() => {
-        // Manejar el evento de inicio de sesión
         const { data: authListener } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 setSession(session);
-                if (event === 'SIGNED_IN') {
+                
+                // --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
+                // Añadimos comprobaciones 'session' para evitar el error '...reading user of null'
+                if (event === 'SIGNED_IN' && session) {
                     console.log('Auth state changed: SIGNED_IN, User:', session.user.id);
-                    await triggerSync(session); // Disparar la sincronización
+                    await triggerSync(session);
                     navigate('/dashboard');
                 }
-                if (event === 'INITIAL_SESSION') {
-                    console.log('Auth state changed: INITIAL_SESSION, User:', session.user.id);
-                    setSession(session);
-                    if(session) {
-                         navigate('/dashboard');
+                else if (event === 'INITIAL_SESSION') {
+                    if (session) {
+                        console.log('Auth state changed: INITIAL_SESSION, User:', session.user.id);
+                        navigate('/dashboard');
+                    } else {
+                        console.log('Auth state changed: INITIAL_SESSION, User: undefined');
+                        // No hacer nada, esperar al login
                     }
                 }
-                if (event === 'SIGNED_OUT') {
+                // --- FIN DE LA CORRECCIÓN ---
+                else if (event === 'SIGNED_OUT') {
+                    console.log('Auth state changed: SIGNED_OUT');
                     navigate('/');
                 }
             }
@@ -135,6 +127,7 @@ const Auth = () => {
         };
     }, [navigate]);
 
+    // ... (handleGoogleLogin sin cambios)
     const handleGoogleLogin = async () => {
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
@@ -153,7 +146,8 @@ const Auth = () => {
          navigate('/dashboard');
          return null; 
     }
-
+    
+    // ... (JSX de return sin cambios)
     return (
         <div className="auth-container">
             <div className="auth-card">
