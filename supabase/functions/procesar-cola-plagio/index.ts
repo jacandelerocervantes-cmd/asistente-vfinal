@@ -3,9 +3,6 @@ import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
-// --- CORRECCIÓN: Añadir una función de "sleep" (pausa) ---
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 // Función para extraer JSON de la respuesta de Gemini
 function extractJson(text: string): Record<string, unknown>[] | null {
     const match = text.match(/\[[\s\S]*\]/);
@@ -72,11 +69,7 @@ serve(async (req: Request) => {
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY no configurada.");
 
-    // --- CORRECCIÓN: Pausa de 1.5 segundos para evitar el Rate Limit de Gemini ---
-    console.log(`Pausando 1.5s antes de llamar a Gemini API...`);
-    await sleep(1500);
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`;
     
     const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',
