@@ -38,7 +38,7 @@ function App() {
                           initialSession.user.user_metadata?.drive_synced === false;
         
         if (needsSync && !isSyncing) {
-          triggerSync();
+          triggerSync(initialSession); // <--- Pasa la sesión
         }
       }
       setLoadingSession(false);
@@ -57,7 +57,7 @@ function App() {
 
         // Iniciar sincronización si es un nuevo login y necesita sync
         if ((_event === 'SIGNED_IN' || _event === 'INITIAL_SESSION') && needsSync && !isSyncing) {
-          triggerSync();
+          triggerSync(currentSession); // <--- Pasa la sesión
         }
       } else {
         // Es un logout de docente
@@ -69,17 +69,27 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // <-- ¡LISTA VACÍA!
 
-  const triggerSync = async () => {
+  const triggerSync = async (session) => { // <--- Acepta 'session'
     if (syncInProgress.current) return;
+    if (!session?.provider_token) { // <--- Añadir validación
+        console.warn("triggerSync abortado: no se encontró provider_token en la sesión.");
+        return;
+    }
     syncInProgress.current = true;
     setIsSyncing(true); // Muestra "Sincronizando..." y bloquea la UI
     console.log("triggerSync: Iniciando y esperando la sincronización completa...");
 
     try {
         // --- LÓGICA DE POLLING EN EL CLIENTE ---
-
         // Paso 1: Encolar el trabajo y obtener el ID
-        const { data: queueData, error: queueError } = await supabase.functions.invoke('queue-drive-sync');
+        const { data: queueData, error: queueError } = await supabase.functions.invoke(
+            'queue-drive-sync',
+            { // <--- Añadir este bloque 'body'
+                body: {
+                    provider_token: session.provider_token
+                }
+            }
+        );
         if (queueError) throw queueError;
         if (!queueData.jobId) throw new Error("No se recibió un ID de trabajo para la sincronización.");
 
