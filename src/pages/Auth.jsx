@@ -33,7 +33,8 @@ const Auth = () => {
                 showNotification('¡Sincronización con Google Drive completada!', 'success');
             } else if (job.status === 'error') {
                 setSyncInProgress(false);
-                showNotification(`Error de sincronización: ${job.ultimo_error?.trigger_error || 'Error desconocido'}`, 'error');
+                const errorMsg = job.ultimo_error?.trigger_error || job.ultimo_error?.message || 'Error desconocido';
+                showNotification(`Error de sincronización: ${errorMsg}`, 'error');
             } else {
                 // Si sigue 'pending' o 'processing', esperar 3 segundos y volver a consultar
                 setTimeout(() => pollSyncStatus(jobId, retries - 1), 3000);
@@ -44,7 +45,7 @@ const Auth = () => {
         }
     };
 
-    // --- LÓGICA DE triggerSync CORREGIDA ---
+    // Lógica de triggerSync
     const triggerSync = async (session) => {
         if (!session?.provider_token) {
             // No es un login de Google, no hacer nada
@@ -76,8 +77,7 @@ const Auth = () => {
                 setSyncInProgress(true);
                 showNotification('Iniciando sincronización con Google Drive...', 'info');
 
-                // 3. Llamar a 'queue-drive-sync'
-                // --- ¡CAMBIO AQUÍ! ---
+                // --- ¡AQUÍ ESTÁ LA CLAVE! ---
                 // 3. Llamar a 'queue-drive-sync' PASANDO EL TOKEN EN EL BODY
                 const { data: queueData, error: queueError } = await supabase.functions.invoke(
                     'queue-drive-sync',
@@ -87,6 +87,7 @@ const Auth = () => {
                         }
                     }
                 );
+                // --- FIN DE LA CLAVE ---
                 if (queueError) throw queueError;
                 
                 const jobId = queueData.job_id;
@@ -112,13 +113,13 @@ const Auth = () => {
             async (event, session) => {
                 setSession(session);
                 if (event === 'SIGNED_IN') {
-                    console.log('Auth state changed: SIGNED_IN, User:', session?.user?.id);
+                    console.log('Auth state changed: SIGNED_IN, User:', session.user.id);
                     await triggerSync(session); // Disparar la sincronización
                     navigate('/dashboard');
                 }
                 if (event === 'INITIAL_SESSION') {
-                    // Solo loguear y navegar si la sesión existe
-                    console.log('Auth state changed: INITIAL_SESSION, User:', session?.user?.id);
+                    console.log('Auth state changed: INITIAL_SESSION, User:', session.user.id);
+                    setSession(session);
                     if(session) {
                          navigate('/dashboard');
                     }
@@ -156,7 +157,11 @@ const Auth = () => {
     return (
         <div className="auth-container">
             <div className="auth-card">
-                <h2>Asistente Docente</h2>
+                <div className="auth-header">
+                    <img src="/images/tecnm_logo.png" alt="TecNM Logo" className="logo tec-logo" />
+                    <h2>Asistente Docente</h2>
+                    <img src="/images/tec_tizimin_logo.png" alt="Tec Tizimín Logo" className="logo it-logo" />
+                </div>
                 
                 {syncInProgress ? (
                     <div className="sync-in-progress">
