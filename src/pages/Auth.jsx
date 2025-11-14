@@ -104,13 +104,13 @@ const Auth = () => {
             async (event, session) => {
                 setSession(session);
                 if (event === 'SIGNED_IN') {
-                    console.log('Auth state changed: SIGNED_IN, User:', session.user.id);
+                    console.log('Auth state changed: SIGNED_IN, User:', session?.user?.id);
                     await triggerSync(session); // Disparar la sincronización
                     navigate('/dashboard');
                 }
                 if (event === 'INITIAL_SESSION') {
-                    console.log('Auth state changed: INITIAL_SESSION, User:', session.user.id);
-                    setSession(session);
+                    // Solo loguear y navegar si la sesión existe
+                    console.log('Auth state changed: INITIAL_SESSION, User:', session?.user?.id);
                     if(session) {
                          navigate('/dashboard');
                     }
@@ -148,11 +148,7 @@ const Auth = () => {
     return (
         <div className="auth-container">
             <div className="auth-card">
-                <div className="auth-header">
-                    <img src="/images/tecnm_logo.png" alt="TecNM Logo" className="logo tec-logo" />
-                    <h2>Asistente Docente</h2>
-                    <img src="/images/tec_tizimin_logo.png" alt="Tec Tizimín Logo" className="logo it-logo" />
-                </div>
+                <h2>Asistente Docente</h2>
                 
                 {syncInProgress ? (
                     <div className="sync-in-progress">

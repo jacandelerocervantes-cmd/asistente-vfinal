@@ -15,6 +15,19 @@
   gap: var(--spacing-lg); /* Espacio entre elementos dentro de la tarjeta */
 }
 
+.auth-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.auth-header .logo {
+  height: 50px; /* Ajusta la altura según necesites */
+  width: auto;
+  object-fit: contain;
+}
+
 .auth-title {
   color: var(--color-primary);
   font-size: 2rem;
