@@ -46,7 +46,6 @@ serve(async (req: Request) => {
       .insert({
         user_id: user.id,
         status: 'pending',
-        provider_token: provider_token,
       })
       .select('id')
       .single()
@@ -62,6 +61,7 @@ serve(async (req: Request) => {
     )
 
   // --- 2. CORRECCIÓN DE TIPO 'unknown' ---
+  // deno-lint-ignore no-explicit-any
   } catch (e: any) { // Usamos 'any' para acceder a .message
   // --- FIN DE LA CORRECCIÓN ---
     console.error('Error en queue-drive-sync:', e.message)
