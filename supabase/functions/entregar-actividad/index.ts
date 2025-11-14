@@ -4,13 +4,22 @@ import { createClient } from '@supabase/supabase-js'
 import { corsHeaders } from '../_shared/cors.ts'
 
 // Variables de entorno de Apps Script
-const GAS_URL = Deno.env.get('APPS_SCRIPT_URL') || ''
-const AUTH_TOKEN = Deno.env.get('APPS_SCRIPT_AUTH_TOKEN') || ''
+const GAS_URL = Deno.env.get('APPS_SCRIPT_URL')
+const AUTH_TOKEN = Deno.env.get('APPS_SCRIPT_AUTH_TOKEN')
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
 serve(async (req: Request) => {
   // Manejo de CORS
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  // Validar que todas las variables de entorno necesarias estén configuradas
+  if (!GAS_URL || !AUTH_TOKEN || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    return new Response(JSON.stringify({ message: 'Faltan variables de entorno críticas en el servidor.' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500
+    })
   }
 
   try {
@@ -28,19 +37,21 @@ serve(async (req: Request) => {
 
     // 2. Crear cliente de Supabase (Admin para RLS)
     const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      SUPABASE_URL,
+      SERVICE_ROLE_KEY
     )
 
     // 3. Obtener el ID del alumno y sus datos desde el token JWT
-    // (Esta es la parte segura, el alumno no puede falsificar quién es)
-    const user = await supabaseAdmin.auth.getUser(
-      req.headers.get('Authorization')!.replace('Bearer ', '')
-    )
-    if (user.error || !user.data.user) {
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) {
       throw new Error('Usuario no autenticado.')
     }
-    const userId = user.data.user.id
+    const jwt = authHeader.replace('Bearer ', '')
+    const { data: user, error: userError } = await supabaseAdmin.auth.getUser(jwt)
+    if (userError || !user.user) {
+      throw new Error('Token de usuario inválido o expirado.')
+    }
+    const userId = user.user.id
 
     // 4. Buscar el registro 'alumnos' de este usuario
     const { data: alumnoData, error: alumnoError } = await supabaseAdmin
@@ -100,35 +111,24 @@ serve(async (req: Request) => {
       throw new Error(`Error devuelto por Apps Script: ${driveResult.message}`)
     }
 
-    // 7. Actualizar la tabla 'calificaciones'
-    const { error: updateError } = await supabaseAdmin
-      .from('calificaciones')
-      .update({
-        estado: 'entregado',
-        drive_url_entrega: driveResult.data.fileUrl,
-        fecha_entrega: new Date().toISOString()
-      })
-      .eq('alumno_id', alumnoData.id)
-      .eq('actividad_id', actividad_id)
-      
-    // (Si no existe, la creamos - UPSERT)
-    // Esto es vital por si el docente no creó la fila de 'calificaciones'
+    // 7. Actualizar o insertar el registro en 'calificaciones' usando UPSERT
+    // Esto maneja tanto el caso de una nueva entrega como una re-entrega.
     const { error: upsertError } = await supabaseAdmin
       .from('calificaciones')
       .upsert({
           materia_id: alumnoData.materia_id,
           alumno_id: alumnoData.id,
           actividad_id: actividad_id,
-          estado: 'entregado',
+          estado: 'entregado', // Actualiza el estado
           drive_url_entrega: driveResult.data.fileUrl,
           fecha_entrega: new Date().toISOString(),
-          calificacion_obtenida: 0 // Default
+          // Opcional: No sobreescribir la calificación si ya existe
+          // calificacion_obtenida: 0 
       }, {
           onConflict: 'alumno_id, actividad_id'
       })
-
-    if (updateError && upsertError) {
-      // Solo lanzamos error si ambas fallan (el upsert debería funcionar)
+    
+    if (upsertError) {
       throw new Error(`Error al actualizar la entrega: ${upsertError.message}`)
     }
 
@@ -142,9 +142,12 @@ serve(async (req: Request) => {
     )
 
   } catch (error) {
-    console.error('Error en entregar-actividad:', error)
-    return new Response(
-      JSON.stringify({ message: error.message }),
+    // Manejo de errores más seguro y específico
+    const message = error instanceof Error ? error.message : 'Ocurrió un error inesperado.';
+    console.error('Error en entregar-actividad:', message, error);
+
+    return new Response( // Aseguramos que el error siempre sea un objeto JSON
+      JSON.stringify({ message }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }

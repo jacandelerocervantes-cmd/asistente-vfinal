@@ -3,14 +3,72 @@ import React, { useState } from 'react'; // <-- Importar useState
 import { Link } from 'react-router-dom'; // <-- Importar Link
 import { supabase } from '../../supabaseClient'; // <-- Importar supabase
 import EstadisticasModal from './EstadisticasModal'; // <-- Importar el nuevo modal
-import { FaEdit, FaTrash, FaSync, FaChartBar, FaWpforms, FaSpinner } from 'react-icons/fa'; // <-- Añadir FaSync, FaChartBar, FaWpforms
+import { FaEdit, FaTrash, FaSync, FaChartBar, FaWpforms, FaSpinner } from 'react-icons/fa';
+import ToggleSwitch from '../common/ToggleSwitch';
 
 // Estilos similares a ActividadCard.css o MateriaCard.css pueden aplicarse
 import './EvaluacionCard.css'; // Si creas un CSS específico
 
 const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
+    // --- 1. Obtener la nueva prop ---
+    const { id, titulo, unidad, estado, fecha_apertura, fecha_cierre, tiempo_limite, esta_activo, revision_activa } = evaluacion;
     const [syncing, setSyncing] = useState(false); // <-- Estado para el botón de sincronizar
     const [showStatsModal, setShowStatsModal] = useState(false); // Estado para el modal
+    
+    // --- 2. Estados para AMBOS interruptores ---
+    const [isActive, setIsActive] = useState(esta_activo);
+    const [isTogglingActive, setIsTogglingActive] = useState(false);
+    
+    const [isRevisionActive, setIsRevisionActive] = useState(revision_activa); // <-- NUEVO ESTADO
+    const [isTogglingRevision, setIsTogglingRevision] = useState(false); // <-- NUEVO ESTADO
+    
+    // --- 3. Handler para el primer interruptor (sin cambios) ---
+    const handleToggleActivo = async (e) => {
+        const nuevoEstado = e.target.checked;
+        setIsTogglingActive(true);
+        setIsActive(nuevoEstado); // Actualización optimista
+
+        try {
+            const { error } = await supabase
+                .from('evaluaciones')
+                .update({ esta_activo: nuevoEstado })
+                .eq('id', id);
+
+            if (error) throw error;
+            alert(`'${titulo}' ${nuevoEstado ? 'está ahora ACTIVA' : 'está ahora OCULTA'}.`);
+
+        } catch (error) {
+            console.error("Error al actualizar estado:", error);
+            alert("Error al cambiar el estado.");
+            setIsActive(!nuevoEstado); // Revertir en caso de error
+        } finally {
+            setIsTogglingActive(false);
+        }
+    };
+
+    // --- 4. NUEVO HANDLER para el interruptor de revisión ---
+    const handleToggleRevision = async (e) => {
+        const nuevoEstado = e.target.checked;
+        setIsTogglingRevision(true);
+        setIsRevisionActive(nuevoEstado); // Actualización optimista
+
+        try {
+            const { error } = await supabase
+                .from('evaluaciones')
+                .update({ revision_activa: nuevoEstado })
+                .eq('id', id);
+            
+            if (error) throw error;
+            alert(`Revisión para '${titulo}' ${nuevoEstado ? 'está ahora VISIBLE' : 'está ahora OCULTA'}.`);
+
+        } catch (error){
+            console.error("Error al actualizar revisión:", error);
+            alert("Error al cambiar estado de revisión.");
+            setIsRevisionActive(!nuevoEstado); // Revertir
+        } finally {
+            setIsTogglingRevision(false);
+        }
+    };
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
@@ -68,9 +126,9 @@ const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
                 />
             )}
 
-        <div className="materia-card evaluacion-card" > {/* Añadir clase específica si se creó EvaluacionCard.css */}
+        <div className={`materia-card evaluacion-card ${!isActive ? 'desactivada' : ''}`}>
             <div className="card-header">
-                <h3 className="materia-nombre">{evaluacion.titulo}</h3>
+                <h3 className="materia-nombre">{titulo}</h3>
                 <div className="card-actions">
                     {/* Botón Sincronizar */}
                     <button
@@ -88,11 +146,11 @@ const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
                 </div>
             </div>
             <div className="card-body">
-                 <p>Unidad: {evaluacion.unidad || 'N/A'}</p>
-                 <p>Estado: <span className={`status-pill ${evaluacion.estado}`}>{evaluacion.estado}</span></p> {/* Usar pills de estado */}
-                 <p>Apertura: {formatDate(evaluacion.fecha_apertura)}</p>
-                 <p>Cierre: {formatDate(evaluacion.fecha_cierre)}</p>
-                 <p>Límite: {evaluacion.tiempo_limite ? `${evaluacion.tiempo_limite} min` : 'Sin límite'}</p>
+                 <p>Unidad: {unidad || 'N/A'}</p>
+                 <p>Estado: <span className={`status-pill ${estado}`}>{estado}</span></p> {/* Usar pills de estado */}
+                 <p>Apertura: {formatDate(fecha_apertura)}</p>
+                 <p>Cierre: {formatDate(fecha_cierre)}</p>
+                 <p>Límite: {tiempo_limite ? `${tiempo_limite} min` : 'Sin límite'}</p>
             </div>
              <div className="card-footer-actions"> {/* Nueva clase para el pie de página con botones */}
                {/* Botón para ir a Calificar Preguntas Abiertas */}
@@ -112,6 +170,27 @@ const EvaluacionCard = ({ evaluacion, onEdit, onDelete }) => {
                          <FaChartBar /> Ver Estadísticas
                     </button>
                )}
+            </div>
+            {/* --- 6. Footer del Card MODIFICADO --- */}
+            <div className="evaluacion-card-footer">
+                <div className="footer-toggle">
+                    <span>{isActive ? 'Activo' : 'Oculto'}</span>
+                    <ToggleSwitch 
+                        id={`eval-act-${id}`}
+                        isChecked={isActive}
+                        onChange={handleToggleActivo}
+                        disabled={isTogglingActive}
+                    />
+                </div>
+                <div className="footer-toggle">
+                    <span>{isRevisionActive ? 'Revisión ON' : 'Revisión OFF'}</span>
+                    <ToggleSwitch 
+                        id={`eval-rev-${id}`}
+                        isChecked={isRevisionActive}
+                        onChange={handleToggleRevision} // <-- NUEVO HANDLER
+                        disabled={isTogglingRevision}
+                    />
+                </div>
             </div>
         </div>
         </>

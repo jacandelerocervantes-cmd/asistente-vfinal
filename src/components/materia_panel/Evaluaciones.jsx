@@ -23,7 +23,8 @@ const Evaluaciones = ({ materia }) => {
         try {
             const { data, error } = await supabase
                 .from('evaluaciones')
-                .select('*')
+                // --- 1. Pedir las dos columnas de activación ---
+                .select('*, esta_activo, revision_activa')
                 .eq('materia_id', materia.id)
                 .order('created_at', { ascending: false });
             if (error) throw error;
