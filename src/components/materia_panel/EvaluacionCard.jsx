@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'; // <-- Importar Link
 import { supabase } from '../../supabaseClient'; // <-- Importar supabase
 import EstadisticasModal from './EstadisticasModal'; // <-- Importar el nuevo modal
 import { FaEdit, FaTrash, FaSync, FaChartBar, FaWpforms, FaSpinner } from 'react-icons/fa';
-import ToggleSwitch from '../common/ToggleSwitch';
+import ToggleSwitch from '../../common/ToggleSwitch.jsx';
 
 // Estilos similares a ActividadCard.css o MateriaCard.css pueden aplicarse
 import './EvaluacionCard.css'; // Si creas un CSS específico
