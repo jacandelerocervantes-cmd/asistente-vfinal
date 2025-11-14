@@ -77,8 +77,16 @@ const Auth = () => {
                 showNotification('Iniciando sincronización con Google Drive...', 'info');
 
                 // 3. Llamar a 'queue-drive-sync'
-                const { data: queueData, error: queueError } = await supabase.functions.invoke('queue-drive-sync');
-                
+                // --- ¡CAMBIO AQUÍ! ---
+                // 3. Llamar a 'queue-drive-sync' PASANDO EL TOKEN EN EL BODY
+                const { data: queueData, error: queueError } = await supabase.functions.invoke(
+                    'queue-drive-sync',
+                    {
+                        body: {
+                            provider_token: session.provider_token // <-- Enviar el token
+                        }
+                    }
+                );
                 if (queueError) throw queueError;
                 
                 const jobId = queueData.job_id;
