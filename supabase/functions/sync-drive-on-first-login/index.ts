@@ -2,22 +2,39 @@
 // AHORA ES UN TRABAJADOR DE COLA (CRON JOB)
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-import { corsHeaders } from '../_shared/cors.ts';
+import { getCorsHeaders } from '../_shared/cors.ts';
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
+  const dynamicCorsHeaders = getCorsHeaders(req);
+  if (req.method === 'OPTIONS') { return new Response('ok', { headers: dynamicCorsHeaders }); }
   
   // VERIFICACIÓN DE SEGURIDAD (Para Cron Job)
   const authHeader = req.headers.get('Authorization');
   if (authHeader !== `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`) {
-    return new Response(JSON.stringify({ message: 'No autorizado' }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ message: 'No autorizado' }), { status: 401, headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" } });
   }
 
   let jobId = null;
   const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
   try {
-    // 1. Buscar un trabajo pendiente
+    
+    // *** PASO 1 (NUEVO): Limpiar trabajos antiguos ***
+    // Esta función (worker) SÍ tiene permisos para borrar.
+    const { error: deleteError } = await supabaseAdmin
+      .from('drive_sync_jobs')
+      .delete()
+      .in('status', ['completed', 'failed']); // Borra los que ya terminaron o fallaron
+
+    if (deleteError) {
+      // Registrar como advertencia, no es un error fatal
+      console.warn('Advertencia: No se pudieron limpiar los jobs antiguos:', deleteError.message);
+    } else {
+      console.log("Limpieza de trabajos antiguos completada.");
+    }
+    // *** FIN PASO 1 (NUEVO) ***
+
+    // 2. Buscar un trabajo pendiente (lógica original)
     const { data: job, error: jobError } = await supabaseAdmin
       .from('drive_sync_jobs')
       .select('*')
@@ -27,16 +44,16 @@ serve(async (req: Request) => {
 
     if (jobError) throw jobError;
     if (!job) {
-      return new Response(JSON.stringify({ message: "No hay trabajos de sincronización pendientes." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ message: "No hay trabajos de sincronización pendientes." }), { headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" } });
     }
     
     jobId = job.id;
     const userId = job.user_id;
 
-    // 2. Marcar trabajo como 'processing'
+    // 3. Marcar trabajo como 'processing'
     await supabaseAdmin.from('drive_sync_jobs').update({ status: 'processing' }).eq('id', jobId);
 
-    // 3. Obtener datos del docente y materias
+    // 4. Obtener datos del docente y materias
     const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(userId);
     if (!user) throw new Error(`Usuario ${userId} no encontrado.`);
 
@@ -52,10 +69,10 @@ serve(async (req: Request) => {
            user_metadata: { ...(user.user_metadata || {}), drive_synced: true }
        });
        await supabaseAdmin.from('drive_sync_jobs').update({ status: 'completed', ultimo_error: null }).eq('id', jobId);
-       return new Response(JSON.stringify({ message: "No hay materias. Trabajo completado." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+       return new Response(JSON.stringify({ message: "No hay materias. Trabajo completado." }), { headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" } });
     }
 
-    // 4. LLAMAR A GOOGLE APPS SCRIPT (¡EN BUCLE, UNA MATERIA A LA VEZ!)
+    // 5. LLAMAR A GOOGLE APPS SCRIPT (¡EN BUCLE, UNA MATERIA A LA VEZ!)
     const googleScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
     if (!googleScriptUrl) throw new Error("GOOGLE_SCRIPT_CREATE_MATERIA_URL no definido.");
 
@@ -71,7 +88,7 @@ serve(async (req: Request) => {
       }
 
       const payload = {
-        action: 'create_materia_struct', // <-- Llamar a la NUEVA acción
+        action: 'create_materia_struct',
         docente: docentePayload,
         materia: materia // Enviar la materia individual CON sus alumnos
       };
@@ -93,8 +110,7 @@ serve(async (req: Request) => {
         throw new Error(`Error de Google Script procesando materia ${materia.id}: ${scriptResponse.message}`);
       }
       
-      // 5. Actualizar CADA materia en la base de datos CON LOS IDs correctos
-      // MODIFICADO: Añadir drive_folder_material_id
+      // 6. Actualizar CADA materia en la base de datos CON LOS IDs correctos
       const { drive_url, rubricas_spreadsheet_id, plagio_spreadsheet_id, calificaciones_spreadsheet_id, drive_folder_material_id } = scriptResponse;
       
       const { error: updateError } = await supabaseAdmin.from('materias').update({
@@ -102,7 +118,7 @@ serve(async (req: Request) => {
           rubricas_spreadsheet_id: rubricas_spreadsheet_id,
           plagio_spreadsheet_id: plagio_spreadsheet_id,
           calificaciones_spreadsheet_id: calificaciones_spreadsheet_id,
-          drive_folder_material_id: drive_folder_material_id // <-- CAMPO AÑADIDO
+          drive_folder_material_id: drive_folder_material_id
       }).eq('id', materia.id);
 
       if(updateError) {
@@ -112,16 +128,16 @@ serve(async (req: Request) => {
     }
     // Fin del bucle
 
-    // 6. Marcar al usuario como sincronizado
+    // 7. Marcar al usuario como sincronizado
     await supabaseAdmin.auth.admin.updateUserById(userId, {
         user_metadata: { ...(user.user_metadata || {}), drive_synced: true }
     });
 
-    // 7. Marcar el trabajo como completado
+    // 8. Marcar el trabajo como completado
     await supabaseAdmin.from('drive_sync_jobs').update({ status: 'completed', ultimo_error: null }).eq('id', jobId);
 
     return new Response(JSON.stringify({ success: true, message: `Trabajo ${jobId} completado (sincronizadas ${materias.length} materias).` }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" },
         status: 200
      });
   
@@ -133,7 +149,7 @@ serve(async (req: Request) => {
         await supabaseAdmin.from('drive_sync_jobs').update({ status: 'failed', ultimo_error: message }).eq('id', jobId);
     }
     return new Response(JSON.stringify({ message }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" },
         status: 500
     });
   }

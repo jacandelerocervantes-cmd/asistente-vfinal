@@ -34,8 +34,7 @@ const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcce
             <td>{apellido || ''}</td>
             <td>{nombre || ''}</td>
             <td>{email || '-'}</td>
-            {/* --- CORRECCIÓN 3: ELIMINA ESTA CELDA (TD) --- */}
-            {/* <td>{grupoMap.get(grupo_id) || '-'}</td> */}
+            <td>{nombresDeGrupos || '-'}</td>
             <td style={{ textAlign: 'center' }}> 
                 {hasUserId || accountState === 'exists' || accountState === 'success' ? (
                     <FaCheckCircle style={{ color: 'var(--color-success)' }} title="Acceso de alumno activado"/>
@@ -101,7 +100,12 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
         try {
             const { data, error: fetchError } = await supabase
                 .from('alumnos')
-                .select(`id, matricula, apellido, nombre, email, user_id`) 
+                .select(`
+                    id, matricula, apellido, nombre, email, user_id,
+                    alumnos_grupos (
+                        grupos ( id, nombre )
+                    )
+                `) 
                 .eq('materia_id', materiaId)
                 .order('apellido', { ascending: true });
 
@@ -418,6 +422,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                             <th>Apellido</th>
                                             <th>Nombre</th>
                                             <th>Correo</th>
+                                            <th>Grupo(s)</th>
                                             <th style={{textAlign: 'center'}}>Acceso</th>
                                             <th style={{textAlign: 'right'}}>Acciones</th>
                                         </tr>
@@ -437,7 +442,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 error={error.includes(alumno.email) ? error : null}
                                             />
                                          )) : (
-                                            <tr><td colSpan="7">No se encontraron alumnos.</td></tr>
+                                            <tr><td colSpan="8">No se encontraron alumnos.</td></tr>
                                          )}
                                      </tbody>
                                  </table>

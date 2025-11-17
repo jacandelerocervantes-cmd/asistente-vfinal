@@ -1,0 +1,242 @@
+/* src/forms.css */
+
+/* --- Estructura General del Formulario --- */
+.materia-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  padding: 0;
+  margin: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.materia-form h3,
+.materia-form h4 {
+  text-align: center;
+  color: var(--color-primary);
+  margin-bottom: var(--spacing-md);
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md); /* Espacio por defecto */
+}
+
+.form-group label {
+  font-weight: bold;
+  color: var(--color-text-dark);
+  font-size: 1rem;
+}
+
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="number"],
+.form-group input[type="file"],
+.form-group input[type="datetime-local"],
+.form-group select,
+.form-group textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  font-family: inherit;
+  width: 100%;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-group-horizontal {
+    display: flex;
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+.form-group-horizontal .form-group {
+    flex: 1;
+    min-width: 150px;
+}
+
+/* --- Botones de Formulario --- */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--color-background-light);
+}
+
+/* Botón Primario (Guardar, Aceptar) */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+  padding: 10px 20px;
+  font-size: 1rem;
+  border: none;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.btn-primary:hover {
+  background-color: #002244; /* Azul más oscuro */
+}
+.btn-primary:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+}
+
+/* Botón Secundario (Acción alternativa, Subir) */
+.btn-secondary {
+  background-color: var(--color-secondary); /* Verde */
+  color: white;
+  padding: 10px 20px;
+  font-size: 1rem;
+  border: none;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.btn-secondary:hover {
+  background-color: #5a8a2a; /* Verde más oscuro */
+}
+.btn-secondary:disabled {
+  background-color: #a0aec0;
+  cursor: not-allowed;
+}
+
+/* Botón Terciario (Cancelar) */
+.btn-tertiary {
+  background-color: #718096; /* Gris */
+  color: white;
+  padding: 10px 20px;
+  font-size: 1rem;
+  border: none;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.btn-tertiary:hover {
+  background-color: #4a5568; /* Gris más oscuro */
+}
+
+/* Botón de Peligro (Eliminar) */
+.btn-danger {
+  background-color: #e53e3e; /* Rojo */
+  color: white;
+  padding: 10px 20px;
+  font-size: 1rem;
+  border: none;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.btn-danger:hover {
+  background-color: #c53030; /* Rojo más oscuro */
+}
+
+/* Botones pequeños (para tablas) */
+.btn-small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+/* Botones con iconos */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+.icon-button svg {
+  font-size: 1em;
+}
+
+/* --- Mensajes de Error --- */
+.error-message {
+    color: #c53030; /* Rojo */
+    background-color: #fed7d7;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-lg);
+    text-align: center;
+    font-size: 0.95rem;
+    border: 1px solid #f56565;
+}
+
+/* --- Spinner --- */
+.spinner {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* --- Estilos de Modal (Básico) --- */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1050;
+    padding: 20px;
+}
+.modal-content {
+    background: white;
+    padding: var(--spacing-xl);
+    border-radius: var(--border-radius);
+    width: 100%;
+    max-width: 600px; /* Ancho por defecto */
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    animation: fadeInModal 0.3s ease-out;
+}
+.modal-content.modal-lg {
+  max-width: 800px;
+}
+@keyframes fadeInModal {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+.modal-header h3, .modal-header h4 {
+    color: var(--color-primary);
+    margin: 0;
+    font-size: 1.5rem;
+}
+.close-btn {
+    background: none;
+    border: none;
+    font-size: 2.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: #888;
+    padding: 0;
+}
+.modal-body {
+    padding-top: var(--spacing-md);
+}
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--spacing-xl);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid var(--color-border);
+}

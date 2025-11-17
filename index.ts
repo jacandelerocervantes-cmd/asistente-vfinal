@@ -1,6 +1,6 @@
 // supabase/functions/sync-activity-deliveries/index.ts
 import { createClient } from '@supabase/supabase-js'
-import { corsHeaders } from '../_shared/cors.ts'
+import { getCorsHeaders } from '../_shared/cors.ts'
 import { serve } from 'std/http/server.ts'
 
 // Define the structure of a file from Google Drive
@@ -10,9 +10,10 @@ interface DriveFile {
   owner_email: string;
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
+  const dynamicCorsHeaders = getCorsHeaders(req);
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: dynamicCorsHeaders });
   }
 
   try {
@@ -46,7 +47,7 @@ serve(async (req) => {
 
     // Crear un mapa de email -> alumno_id para búsqueda rápida
     const emailToAlumnoIdMap = new Map(
-      alumnosInscritos.map(item => [item.alumnos.email, item.alumnos.id])
+      alumnosInscritos.map(item => [item.alumnos!.email, item.alumnos!.id])
     );
 
     // --- 3. Obtener los archivos de la carpeta de Drive ---
@@ -110,14 +111,14 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ message: `Sincronización completada. Se encontraron y registraron ${nuevasCalificaciones.length} nuevas entregas.` }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      { headers: { ...dynamicCorsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
 
   } catch (e) {
     const error = e instanceof Error ? e : new Error(String(e));
     console.error('Error en sync-activity-deliveries:', error.message);
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...dynamicCorsHeaders, 'Content-Type': 'application/json' },
       status: 500,
     });
   }

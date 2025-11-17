@@ -59,10 +59,14 @@ serve(async (req: Request) => {
 
     console.log(`${trabajosParaInsertar.length} trabajos añadidos a la cola exitosamente.`);
     
+    console.log(`Disparando 'procesar-cola-evaluacion' asíncronamente...`);
     // Opcional: Invocar inmediatamente 'procesar-cola-evaluacion' una vez
     // --- CORRECCIÓN: Añadir el header de autorización ---
-    await supabaseAdmin.functions.invoke('procesar-cola-evaluacion', {
+    supabaseAdmin.functions.invoke('procesar-cola-evaluacion', {
       headers: { 'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}` }
+    }).catch(err => {
+      // Loguear el error de la invocación asíncrona, pero no fallar la respuesta al usuario
+      console.error("Error al invocar 'procesar-cola-evaluacion' de forma asíncrona:", err.message);
     });
 
     return new Response(JSON.stringify({ message: `${calificaciones_ids.length} trabajos de evaluación añadidos a la cola.` }), {

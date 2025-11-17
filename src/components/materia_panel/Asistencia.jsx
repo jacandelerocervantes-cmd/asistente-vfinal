@@ -195,7 +195,7 @@ const Asistencia = () => {
     
     // --- AÑADE ESTA NUEVA FUNCIÓN ---
     const handleSyncFromSheets = async () => {
-        if (!window.confirm("¿Sincronizar desde Google Sheets?\nEsto sobrescribirá los datos de asistencia en Supabase con cualquier cambio que hayas hecho manualmente en el Sheet.\nEste proceso puede tardar.")) {
+        if (!window.confirm("¿Sincronizar desde Google Sheets?\n\nADVERTENCIA: Esta acción sobrescribirá cualquier asistencia manual (✔/✖) que hayas marcado en esta pantalla y que no esté guardada en Google Sheets. ¿Continuar?")) {
             return;
         }
         setIsSyncing(true);
@@ -205,7 +205,6 @@ const Asistencia = () => {
             });
             if (error) throw error;
             
-            // data = { message: "...", insertados: X, actualizados: Y, omitidos: Z }
             showNotification(`${data.message} (I: ${data.insertados}, A: ${data.actualizados}, O: ${data.omitidos_matricula_no_encontrada})`, 'success');
             
             // Forzar recarga de los datos de asistencia en la vista actual (si hay una sesión activa)

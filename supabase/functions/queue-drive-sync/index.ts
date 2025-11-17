@@ -1,44 +1,50 @@
 // supabase/functions/queue-drive-sync/index.ts
 
 import { createClient } from '@supabase/supabase-js'
-import { corsHeaders } from '../_shared/cors.ts'
+import { getCorsHeaders } from '../_shared/cors.ts'
 // --- 1. CORRECCIÓN DE LA IMPORTACIÓN ---
 // Usamos el 'import_map.json' que ya existe en tu proyecto
 import { serve } from 'std/http/server.ts' 
 // --- FIN DE LA CORRECCIÓN ---
 
 serve(async (req: Request) => { 
+  const dynamicCorsHeaders = getCorsHeaders(req);
   // Manejo de CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: dynamicCorsHeaders })
   }
 
   try {
+    // El provider_token se recibe pero no se usa, lo cual está bien.
     const { provider_token } = await req.json()
     if (!provider_token) {
       throw new Error('No se recibió el provider_token desde el cliente.')
     }
 
-    // Inicializa el cliente de Supabase. Las variables de entorno se detectan automáticamente.
-    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: req.headers.get('Authorization')! } } });
-    const userRes = await supabaseAdmin.auth.getUser(
+    // 1. Crear el CLIENTE DE USUARIO.
+    // Este cliente usará la ANON_KEY y el JWT del header.
+    // Gracias a la política RLS, tendrá permiso para escribir.
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_ANON_KEY')!, 
+      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+    )
+    
+    // Obtener el usuario desde el token
+    const userRes = await supabaseClient.auth.getUser(
       req.headers.get('Authorization')!.replace('Bearer ', '')
     )
     if (userRes.error) throw userRes.error
     const user = userRes.data.user
     
-    // Borrar trabajos antiguos
-    const { error: deleteError } = await supabaseAdmin
-      .from('drive_sync_jobs')
-      .delete()
-      .eq('user_id', user.id)
-      
-    if (deleteError) {
-        console.warn('No se pudo borrar el job antiguo:', deleteError.message)
-    }
+    // --- BLOQUE DE BORRADO ELIMINADO ---
+    // Esta función, llamada por el usuario, ya no borra trabajos antiguos.
+    // La limpieza la hará el worker 'sync-drive-on-first-login'.
 
     // Insertar el nuevo trabajo
-    const { data: newJob, error: insertError } = await supabaseAdmin
+    // La RLS debe permitir al usuario autenticado insertar en esta tabla
+    // donde user_id == auth.uid()
+    const { data: newJob, error: insertError } = await supabaseClient
       .from('drive_sync_jobs')
       .insert({
         user_id: user.id,
@@ -48,23 +54,20 @@ serve(async (req: Request) => {
       .single()
 
     if (insertError) {
-      console.error('Error en insert drive_sync_job:', insertError.message) // <-- Corregido
+      console.error('Error en insert drive_sync_job (RLS?):', insertError.message) 
       throw insertError
     }
 
     return new Response(
-      JSON.stringify({ job_id: newJob.id, status: 'pending' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      JSON.stringify({ jobId: newJob.id, status: 'pending' }),
+      { headers: { ...dynamicCorsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     )
 
-  // --- 2. CORRECCIÓN DE TIPO 'unknown' ---
-  // deno-lint-ignore no-explicit-any
-  } catch (e: any) { // Usamos 'any' para acceder a .message
-  // --- FIN DE LA CORRECCIÓN ---
+  } catch (e: any) {
     console.error('Error en queue-drive-sync:', e.message)
     return new Response(
       JSON.stringify({ error: e.message }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...dynamicCorsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
 })

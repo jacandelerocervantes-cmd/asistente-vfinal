@@ -1,7 +1,6 @@
 // EN: src/components/InactivityModal.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useLocation } // <-- 1. IMPORTAR useLocation
-    from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom'; // <-- 1. IMPORTAR useLocation
 import { supabase } from '../supabaseClient';
 import './InactivityModal.css'; // Asumiendo que ya creaste este CSS
 
@@ -110,7 +109,7 @@ const InactivityModal = ({ session }) => {
             clearInterval(modalTimerRef.current);
         };
     // --- 9. AÑADIR DEPENDENCIAS CLAVE ---
-    }, [resetIdleTimer, startIdleTimer, isTimerDisabled, session]); 
+    }, [resetIdleTimer, startIdleTimer, isTimerDisabled, session, location.pathname]); // <-- AÑADIDO location.pathname
 
     // --- 10. NO MOSTRAR NADA SI NO HAY SESIÓN O SI EL TIMER ESTÁ DESHABILITADO ---
     if (!showModal || !session || isTimerDisabled) {

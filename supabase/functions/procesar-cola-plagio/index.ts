@@ -1,7 +1,7 @@
 // supabase/functions/procesar-cola-plagio/index.ts
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-import { corsHeaders } from '../_shared/cors.ts';
+import { getCorsHeaders } from '../_shared/cors.ts';
 
 // Función para extraer JSON de la respuesta de Gemini
 function extractJson(text: string): Record<string, unknown>[] | null {
@@ -16,11 +16,12 @@ function extractJson(text: string): Record<string, unknown>[] | null {
 }
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') { return new Response('ok', { headers: corsHeaders }); }
+  const dynamicCorsHeaders = getCorsHeaders(req);
+  if (req.method === 'OPTIONS') { return new Response('ok', { headers: dynamicCorsHeaders }); }
 
   // Seguridad: Solo permitir ejecución desde un Cron Job o llamada interna
   const authHeader = req.headers.get('Authorization');
-  if (authHeader !== `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`) {
+  if (authHeader !== `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`) { //TODO: This should use dynamicCorsHeaders
     return new Response(JSON.stringify({ message: 'No autorizado' }), { status: 401 });
   }
 
@@ -40,7 +41,7 @@ serve(async (req: Request) => {
     if (jobError) {
         // Si no hay filas, no es un error, simplemente no hay trabajo que hacer.
         if (jobError.code === 'PGRST116') {
-            return new Response(JSON.stringify({ message: "No hay trabajos de plagio pendientes." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            return new Response(JSON.stringify({ message: "No hay trabajos de plagio pendientes." }), { headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" } });
         }
         throw jobError;
     }
@@ -61,10 +62,10 @@ serve(async (req: Request) => {
     if (contentsJson.status !== 'success') throw new Error(contentsJson.message);
 
     const textos = contentsJson.contenidos.filter((c: any) => c.texto && !c.error).map((c: any) => ({ id: c.fileId, texto: c.texto }));
-    if (textos.length < 2) throw new Error("No se pudo obtener el texto de al menos dos trabajos para comparar.");
+    if (textos.length < 2) throw new Error("No se pudo obtener el texto de al menos dos trabajos para comparar."); // deno-lint-ignore-line no-explicit-any
 
     // 3. Llamar a Gemini para la comparación
-    const prompt = `Compara los siguientes textos en busca de plagio entre ellos. Devuelve un array de objetos JSON, donde cada objeto representa un par de trabajos con similitud. Cada objeto debe tener las claves "trabajo_A_id", "trabajo_B_id", "porcentaje_similitud" (un número de 0 a 100), y "fragmentos_similares" (un array de strings con los fragmentos idénticos o muy similares). Si no hay plagio, devuelve un array vacío []. Formato de respuesta: [{"trabajo_A_id": "ID_1", "trabajo_B_id": "ID_2", "porcentaje_similitud": 95, "fragmentos_similares": ["fragmento 1", "fragmento 2"]}]. Los textos son:\n\n${textos.map((t: any) => `--- TRABAJO ID: ${t.id} ---\n${t.texto}\n\n`).join('')}`;
+    const prompt = `Compara los siguientes textos en busca de plagio entre ellos. Devuelve un array de objetos JSON, donde cada objeto representa un par de trabajos con similitud. Cada objeto debe tener las claves "trabajo_A_id", "trabajo_B_id", "porcentaje_similitud" (un número de 0 a 100), y "fragmentos_similares" (un array de strings con los fragmentos idénticos o muy similares). Si no hay plagio, devuelve un array vacío []. Formato de respuesta: [{"trabajo_A_id": "ID_1", "trabajo_B_id": "ID_2", "porcentaje_similitud": 95, "fragmentos_similares": ["fragmento 1", "fragmento 2"]}]. Los textos son:\n\n${textos.map((t: {id: string, texto: string}) => `--- TRABAJO ID: ${t.id} ---\n${t.texto}\n\n`).join('')}`;
     
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY no configurada.");
@@ -101,13 +102,13 @@ serve(async (req: Request) => {
     // 5. Actualizar el trabajo como completado
     await supabaseAdmin.from('plagio_jobs').update({ status: 'completado', resultado_plagio: reportePlagio }).eq('id', jobId);
 
-    return new Response(JSON.stringify({ message: `Trabajo de plagio ${jobId} completado.` }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ message: `Trabajo de plagio ${jobId} completado.` }), { headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" } });
 
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error desconocido.";
     if (jobId) {
       await supabaseAdmin.from('plagio_jobs').update({ status: 'fallido', ultimo_error: message }).eq('id', jobId);
     }
-    return new Response(JSON.stringify({ message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ message }), { status: 500, headers: { ...dynamicCorsHeaders, "Content-Type": "application/json" } });
   }
 });
