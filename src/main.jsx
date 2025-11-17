@@ -2,8 +2,8 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
-import './context/Notification.css' // <-- AÑADE ESTA LÍNEA
-import './forms.css' // <-- AÑADIR ESTA LÍNEA
+import './context/Notification.css'
+import './context/forms.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
