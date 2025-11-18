@@ -73,7 +73,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
     const [creatingAccountStates, setCreatingAccountStates] = useState({});
     const [selectedAlumnos, setSelectedAlumnos] = useState(new Set());
     const [showAssignGroupModal, setShowAssignGroupModal] = useState(false);
-    const [expandedSections, setExpandedSections] = useState(new Set(['lista_alumnos', 'gestion_grupos'])); // Ambas expandidas por defecto
+    const [expandedSections, setExpandedSections] = useState(new Set()); // Se inicia colapsado
 
     const { showNotification } = useNotification();
     // --- Carga de Datos ---
@@ -132,11 +132,19 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
 
     // --- Filtrar Alumnos (para la lista principal) ---
     const filteredAlumnos = useMemo(() => {
-        return alumnos.filter(alumno =>
-            `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''}`
-                .toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [alumnos, searchTerm]); // <--- CORRECCIÓN 6: Quitar grupoMap
+        return alumnos.filter(alumno => {
+            // 1. Extraer nombres de grupos de la estructura anidada
+            const nombresDeGrupos = alumno.alumnos_grupos 
+                ? alumno.alumnos_grupos.map(ag => ag.grupos.nombre).join(' ') 
+                : '';
+            
+            // 2. Crear la cadena de búsqueda completa: Nombre, Apellido, Matrícula Y Grupos.
+            const searchString = `${alumno.nombre || ''} ${alumno.apellido || ''} ${alumno.matricula || ''} ${nombresDeGrupos}`;
+            
+            // 3. Aplicar el filtro
+            return searchString.toLowerCase().includes(searchTerm.toLowerCase());
+        });
+    }, [alumnos, searchTerm]);
 
     const visibleAlumnoIds = useMemo(() => filteredAlumnos.map(a => a.id), [filteredAlumnos]);
 
@@ -319,10 +327,7 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             <div className="table-actions">
                 <input type="text" placeholder="Buscar alumno por nombre, matrícula o grupo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="search-input" />
                 <div className='table-actions-buttons'>
-                     {/* CORRECCIÓN: Asegurar setEditingAlumno(null) */}
-                     <button onClick={() => { setEditingAlumno(null); setShowAlumnoForm(true); setShowCSVUploader(false); setShowGrupoForm(false); }} className="btn-primary icon-button">
-                        <FaUserPlus /> Añadir Alumno
-                    </button>
+                    {/* ELIMINADO: Botón Añadir Alumno */}
                     <button onClick={() => { setEditingAlumno(null); setShowCSVUploader(true); setShowAlumnoForm(false); setShowGrupoForm(false); }} className="btn-secondary icon-button">
                         Subir CSV
                     </button>
@@ -408,6 +413,12 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                          <div className="grupo-header" onClick={() => toggleSectionExpansion('lista_alumnos')}>
                              <span className='grupo-toggle-icon'>{expandedSections.has('lista_alumnos') ? <FaAngleDown /> : <FaAngleRight />}</span>
                              <h4>Lista de Alumnos ({alumnos.length})</h4>
+                             {/* AÑADIDO: Botón Añadir Alumno */}
+                             <div className="grupo-actions">
+                                 <button onClick={(e) => { e.stopPropagation(); setEditingAlumno(null); setShowAlumnoForm(true); setShowCSVUploader(false); setShowGrupoForm(false); }} className="btn-primary btn-small icon-button" title="Añadir Nuevo Alumno">
+                                     <FaUserPlus /> Añadir Alumno
+                                 </button>
+                             </div>
                          </div>
                          {expandedSections.has('lista_alumnos') && (
                              <div className='table-responsive'>
