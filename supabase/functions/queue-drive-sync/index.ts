@@ -2,60 +2,64 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { getCorsHeaders } from '../_shared/cors.ts'
-// --- 1. CORRECCIÓN DE LA IMPORTACIÓN ---
-// Usamos el 'import_map.json' que ya existe en tu proyecto
-import { serve } from 'std/http/server.ts' 
-// --- FIN DE LA CORRECCIÓN ---
+import { serve } from 'std/http/server.ts'
 
 serve(async (req: Request) => { 
   const dynamicCorsHeaders = getCorsHeaders(req);
-  // Manejo de CORS
+  
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: dynamicCorsHeaders })
   }
 
   try {
-    // El provider_token se recibe pero no se usa, lo cual está bien.
-    const { provider_token } = await req.json()
-    if (!provider_token) {
-      throw new Error('No se recibió el provider_token desde el cliente.')
-    }
+    // Ignoramos el body para evitar errores de parseo, no necesitamos el token
+    await req.json().catch(() => {}); 
 
-    // 1. Crear el CLIENTE DE USUARIO.
-    // Este cliente usará la ANON_KEY y el JWT del header.
-    // Gracias a la política RLS, tendrá permiso para escribir.
+    // 1. Crear cliente de usuario
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_ANON_KEY')!, 
       { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
     )
     
-    // Obtener el usuario desde el token
-    const userRes = await supabaseClient.auth.getUser(
-      req.headers.get('Authorization')!.replace('Bearer ', '')
-    )
+    const userRes = await supabaseClient.auth.getUser()
     if (userRes.error) throw userRes.error
     const user = userRes.data.user
     
-    // --- BLOQUE DE BORRADO ELIMINADO ---
-    // Esta función, llamada por el usuario, ya no borra trabajos antiguos.
-    // La limpieza la hará el worker 'sync-drive-on-first-login'.
-
-    // Insertar el nuevo trabajo
-    // La RLS debe permitir al usuario autenticado insertar en esta tabla
-    // donde user_id == auth.uid()
+    // --- CORRECCIÓN CRÍTICA: USAR UPSERT ---
+    // En lugar de 'insert' (que falla si ya existe), usamos 'upsert'.
+    // Esto reinicia el estado a 'pending' si ya había un trabajo atascado.
     const { data: newJob, error: insertError } = await supabaseClient
       .from('drive_sync_jobs')
-      .insert({
+      .upsert({
         user_id: user.id,
         status: 'pending',
-      })
+        ultimo_error: null // Limpiamos cualquier error previo
+      }, { onConflict: 'user_id' }) // Indicamos que el conflicto es por user_id
       .select('id')
       .single()
 
     if (insertError) {
-      console.error('Error en insert drive_sync_job (RLS?):', insertError.message) 
+      console.error('Error upsert drive_sync_job:', insertError.message) 
       throw insertError
+    }
+
+    // 3. DISPARADOR INMEDIATO AL WORKER
+    console.log(`Trabajo ${newJob.id} listo. Invocando worker...`);
+    
+    const workerUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-drive-on-first-login`;
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (workerUrl && serviceKey) {
+        // Llamada asíncrona (no bloquea la respuesta al frontend)
+        fetch(workerUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${serviceKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({}) 
+        }).catch(err => console.error("Error al invocar worker (async):", err));
     }
 
     return new Response(

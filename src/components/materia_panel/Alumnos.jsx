@@ -16,6 +16,11 @@ import {
 const AlumnoRow = ({ alumno, isSelected, onSelect, onEdit, onDelete, onCrearAcceso, creatingState, error }) => { // <--- CORRECCIÓN 1: Quitar grupoMap
     const { id, matricula, apellido, nombre, email, user_id } = alumno; // <--- CORRECCIÓN 2: Quitar grupo_id
     
+    // --- CORRECCIÓN: Definir nombresDeGrupos a partir de los datos del alumno ---
+    const nombresDeGrupos = useMemo(() => 
+        alumno.alumnos_grupos.map(ag => ag.grupos?.nombre).filter(Boolean).join(', ')
+    , [alumno.alumnos_grupos]);
+
     const accountState = creatingState;
     const hasUserId = !!user_id;
     // Se puede crear acceso si tiene email, matrícula, y no tiene ya un user_id
@@ -437,7 +442,6 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                                                 onEdit={handleEditAlumno}
                                                 onDelete={() => handleDeleteAlumno(alumno.id, alumno.user_id)}
                                                 onCrearAcceso={handleCrearAcceso}
-                                                onShowReport={handleShowReport} // <-- 8. PASAR EL HANDLER
                                                 creatingState={creatingAccountStates[alumno.id]}
                                                 error={error.includes(alumno.email) ? error : null}
                                             />
