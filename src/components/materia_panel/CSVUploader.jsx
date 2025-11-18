@@ -105,32 +105,103 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
     };
 
     // Lógica para subir Grupos/Equipos
-    const handleUploadGrupos = async (gruposFromCSV) => {
-        const expectedHeaders = ['nombre'];
-        const actualHeaders = Object.keys(gruposFromCSV[0] || {});
-         if (!expectedHeaders.every(h => actualHeaders.includes(h))) {
-            throw new Error(`Cabeceras incorrectas para Grupos. Se espera la columna: ${expectedHeaders.join(', ')}.`);
-        }
+    const handleUploadGrupos = async (dataFromCSV) => {
+        // 1. Validar Cabeceras
+        const expectedHeaders = ['matricula', 'grupo'];
+        const actualHeaders = Object.keys(dataFromCSV[0] || {});
         
-        const gruposParaGuardar = gruposFromCSV.map(g => ({
+        // Normalizamos a minúsculas para ser flexibles
+        const normalizedHeaders = actualHeaders.map(h => h.toLowerCase());
+        if (!expectedHeaders.every(h => normalizedHeaders.includes(h))) {
+            throw new Error(`Cabeceras incorrectas. Se esperan: ${expectedHeaders.join(', ')}.`);
+        }
+
+        // 2. Obtener el usuario actual (Docente)
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Usuario no autenticado.");
+
+        // 3. Procesar Datos del CSV
+        const filasValidas = dataFromCSV.filter(row => row.matricula && row.grupo);
+        if (filasValidas.length === 0) throw new Error("El CSV no tiene filas válidas con matrícula y grupo.");
+
+        console.log(`Procesando ${filasValidas.length} asignaciones de grupo...`);
+
+        // 4. Paso A: Asegurar que los GRUPOS existan (Upsert Grupos)
+        // Extraemos nombres únicos de grupos del CSV
+        const nombresGruposUnicos = [...new Set(filasValidas.map(r => String(r.grupo).trim()))];
+        
+        const gruposParaInsertar = nombresGruposUnicos.map(nombre => ({
             materia_id: materiaId,
-            nombre: String(g.nombre || '').trim()
-        })).filter(g => g.nombre); // Filtrar nombres vacíos
+            user_id: user.id, // Importante para RLS
+            nombre: nombre
+        }));
 
-        if (gruposParaGuardar.length === 0) {
-            throw new Error('No se encontraron nombres de grupo válidos en el CSV.');
+        // Insertamos/Actualizamos grupos y recuperamos sus IDs
+        const { data: gruposGuardados, error: errorGrupos } = await supabase
+            .from('grupos')
+            .upsert(gruposParaInsertar, { onConflict: 'materia_id, nombre' })
+            .select('id, nombre');
+        
+        if (errorGrupos) throw errorGrupos;
+
+        // Mapa rápido: "Nombre Grupo" -> ID
+        const mapaGrupos = {};
+        gruposGuardados.forEach(g => mapaGrupos[g.nombre] = g.id);
+
+        // 5. Paso B: Obtener IDs de ALUMNOS basados en las matrículas del CSV
+        const matriculasEnCSV = [...new Set(filasValidas.map(r => String(r.matricula).trim()))];
+        
+        const { data: alumnosEncontrados, error: errorAlumnos } = await supabase
+            .from('alumnos')
+            .select('id, matricula')
+            .eq('materia_id', materiaId)
+            .in('matricula', matriculasEnCSV);
+            
+        if (errorAlumnos) throw errorAlumnos;
+
+        // Mapa rápido: "Matrícula" -> ID
+        const mapaAlumnos = {};
+        alumnosEncontrados.forEach(a => mapaAlumnos[a.matricula] = a.id);
+
+        // 6. Paso C: Crear las Relaciones (Tabla Pivote)
+        const relacionesParaInsertar = [];
+        const errores = [];
+
+        filasValidas.forEach(row => {
+            const matricula = String(row.matricula).trim();
+            const nombreGrupo = String(row.grupo).trim();
+            
+            const alumnoId = mapaAlumnos[matricula];
+            const grupoId = mapaGrupos[nombreGrupo];
+
+            if (alumnoId && grupoId) {
+                relacionesParaInsertar.push({
+                    alumno_id: alumnoId,
+                    grupo_id: grupoId,
+                    user_id: user.id
+                });
+            } else {
+                if (!alumnoId) errores.push(`Matrícula no encontrada: ${matricula}`);
+            }
+        });
+
+        if (relacionesParaInsertar.length > 0) {
+            // Insertamos relaciones (ignorando duplicados si ya existen)
+            const { error: errorRelaciones } = await supabase
+                .from('alumnos_grupos')
+                .upsert(relacionesParaInsertar, { onConflict: 'alumno_id, grupo_id', ignoreDuplicates: true });
+            
+            if (errorRelaciones) throw errorRelaciones;
         }
 
-        console.log(`Upserting ${gruposParaGuardar.length} grupos...`);
-        // Usar upsert para evitar duplicados de nombre en la misma materia
-        const { data: savedGrupos, error: upsertError } = await supabase
-            .from('grupos')
-            .upsert(gruposParaGuardar, { onConflict: 'materia_id, nombre' })
-            .select('nombre');
+        // 7. Reporte Final
+        let mensajeFinal = `Proceso completado. ${relacionesParaInsertar.length} asignaciones creadas.`;
+        if (errores.length > 0) {
+            mensajeFinal += ` (Hubo ${errores.length} matrículas que no existían en esta materia).`;
+            console.warn("Errores en asignación:", errores);
+        }
         
-        if (upsertError) throw upsertError;
-
-        setResults({ message: `${savedGrupos.length} grupos procesados exitosamente.` });
+        setResults({ message: mensajeFinal });
     };
 
 
@@ -228,8 +299,8 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
 
                     <small style={{display: 'block', marginTop: '1rem'}}>
                         {uploadType === 'alumnos' 
-                            ? "Columnas esperadas: matricula, nombre, apellido, email (opcional)"
-                            : "Columna esperada: nombre"
+                            ? "Columnas: matricula, nombre, apellido, email (opcional)"
+                            : "Columnas: matricula, grupo (Crea el grupo si no existe y asigna al alumno)"
                         }
                     </small>
 
