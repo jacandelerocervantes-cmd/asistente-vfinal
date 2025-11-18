@@ -299,7 +299,7 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
 
                     <small style={{display: 'block', marginTop: '1rem'}}>
                         {uploadType === 'alumnos' 
-                            ? "Columnas: matricula, nombre, apellido, email (opcional)"
+                            ? "Columnas: matricula, nombre, apellido, email"
                             : "Columnas: matricula, grupo (Crea el grupo si no existe y asigna al alumno)"
                         }
                     </small>
