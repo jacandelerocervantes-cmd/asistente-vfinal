@@ -362,7 +362,17 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
             {/* Modales */}
             {showAlumnoForm && <AlumnoForm alumno={editingAlumno} materiaId={materiaId} onSave={handleSaveAlumno} onCancel={handleCancelAlumno} />}
             {showGrupoForm && <GrupoForm grupo={editingGrupo} materiaId={materiaId} onSave={handleSaveGrupo} onCancel={handleCancelGrupo} />}
-            {showCSVUploader && <CSVUploader materiaId={materiaId} onUploadComplete={handleSaveAlumno} onCancel={() => setShowCSVUploader(false)} />}
+            {showCSVUploader && (
+                <CSVUploader 
+                    materiaId={materiaId} 
+                    onUploadComplete={() => { 
+                        setShowCSVUploader(false); // <--- ESTO ES LO QUE FALTABA (Cierra el modal correcto)
+                        fetchAlumnos();            // Recarga la lista de alumnos
+                        fetchGrupos();             // Recarga los grupos (por si subiste equipos)
+                    }} 
+                    onCancel={() => setShowCSVUploader(false)} 
+                />
+            )}
             {showAssignGroupModal && <AsignarGrupoModal grupos={grupos} onClose={() => setShowAssignGroupModal(false)} onAssign={handleAssignGroup} />}
 
             {/* Listado de Alumnos por Grupo */}
@@ -387,15 +397,42 @@ const Alumnos = ({ materiaId, nombreMateria }) => {
                             <div className='table-responsive'>
                                 <table className="alumnos-table inside-group">
                                     <thead><tr><th>Nombre del Grupo</th><th>Miembros</th><th style={{textAlign: 'right'}}>Acciones</th></tr></thead>
+                                    {/* Reemplaza el <tbody> existente dentro de la tabla de grupos en Alumnos.jsx */}
                                     <tbody>
                                         {grupos.length > 0 ? grupos.map(grupo => {
+                                            // 1. FILTRAR: Buscar en la lista completa de alumnos quiénes pertenecen a este grupo
+                                            // La estructura es: alumno -> alumnos_grupos (array) -> grupos -> id
+                                            const miembros = alumnos.filter(alumno => 
+                                                alumno.alumnos_grupos && 
+                                                alumno.alumnos_grupos.some(relacion => relacion.grupos?.id === grupo.id)
+                                            );
+
                                             return (
                                                 <tr key={grupo.id}>
-                                                    <td>{grupo.nombre}</td>
-                                                    <td>{grupo.miembros_count}</td>
-                                                    <td style={{textAlign: 'right'}}>
-                                                        <button onClick={() => handleEditGrupo(grupo)} className="btn-secondary btn-small icon-button" title="Editar Nombre"><FaEdit /></button>
-                                                        <button onClick={() => handleDeleteGrupo(grupo.id)} className="btn-danger btn-small icon-button" title="Eliminar Grupo" style={{marginLeft:'5px'}}><FaTrash /></button>
+                                                    <td style={{ fontWeight: 'bold', verticalAlign: 'top' }}>
+                                                        {grupo.nombre}
+                                                    </td>
+                                                    <td>
+                                                        {/* 2. MOSTRAR INTEGRANTES: Si hay miembros, los listamos. Si no, aviso gris. */}
+                                                        {miembros.length > 0 ? (
+                                                            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.9em', color: '#444' }}>
+                                                                {miembros.map(m => (
+                                                                    <li key={m.id}>
+                                                                        {m.apellido} {m.nombre} <span style={{opacity: 0.7}}>({m.matricula})</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <span style={{ color: '#888', fontStyle: 'italic' }}>Sin miembros asignados</span>
+                                                        )}
+                                                    </td>
+                                                    <td style={{ textAlign: 'right', verticalAlign: 'top' }}>
+                                                        <button onClick={() => handleEditGrupo(grupo)} className="btn-secondary btn-small icon-button" title="Editar Nombre">
+                                                            <FaEdit />
+                                                        </button>
+                                                        <button onClick={() => handleDeleteGrupo(grupo.id)} className="btn-danger btn-small icon-button" title="Eliminar Grupo" style={{ marginLeft: '5px' }}>
+                                                            <FaTrash />
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             );
