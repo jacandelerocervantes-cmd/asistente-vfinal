@@ -5,7 +5,7 @@ import * as qrCodeLib from 'qrcode.react';
 import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../supabaseClient';
 import './Asistencia.css';
-import { FaSync, FaLock, FaQrcode, FaTimes } from 'react-icons/fa'; // Iconos opcionales
+import { FaSync, FaLock, FaQrcode, FaTimes } from 'react-icons/fa';
 
 const Asistencia = () => {
     const { id: materia_id } = useParams();
@@ -23,48 +23,57 @@ const Asistencia = () => {
     const [realtimeStatus, setRealtimeStatus] = useState('DISCONNECTED');
     const [unidadesCerradas, setUnidadesCerradas] = useState(new Set());
     const [isSyncing, setIsSyncing] = useState(false);
-    const [isClosingUnit, setIsClosingUnit] = useState(false); // Estado para el cierre de unidad
+    const [isClosingUnit, setIsClosingUnit] = useState(false);
 
     const { showNotification } = useNotification();
     const channelRef = useRef(null);
 
+    // --- CARGA INICIAL DE DATOS ---
     useEffect(() => {
         const loadInitialData = async () => {
             setLoading(true);
             try {
-                const { data: materiaData, error: materiaError } = await supabase.from('materias').select('unidades').eq('id', materia_id).single();
+                // 1. Cargar Materia
+                const { data: materiaData, error: materiaError } = await supabase
+                    .from('materias').select('unidades').eq('id', materia_id).single();
                 if (materiaError) throw materiaError;
                 setMateria(materiaData);
 
-                const { data: alumnosData, error: alumnosError } = await supabase.from('alumnos').select('*').eq('materia_id', materia_id).order('apellido');
+                // 2. Cargar Alumnos
+                const { data: alumnosData, error: alumnosError } = await supabase
+                    .from('alumnos').select('*').eq('materia_id', materia_id).order('apellido');
                 if (alumnosError) throw alumnosError;
                 setAlumnos(alumnosData);
 
+                // 3. Cargar Sesiones Cerradas Hoy
                 const fechaHoy = new Date().toISOString().slice(0, 10);
-                const { data: registrosDeHoy, error: cerradasHoyError } = await supabase
+                // (Aquí podrías consultar una tabla de sesiones_logs si existiera, 
+                //  o inferir si ya hay asistencias guardadas para esa sesión/fecha)
+                const { data: registrosDeHoy } = await supabase
                     .from('asistencias')
                     .select('unidad, sesion')
                     .eq('materia_id', materia_id)
                     .eq('fecha', fechaHoy)
-                    .eq('presente', false);
-                
-                // Ajuste: La lógica de "sesiones cerradas" puede variar según tu implementación exacta,
-                // aquí mantenemos lo que tenías.
+                    .limit(100); // Traer una muestra para ver qué sesiones ya tienen datos
+
                 if (registrosDeHoy) {
                     const cerradasHoySet = new Set(registrosDeHoy.map(r => `${r.unidad}-${r.sesion}`));
                     setSesionesCerradasHoy(cerradasHoySet);
                 }
 
+                // 4. Cargar Unidades Cerradas
                 const { data: cerradasData, error: unidadesCerradasError } = await supabase
                     .from('unidades_cerradas')
                     .select('unidad')
                     .eq('materia_id', materia_id);
                 if (unidadesCerradasError) throw unidadesCerradasError;
+                
                 const cerradasSet = new Set(cerradasData.map(item => item.unidad));
                 setUnidadesCerradas(cerradasSet);
 
             } catch (error) {
                 console.error("Error cargando datos:", error);
+                showNotification("Error al cargar datos de asistencia.", 'error');
             } finally {
                 setLoading(false);
             }
@@ -72,6 +81,7 @@ const Asistencia = () => {
         loadInitialData();
     }, [materia_id]);
 
+    // --- REALTIME ---
     useEffect(() => {
         if (!channelRef.current) channelRef.current = supabase.channel(`asistencias-materia-${materia_id}`);
         const channel = channelRef.current;
@@ -80,7 +90,7 @@ const Asistencia = () => {
             channel.on('broadcast', { event: 'asistencia-registrada' }, (message) => {
                 const registro = message.payload;
                 if (registro && String(registro.unidad) === String(unidad) && String(registro.sesion) === String(sesion)) {
-                        setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, registro.presente));
+                    setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, registro.presente));
                 }
             }).subscribe((status) => setRealtimeStatus(status));
         } else if (channel && channel.state === 'joined') {
@@ -90,7 +100,8 @@ const Asistencia = () => {
         }
         return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
     }, [sesionActiva, materia_id, unidad, sesion]);
-    
+
+    // --- TIMER ---
     useEffect(() => {
         if (sesionActiva && timer > 0) {
             const interval = setInterval(() => setTimer(t => t - 1), 1000);
@@ -101,14 +112,20 @@ const Asistencia = () => {
         }
     }, [sesionActiva, timer]);
 
-    // --- FUNCIONES DE ACCIÓN ---
+
+    // --- HANDLERS ---
 
     const handleGenerarQR = async () => {
         try {
             const expires_at = new Date(Date.now() + 5 * 60 * 1000).toISOString();
             const { data: sesionData, error: sesionError } = await supabase
                 .from('sesiones_activas')
-                .insert({ materia_id: parseInt(materia_id, 10), unidad: parseInt(unidad, 10), sesion: parseInt(sesion, 10), expires_at })
+                .insert({ 
+                    materia_id: parseInt(materia_id), 
+                    unidad: parseInt(unidad), 
+                    sesion: parseInt(sesion), 
+                    expires_at 
+                })
                 .select('token')
                 .single();
 
@@ -119,10 +136,14 @@ const Asistencia = () => {
             setTimer(300);
             setSesionActiva(true);
 
-            // Cargar asistencias previas visualmente
+            // Cargar estado previo de asistencia para esta sesión (si existe)
             const fechaHoy = new Date().toISOString().slice(0, 10);
-            const { data: prev } = await supabase.from('asistencias').select('alumno_id, presente')
-                .eq('materia_id', materia_id).eq('unidad', unidad).eq('sesion', sesion).eq('fecha', fechaHoy);
+            const { data: prev } = await supabase.from('asistencias')
+                .select('alumno_id, presente')
+                .eq('materia_id', materia_id)
+                .eq('unidad', unidad)
+                .eq('sesion', sesion)
+                .eq('fecha', fechaHoy);
             
             const mapa = new Map();
             prev?.forEach(r => mapa.set(r.alumno_id, r.presente));
@@ -133,13 +154,13 @@ const Asistencia = () => {
         }
     };
 
-    const handleCancelar = () => {
-        setShowConfig(false);
-        setSesionActiva(false);
+    const handleCancelar = () => { 
+        setShowConfig(false); 
+        setSesionActiva(false); 
     };
 
     const handleSyncFromSheets = async () => {
-        if (!window.confirm("¿Sincronizar desde Google Sheets?\nEsto traerá los datos del Excel a la base de datos, sobrescribiendo cambios locales no guardados.")) return;
+        if (!window.confirm("¿Sincronizar desde Google Sheets?\nSe traerán los datos del Excel a la base de datos.")) return;
         
         setIsSyncing(true);
         try {
@@ -148,11 +169,6 @@ const Asistencia = () => {
             });
             if (error) throw error;
             showNotification(`Sincronizado: ${data.message}`, 'success');
-            
-            // Recargar si hay sesión activa para ver cambios
-            if (sesionActiva) {
-               // (Lógica de recarga simple)
-            }
         } catch (error) {
             showNotification("Error al sincronizar: " + error.message, 'error');
         } finally {
@@ -160,12 +176,12 @@ const Asistencia = () => {
         }
     };
 
-    // --- ¡NUEVA FUNCIÓN: CERRAR UNIDAD! ---
     const handleCerrarUnidad = async () => {
-        if (!window.confirm(`¿Seguro que deseas CERRAR la Unidad ${unidad}?\n\nEsto calculará los porcentajes finales de asistencia en Google Sheets.`)) return;
+        if (!window.confirm(`¿Seguro que deseas CERRAR la Unidad ${unidad}?\nSe calcularán porcentajes finales en Google Sheets.`)) return;
 
         setIsClosingUnit(true);
         try {
+            // Llamamos a la función que calcula y protege en Sheets
             const { data, error } = await supabase.functions.invoke('cerrar-unidad-asistencia', {
                 body: { 
                     materia_id: parseInt(materia_id), 
@@ -175,9 +191,14 @@ const Asistencia = () => {
 
             if (error) throw error;
 
-            showNotification(data.message || "Unidad cerrada exitosamente.", 'success');
+            // Guardamos localmente que la unidad está cerrada
+            const { error: dbError } = await supabase
+                .from('unidades_cerradas')
+                .insert({ materia_id: parseInt(materia_id), unidad: parseInt(unidad) });
             
-            // Actualizar estado local para bloquear el botón
+            if (dbError && !dbError.message.includes('duplicate')) throw dbError;
+
+            showNotification(data.message || "Unidad cerrada exitosamente.", 'success');
             setUnidadesCerradas(prev => new Set(prev).add(parseInt(unidad)));
 
         } catch (error) {
@@ -195,7 +216,7 @@ const Asistencia = () => {
                 body: { materia_id: parseInt(materia_id), unidad: parseInt(unidad), sesion: parseInt(sesion) }
             });
             if (error) throw error;
-            showNotification("Guardado en Drive.", 'success');
+            showNotification("Guardado en Drive correctamente.", 'success');
             setSesionesCerradasHoy(prev => new Set(prev).add(`${unidad}-${sesion}`));
             handleCancelar();
         } catch (error) {
@@ -203,7 +224,29 @@ const Asistencia = () => {
         }
     };
 
-    const handleManualToggle = async (alumno_id) => { /* ... (Tu lógica manual existente) ... */ };
+    // Manejo manual de asistencia (Click en el nombre)
+    const handleManualToggle = async (alumno_id) => {
+        const nuevoEstado = !asistenciasHoy.get(alumno_id);
+        const fechaHoy = new Date().toISOString().slice(0, 10);
+        
+        // Actualización optimista en UI
+        setAsistenciasHoy(prev => new Map(prev).set(alumno_id, nuevoEstado));
+
+        const { error } = await supabase.from('asistencias').upsert({
+            fecha: fechaHoy,
+            unidad: parseInt(unidad),
+            sesion: parseInt(sesion),
+            alumno_id,
+            materia_id: parseInt(materia_id),
+            presente: nuevoEstado
+        }, { onConflict: 'fecha,unidad,sesion,alumno_id' });
+
+        if (error) {
+            showNotification("Error al guardar cambio manual.", 'error');
+            // Revertir en caso de error
+            setAsistenciasHoy(prev => new Map(prev).set(alumno_id, !nuevoEstado));
+        }
+    };
 
     const unidadActualCerrada = unidadesCerradas.has(parseInt(unidad));
     const sesionActualCerradaHoy = sesionesCerradasHoy.has(`${unidad}-${sesion}`);
@@ -254,7 +297,6 @@ const Asistencia = () => {
                                 {unidadActualCerrada ? 'Unidad Cerrada' : 'Generar QR'}
                             </button>
 
-                            {/* --- AQUÍ ESTÁ EL BOTÓN DE CERRAR UNIDAD QUE FALTABA --- */}
                             <button 
                                 onClick={handleCerrarUnidad} 
                                 className="btn-danger"
@@ -270,12 +312,10 @@ const Asistencia = () => {
                 )}
             </div>
 
-            {/* Mensajes informativos */}
             {showConfig && unidadActualCerrada && (
                 <div className="alert-banner warning">Esta unidad está cerrada. No se pueden modificar asistencias.</div>
             )}
 
-            {/* Área del QR y Lista Activa */}
             {sesionActiva && (
                 <div className="sesion-activa-container card">
                     <div className="qr-section">
@@ -292,8 +332,13 @@ const Asistencia = () => {
                                 return (
                                     <li key={alumno.id} className={presente ? 'presente' : ''}>
                                         <span>{alumno.apellido} {alumno.nombre}</span>
-                                        {/* Botón manual simplificado */}
-                                        <span className="status-icon">{presente ? '✅' : '❌'}</span>
+                                        <button 
+                                            className="status-icon-btn"
+                                            onClick={() => handleManualToggle(alumno.id)}
+                                            title="Cambiar asistencia manualmente"
+                                        >
+                                            {presente ? '✅' : '❌'}
+                                        </button>
                                     </li>
                                 );
                             })}
