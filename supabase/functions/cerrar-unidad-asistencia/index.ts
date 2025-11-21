@@ -1,92 +1,61 @@
 // supabase/functions/cerrar-unidad-asistencia/index.ts
-
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { corsHeaders } from '../_shared/cors.ts';
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     const { materia_id, unidad } = await req.json();
+    if (!materia_id || !unidad) throw new Error("Faltan datos (materia_id, unidad).");
 
-    const authHeader = req.headers.get("Authorization")!;
-    const supabaseClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado.");
-    
-    // Inserta en la tabla de unidades cerradas
-    const { error: insertError } = await supabaseClient
-      .from('unidades_cerradas')
-      .insert({ materia_id, unidad, user_id: user.id });
-
-    if (insertError) throw insertError;
-
-    // Usa un cliente Admin para obtener todos los datos necesarios sin restricciones de RLS
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
+
+    // 1. Obtener ID del Sheet
+    const { data: materia, error: matError } = await supabaseAdmin
+        .from('materias').select('calificaciones_spreadsheet_id').eq('id', materia_id).single();
     
-    const { data: materia, error: materiaError } = await supabaseAdmin
-      .from("materias").select("drive_url").eq("id", materia_id).single();
-    if (materiaError || !materia) throw new Error("Materia no encontrada.");
-      
-    const { data: todosLosAlumnos, error: alumnosError } = await supabaseAdmin
-      .from("alumnos").select("id, matricula, nombre, apellido").eq("materia_id", materia_id);
-    if (alumnosError) throw alumnosError;
+    if (matError || !materia?.calificaciones_spreadsheet_id) throw new Error("No hay hoja de cálculo vinculada.");
 
-    const { data: registros_asistencia, error: asistenciasError } = await supabaseAdmin
-      .from("asistencias")
-      .select("alumno_id, presente, fecha, sesion")
-      .eq("materia_id", materia_id)
-      .eq("unidad", unidad);
-    if (asistenciasError) throw asistenciasError;
-    
-    const payload = {
-        action: 'cerrar_unidad',
-        drive_url: materia.drive_url,
-        unidad,
-        alumnos: todosLosAlumnos,
-        registros_asistencia: registros_asistencia,
-    };
+    // 2. Llamar a Apps Script para calcular promedios
+    const googleUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
+    const response = await fetch(googleUrl!, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            action: 'cerrar_unidad', // Asegúrate de que en code.js este caso llame a handleCerrarUnidadAsistencia
+            calificaciones_spreadsheet_id: materia.calificaciones_spreadsheet_id,
+            unidad: unidad
+        })
+    });
 
-    let syncMessage = "Sincronización omitida (la materia no tiene una URL de Drive).";
-    const googleScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
+    if (!response.ok) throw new Error("Error al conectar con Google.");
+    const googleData = await response.json();
+    if (googleData.status === 'error') throw new Error(googleData.message);
 
-    if (googleScriptUrl && materia.drive_url) {
-        const response = await fetch(googleScriptUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-          console.error("Error al sincronizar el cierre de unidad con Google Script.");
-        }
-        syncMessage = `Resumen de la Unidad ${unidad} generado en Google Sheets.`;
-    }
+    // 3. ¡CORRECCIÓN RLS! Guardar el cierre en la Base de Datos DESDE AQUÍ (Backend)
+    const { error: dbError } = await supabaseAdmin
+        .from('unidades_cerradas')
+        .insert({ materia_id, unidad })
+        .ignoreDuplicates(); // Si ya estaba cerrada, no pasa nada
 
-    return new Response(JSON.stringify({ message: syncMessage }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200 
+    if (dbError) throw new Error(`Error al guardar cierre en BD: ${dbError.message}`);
+
+    return new Response(JSON.stringify({ 
+        message: googleData.message || "Unidad cerrada correctamente." 
+    }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200 
     });
 
   } catch (error) {
-    console.error("ERROR en cerrar-unidad-asistencia:", error);
-    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-    return new Response(JSON.stringify({ message: errorMessage }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400 
+    return new Response(JSON.stringify({ message: error.message }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400 
     });
   }
 });

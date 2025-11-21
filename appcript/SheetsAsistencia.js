@@ -3,11 +3,7 @@
  */
 function handleLogAsistencia(payload) {
   const { calificaciones_spreadsheet_id, fecha, unidad, sesion, asistencias } = payload;
-  Logger.log("Registrando asistencia: " + JSON.stringify(payload).substring(0, 100) + "...");
-
-  if (!calificaciones_spreadsheet_id || !asistencias || !fecha || !unidad || !sesion) { 
-    throw new Error("Faltan datos para registrar la asistencia."); 
-  }
+  if (!calificaciones_spreadsheet_id || !asistencias || !fecha || !unidad || !sesion) throw new Error("Faltan datos.");
 
   try {
     const reporteSheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
@@ -31,51 +27,40 @@ function handleLogAsistencia(payload) {
     // fecha viene como YYYY-MM-DD (ej. 2025-11-20)
     const [year, month, day] = fecha.split('-');
     const textoEncabezado = `${day}/${month}-${sesion}`; // Resultado: "20/11-1"
-
-    // Buscar si ya existe esa columna
     let sessionColIndex = headers.indexOf(textoEncabezado);
 
     // Si no existe, crearla al final
     if (sessionColIndex === -1) {
       sessionColIndex = headers.length;
       sheetData[0][sessionColIndex] = textoEncabezado;
-      // Rellenar filas con vacío
       for (let i = 1; i < sheetData.length; i++) sheetData[i][sessionColIndex] = '';
     }
 
     // Mapear matrículas a filas
     const matriculaToRowIndex = new Map();
     for (let i = 1; i < sheetData.length; i++) {
-      const matricula = String(sheetData[i][0]).trim().toUpperCase();
-      if (matricula) matriculaToRowIndex.set(matricula, i);
+      const mat = String(sheetData[i][0]).trim().toUpperCase();
+      if (mat) matriculaToRowIndex.set(mat, i);
     }
 
     // --- 2. ESCRIBIR 1 o 0 ---
-    let registrosEscritos = 0;
     asistencias.forEach(data => {
-      const matriculaNorm = String(data.matricula).trim().toUpperCase();
-      const rowIndex = matriculaToRowIndex.get(matriculaNorm);
+      const rowIndex = matriculaToRowIndex.get(String(data.matricula).trim().toUpperCase());
       
       if (rowIndex !== undefined) {
         // AQUÍ ESTÁ EL CAMBIO: 1 si presente, 0 si no
         sheetData[rowIndex][sessionColIndex] = data.presente ? 1 : 0;
-        registrosEscritos++;
       }
     });
 
     // Guardar en hoja
     const newNumCols = sheetData[0].length;
     unitSheet.getRange(1, 1, sheetData.length, newNumCols).setValues(sheetData);
-
-    // Formateo visual
-    if (sessionColIndex === headers.length - 1) {
-      unitSheet.getRange(1, sessionColIndex + 1).setFontWeight('bold').setHorizontalAlignment("center");
-    }
     // Centrar los 1 y 0
     unitSheet.getRange(2, sessionColIndex + 1, sheetData.length - 1, 1).setHorizontalAlignment("center");
 
     SpreadsheetApp.flush(); 
-    return `Asistencia registrada en ${nombreHoja} bajo "${textoEncabezado}". (${registrosEscritos} alumnos).`;
+    return `Ok`;
 
   } catch (e) {
     Logger.log(e);
@@ -94,20 +79,15 @@ function handleCerrarUnidadAsistencia(payload) {
   const nombreHoja = `Unidad ${unidad}`;
   const sheet = reporteSheet.getSheetByName(nombreHoja);
   
-  if (!sheet) return `No se encontró la hoja "${nombreHoja}".`;
+  if (!sheet) return "Hoja no encontrada.";
 
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
   
   // Identificar columnas de sesión (las que tienen guion "-" y barra "/")
-  const indicesSesion = [];
-  headers.forEach((h, index) => {
-    if (typeof h === 'string' && h.includes('/') && h.includes('-')) {
-      indicesSesion.push(index);
-    }
-  });
+  const indicesSesion = headers.map((h, i) => (typeof h === 'string' && h.includes('/') && h.includes('-')) ? i : -1).filter(i => i !== -1);
 
-  if (indicesSesion.length === 0) return "No hay sesiones registradas para calcular.";
+  if (indicesSesion.length === 0) return "Sin sesiones.";
 
   // Buscar o crear columna de Porcentaje
   let pctColIndex = headers.indexOf("% Asistencia");
@@ -122,7 +102,7 @@ function handleCerrarUnidadAsistencia(payload) {
     let total = 0;
     indicesSesion.forEach(colIdx => {
       const valor = data[i][colIdx];
-      if (valor === 1 || valor === 0) { // Solo contar si hay registro
+      if (valor === 1 || valor === 0) {
         suma += valor;
         total++;
       }
@@ -136,9 +116,8 @@ function handleCerrarUnidadAsistencia(payload) {
   sheet.getRange(1, 1, data.length, data[0].length).setValues(data);
   // Formato porcentaje
   sheet.getRange(2, pctColIndex + 1, data.length - 1, 1).setNumberFormat("0%");
-  sheet.getRange(1, pctColIndex + 1).setFontWeight("bold");
 
-  return `Unidad cerrada. Porcentajes calculados sobre ${indicesSesion.length} sesiones.`;
+  return "Unidad cerrada.";
 }
 
 /**
@@ -171,52 +150,40 @@ function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
   */
  function crearAsistenciasSheet(carpetaPadre, alumnos, numeroDeUnidades) {
    const files = carpetaPadre.getFilesByName(NOMBRE_SHEET_ASISTENCIA);
-   let spreadsheet;
- 
-   if (files.hasNext()) {
-     spreadsheet = SpreadsheetApp.open(files.next());
-   } else {
-     spreadsheet = SpreadsheetApp.create(NOMBRE_SHEET_ASISTENCIA);
-     moveFileToFolder(spreadsheet.getId(), carpetaPadre, NOMBRE_SHEET_ASISTENCIA);
-   }
+   let ss = files.hasNext() ? SpreadsheetApp.open(files.next()) : SpreadsheetApp.create(NOMBRE_SHEET_ASISTENCIA);
+   if (!files.hasNext()) moveFileToFolder(ss.getId(), carpetaPadre, NOMBRE_SHEET_ASISTENCIA);
  
    const numUnits = parseInt(numeroDeUnidades, 10) || 1;
  
    for (let i = 1; i <= numUnits; i++) {
-     const nombreHoja = `Unidad ${i}`;
-     let sheet = spreadsheet.getSheetByName(nombreHoja);
+     const name = `Unidad ${i}`;
+     let sheet = ss.getSheetByName(name);
  
      if (!sheet) {
-       if (spreadsheet.getSheets().length === 1 && spreadsheet.getSheets()[0].getName().startsWith("Hoja")) {
-          sheet = spreadsheet.getSheets()[0].setName(nombreHoja);
-       } else {
-          sheet = spreadsheet.insertSheet(nombreHoja, i - 1);
-       }
+       sheet = ss.insertSheet(name, i - 1);
        sheet.appendRow(["Matrícula", "Nombre Completo"]);
-       sheet.getRange("A1:B1").setFontWeight("bold");
        sheet.setFrozenRows(1);
        sheet.setFrozenColumns(2);
      }
      _actualizarAlumnosEnHoja(sheet, alumnos);
    }
-   return spreadsheet;
+   return ss;
  }
  
  function _actualizarAlumnosEnHoja(sheet, alumnos) {
      const data = sheet.getDataRange().getValues();
-     const existingMatriculas = new Set();
+     const existing = new Set();
      for (let r = 1; r < data.length; r++) {
-         const mat = String(data[r][0]).trim().toUpperCase();
-         if (mat) existingMatriculas.add(mat);
+         existing.add(String(data[r][0]).trim().toUpperCase());
      }
+     
      const nuevos = [];
      if (Array.isArray(alumnos)) {
          alumnos.forEach(a => {
-             const mat = String(a.matricula || '').trim().toUpperCase();
-             if (mat && !existingMatriculas.has(mat)) {
+             if (a.matricula && !existing.has(String(a.matricula).trim().toUpperCase())) {
                  const row = new Array(2).fill(""); 
                  row[0] = a.matricula;
-                 row[1] = `${a.nombre || ''} ${a.apellido || ''}`.trim();
+                 row[1] = `${a.nombre} ${a.apellido}`;
                  nuevos.push(row);
              }
          });
@@ -226,4 +193,58 @@ function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
      }
  }
  
- function handleLeerDatosAsistencia(payload) { return { asistencias: [] }; }
+ function handleLeerDatosAsistencia(payload) {
+  const { calificaciones_spreadsheet_id } = payload;
+  if (!calificaciones_spreadsheet_id) throw new Error("Faltan datos.");
+
+  const ss = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
+  const sheets = ss.getSheets();
+  const asistencias = [];
+  const year = new Date().getFullYear(); // Asumimos año actual
+
+  sheets.forEach(sheet => {
+    const name = sheet.getName();
+    if (name.startsWith("Unidad ")) {
+      const unidad = parseInt(name.replace("Unidad ", ""), 10);
+      const data = sheet.getDataRange().getValues();
+      if (data.length < 2) return; // Hoja vacía
+
+      const headers = data[0];
+      
+      // Buscar columnas de sesión (formato DD/MM-S#)
+      headers.forEach((h, colIndex) => {
+        if (typeof h === 'string' && h.includes('/') && h.includes('-')) {
+           // Parsear: "21/11-1"
+           const [fechaPart, sesionPart] = h.split('-'); 
+           const [day, month] = fechaPart.split('/'); 
+           const sesion = parseInt(sesionPart, 10);
+           
+           // Reconstruir fecha ISO: 2025-11-21
+           const fechaISO = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+
+           // Leer filas
+           for (let r = 1; r < data.length; r++) {
+             const matricula = String(data[r][0]).trim().toUpperCase();
+             if (!matricula) continue;
+             
+             const val = data[r][colIndex];
+             // Consideramos dato válido solo si es 1 o 0 (o TRUE/FALSE)
+             // Si la celda está vacía, NO enviamos nada (no sobreescribimos con falta)
+             if (val === 1 || val === 0 || val === true || val === false) {
+                asistencias.push({
+                  matricula,
+                  fecha: fechaISO,
+                  unidad,
+                  sesion,
+                  presente: (val == 1 || val === true)
+                });
+             }
+           }
+        }
+      });
+    }
+  });
+
+  Logger.log(`Leídos ${asistencias.length} registros de asistencia.`);
+  return { asistencias };
+}

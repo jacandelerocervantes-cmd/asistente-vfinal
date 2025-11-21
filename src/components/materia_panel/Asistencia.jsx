@@ -164,26 +164,23 @@ const Asistencia = () => {
     };
 
     const handleCerrarUnidad = async () => {
-        if (!window.confirm(`¿Seguro que deseas CERRAR la Unidad ${unidad}?\nSe calcularán porcentajes finales en Google Sheets.`)) return;
+        if (!window.confirm(`¿Seguro que deseas CERRAR la Unidad ${unidad}?\n\nEsto calculará los porcentajes finales en Google Sheets.`)) return;
 
         setIsClosingUnit(true);
         try {
+            // Llamamos a la función. Ella se encarga de TODO (Google + Base de Datos)
             const { data, error } = await supabase.functions.invoke('cerrar-unidad-asistencia', {
                 body: { 
                     materia_id: parseInt(materia_id), 
                     unidad: parseInt(unidad) 
                 }
             });
-
+ 
             if (error) throw error;
-
-            const { error: dbError } = await supabase
-                .from('unidades_cerradas')
-                .insert({ materia_id: parseInt(materia_id), unidad: parseInt(unidad) });
-            
-            if (dbError && !dbError.message.includes('duplicate')) throw dbError;
-
+ 
             showNotification(data.message || "Unidad cerrada exitosamente.", 'success');
+            
+            // Solo actualizamos el estado visual local
             setUnidadesCerradas(prev => new Set(prev).add(parseInt(unidad)));
 
         } catch (error) {

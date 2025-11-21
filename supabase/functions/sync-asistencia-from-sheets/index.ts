@@ -1,94 +1,71 @@
-// EN: supabase/functions/sync-asistencia-from-sheets/index.ts
-
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
     const { materia_id } = await req.json();
-    if (!materia_id) throw new Error("Se requiere 'materia_id'.");
+    const supabaseAdmin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    // 1. Obtener token de usuario (docente) para pasarlo a la RPC
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("Usuario no autenticado.");
-    
-    // 2. Crear Admin Client para obtener datos de la materia
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    // 1. Obtener ID del Sheet
+    const { data: materia } = await supabaseAdmin.from('materias').select('calificaciones_spreadsheet_id').eq('id', materia_id).single();
+    if (!materia?.calificaciones_spreadsheet_id) throw new Error("Sin hoja de cálculo vinculada.");
 
-    const { data: materia, error: materiaError } = await supabaseAdmin
-      .from('materias')
-      .select('calificaciones_spreadsheet_id')
-      .eq('id', materia_id)
-      .single();
-
-    if (materiaError) throw materiaError;
-    if (!materia?.calificaciones_spreadsheet_id) {
-      throw new Error("La materia no tiene un Sheet de calificaciones/asistencia configurado.");
-    }
-    
-    // 3. Llamar a Apps Script para LEER los datos
-    const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
-    if (!appsScriptUrl) throw new Error("URL de Apps Script no configurada.");
-
-    const response = await fetch(appsScriptUrl, {
+    // 2. Pedir datos a Google Apps Script
+    const googleUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
+    const response = await fetch(googleUrl!, {
       method: 'POST',
-      body: JSON.stringify({ 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         action: 'leer_datos_asistencia',
         calificaciones_spreadsheet_id: materia.calificaciones_spreadsheet_id
-      }),
-      headers: { 'Content-Type': 'application/json' },
+      })
     });
 
-    if (!response.ok) throw new Error(`Error en Apps Script (leer): ${await response.text()}`);
-    const gasResult = await response.json();
-    if (gasResult.status !== 'success' || !Array.isArray(gasResult.asistencias)) {
-      throw new Error(`Apps Script reportó un error: ${gasResult.message || 'No se recibieron datos.'}`);
+    if (!response.ok) throw new Error("Error conectando con Google.");
+    const googleData = await response.json();
+    if (googleData.status === 'error') throw new Error(googleData.message);
+
+    const registros = googleData.asistencias || [];
+    if (registros.length === 0) {
+        return new Response(JSON.stringify({ message: "No se encontraron registros en el Sheet para sincronizar." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
     }
 
-    const asistenciasDesdeSheet = gasResult.asistencias;
-    if (asistenciasDesdeSheet.length === 0) {
-      return new Response(JSON.stringify({ message: "No se encontraron datos de asistencia en Google Sheets para sincronizar." }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
-      });
+    // 3. Obtener IDs de alumnos (Mapa Matrícula -> ID)
+    const { data: alumnos } = await supabaseAdmin.from('alumnos').select('id, matricula').eq('materia_id', materia_id);
+    const mapaAlumnos = new Map(alumnos?.map(a => [a.matricula, a.id]));
+
+    // 4. Preparar Upserts
+    let insertados = 0;
+    let omitidos = 0;
+
+    for (const reg of registros) {
+        const alumno_id = mapaAlumnos.get(reg.matricula);
+        if (alumno_id) {
+            const { error } = await supabaseAdmin.from('asistencias').upsert({
+                materia_id,
+                alumno_id,
+                fecha: reg.fecha,
+                unidad: reg.unidad,
+                sesion: reg.sesion,
+                presente: reg.presente
+            }, { onConflict: 'fecha,unidad,sesion,alumno_id' });
+            
+            if (!error) insertados++;
+        } else {
+            omitidos++;
+        }
     }
 
-    // 4. Llamar a la función RPC de Supabase para hacer el UPSERT
-    // Usamos un cliente con el token del *usuario* para que las RLS y el 'auth.uid()' en la RPC funcionen.
-    const supabaseUserClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-    
-    const { data: rpcData, error: rpcError } = await supabaseUserClient.rpc(
-      'sincronizar_asistencias_desde_sheet',
-      {
-        p_materia_id: materia_id,
-        p_asistencias: asistenciasDesdeSheet
-      }
-    );
-
-    if (rpcError) throw rpcError;
-
-    return new Response(JSON.stringify(rpcData), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    });
+    return new Response(JSON.stringify({ 
+        message: "Sincronización completada.",
+        insertados,
+        omitidos_matricula_no_encontrada: omitidos
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
-    return new Response(JSON.stringify({ message: errorMessage }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    });
+    return new Response(JSON.stringify({ message: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
   }
 });
