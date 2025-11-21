@@ -5,6 +5,7 @@ import * as qrCodeLib from 'qrcode.react';
 import { useNotification } from '../../context/NotificationContext';
 import { supabase } from '../../supabaseClient';
 import './Asistencia.css';
+import { FaSync, FaLock, FaQrcode, FaTimes } from 'react-icons/fa';
 
 const Asistencia = () => {
     const { id: materia_id } = useParams();
@@ -21,12 +22,13 @@ const Asistencia = () => {
     const [sesionesCerradasHoy, setSesionesCerradasHoy] = useState(new Set());
     const [realtimeStatus, setRealtimeStatus] = useState('DISCONNECTED');
     const [unidadesCerradas, setUnidadesCerradas] = useState(new Set());
-    const [isSyncing, setIsSyncing] = useState(false); // Estado nuevo
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [isClosingUnit, setIsClosingUnit] = useState(false);
 
     const { showNotification } = useNotification();
     const channelRef = useRef(null);
 
-    // --- 1. CARGA INICIAL DE DATOS ---
+    // --- 1. CARGA INICIAL ---
     useEffect(() => {
         const loadInitialData = async () => {
             setLoading(true);
@@ -99,7 +101,7 @@ const Asistencia = () => {
         }
     }, [sesionActiva, timer]);
 
-    // --- FUNCIONES DE ACCIÓN ---
+    // --- 4. HANDLERS ---
 
     const handleGenerarQR = async () => {
         try {
@@ -117,7 +119,6 @@ const Asistencia = () => {
             setTimer(300);
             setSesionActiva(true);
 
-            // Cargar asistencias previas para mostrar en la lista
             const fechaHoy = new Date().toISOString().slice(0, 10);
             const { data: prev } = await supabase.from('asistencias').select('alumno_id, presente')
                 .eq('materia_id', materia_id).eq('unidad', unidad).eq('sesion', sesion).eq('fecha', fechaHoy);
@@ -136,7 +137,6 @@ const Asistencia = () => {
         setSesionActiva(false);
     };
 
-    // NUEVO HANDLER: Sincronizar desde Sheets
     const handleSyncFromSheets = async () => {
         if (!window.confirm("¿Sincronizar desde Google Sheets?\nEsto traerá los datos del Excel a la base de datos.")) return;
         
@@ -148,7 +148,6 @@ const Asistencia = () => {
             if (error) throw error;
             showNotification(`Sincronizado: ${data.message}`, 'success');
             
-            // Recargar vista si está activa
             if (sesionActiva) {
                 const fechaHoy = new Date().toISOString().slice(0, 10);
                 const { data: prev } = await supabase.from('asistencias').select('alumno_id, presente')
@@ -161,6 +160,37 @@ const Asistencia = () => {
             showNotification("Error al sincronizar: " + error.message, 'error');
         } finally {
             setIsSyncing(false);
+        }
+    };
+
+    const handleCerrarUnidad = async () => {
+        if (!window.confirm(`¿Seguro que deseas CERRAR la Unidad ${unidad}?\nSe calcularán porcentajes finales en Google Sheets.`)) return;
+
+        setIsClosingUnit(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('cerrar-unidad-asistencia', {
+                body: { 
+                    materia_id: parseInt(materia_id), 
+                    unidad: parseInt(unidad) 
+                }
+            });
+
+            if (error) throw error;
+
+            const { error: dbError } = await supabase
+                .from('unidades_cerradas')
+                .insert({ materia_id: parseInt(materia_id), unidad: parseInt(unidad) });
+            
+            if (dbError && !dbError.message.includes('duplicate')) throw dbError;
+
+            showNotification(data.message || "Unidad cerrada exitosamente.", 'success');
+            setUnidadesCerradas(prev => new Set(prev).add(parseInt(unidad)));
+
+        } catch (error) {
+            console.error("Error cerrando unidad:", error);
+            showNotification("Error al cerrar unidad: " + error.message, 'error');
+        } finally {
+            setIsClosingUnit(false);
         }
     };
 
@@ -183,7 +213,7 @@ const Asistencia = () => {
         const nuevoEstado = !asistenciasHoy.get(alumno_id);
         const fechaHoy = new Date().toISOString().slice(0, 10);
         
-        setAsistenciasHoy(prev => new Map(prev).set(alumno_id, nuevoEstado)); // Optimista
+        setAsistenciasHoy(prev => new Map(prev).set(alumno_id, nuevoEstado));
 
         const { error } = await supabase.from('asistencias').upsert({
             fecha: fechaHoy,
@@ -196,49 +226,61 @@ const Asistencia = () => {
         
         if (error) {
             showNotification("Error al guardar cambio.", 'error');
-            setAsistenciasHoy(prev => new Map(prev).set(alumno_id, !nuevoEstado)); // Revertir
+            setAsistenciasHoy(prev => new Map(prev).set(alumno_id, !nuevoEstado));
         }
     };
 
-    const unidadActualCerrada = unidadesCerradas.has(parseInt(unidad, 10));
     const sesionActualCerradaHoy = sesionesCerradasHoy.has(`${unidad}-${sesion}`);
+    const unidadActualCerrada = unidadesCerradas.has(parseInt(unidad, 10));
 
     if (loading) return <div className="loading-spinner">Cargando...</div>;
 
     return (
         <div className="asistencia-panel">
-            {/* BARRA SUPERIOR (Tu diseño original restaurado) */}
             <div className="pase-lista-controles">
                 <div className="controles-accion">
-                {!showConfig ? (
-                    <button onClick={() => setShowConfig(true)} className="btn-primary btn-crear-pase">
-                        ＋ Crear Pase de Lista
-                    </button>
-                ) : (
-                    <div className="config-bar">
-                        <label>Unidad:</label>
-                                <select value={unidad} onChange={e => setUnidad(e.target.value)} disabled={sesionActiva}>
+                    {!showConfig ? (
+                        <button onClick={() => setShowConfig(true)} className="btn-primary btn-crear-pase">
+                            ＋ Crear Pase de Lista
+                        </button>
+                    ) : (
+                        <div className="config-bar">
+                            <label>Unidad:</label>
+                            <select value={unidad} onChange={e => setUnidad(e.target.value)} disabled={sesionActiva}>
                                 {Array.from({ length: materia?.unidades || 1 }, (_, i) => i + 1).map(u => (
-                                        <option key={u} value={u}>{u}</option>
-                                    ))}
-                                </select>
-                        <label>Sesión:</label>
-                                <select value={sesion} onChange={e => setSesion(e.target.value)} disabled={sesionActiva}>
-                                {[1, 2, 3, 4, 5].map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                        <button 
+                                    <option key={u} value={u}>{u}</option>
+                                ))}
+                            </select>
+                            <label>Sesión:</label>
+                            <select value={sesion} onChange={e => setSesion(e.target.value)} disabled={sesionActiva}>
+                                {/* --- 3 SESIONES --- */}
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+                            <button 
                                 onClick={handleGenerarQR} 
                                 className="btn-primary" 
                                 disabled={sesionActiva || sesionActualCerradaHoy || unidadActualCerrada}
                             >
-                            {unidadActualCerrada ? 'Unidad Cerrada' : (sesionActualCerradaHoy ? 'Sesión ya cerrada' : 'Generar QR')}
-                        </button>
-                        <button onClick={handleCancelar} className="btn-tertiary">Cancelar</button>
-                    </div>
-                )}
+                                {unidadActualCerrada ? 'Unidad Cerrada' : (sesionActualCerradaHoy ? 'Sesión ya cerrada' : 'Generar QR')}
+                            </button>
+
+                            {/* --- BOTÓN RESTAURADO --- */}
+                            <button 
+                                onClick={handleCerrarUnidad} 
+                                className="btn-danger"
+                                disabled={sesionActiva || unidadActualCerrada || isClosingUnit}
+                                title="Calcula promedios y cierra la unidad"
+                            >
+                                {isClosingUnit ? 'Procesando...' : (unidadActualCerrada ? <><FaLock/> Cerrada</> : 'Cerrar Unidad')}
+                            </button>
+
+                            <button onClick={handleCancelar} className="btn-tertiary"><FaTimes/> Cancelar</button>
+                        </div>
+                    )}
                 </div>
                 
-                {/* Botón de Sincronización a la derecha */}
                 <div className="controles-cierre">
                     <button 
                         onClick={handleSyncFromSheets} 
@@ -255,7 +297,6 @@ const Asistencia = () => {
                 <div className="info-message">La Unidad {unidad} ya ha sido cerrada.</div>
             )}
 
-            {/* VISTA DE QR Y LISTA (Tu diseño original restaurado) */}
             {sesionActiva && (
                 <div className="qr-display">
                     <h3>Escanea para registrar tu asistencia</h3>
