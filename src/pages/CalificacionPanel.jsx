@@ -93,9 +93,18 @@ const CalificacionPanel = () => {
             {/* Header */}
             <div className="calificacion-header">
                 <div>
-                    <Link to={`/materia/${actividad?.materia_id}/actividades`} className="back-link">
+                    {/* --- CORRECCIÓN DEL LINK --- */}
+                    {/* Quitamos "/actividades" de la URL porque esa ruta no existe en App.jsx */}
+                    {/* Pasamos state por si tu MateriaPanel soporta abrir pestañas específicas */}
+                    <Link 
+                        to={actividad ? `/materia/${actividad.materia_id}` : '#'} 
+                        state={{ initialTab: 'actividades' }}
+                        className="back-link"
+                    >
                         <FaArrowLeft /> Volver a Actividades
                     </Link>
+                    {/* --------------------------- */}
+                    
                     <h2>{actividad ? actividad.nombre : 'Cargando actividad...'}</h2>
                     <p className="subtitle">Panel de Evaluación</p>
                 </div>
