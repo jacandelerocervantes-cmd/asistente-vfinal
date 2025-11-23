@@ -1,8 +1,8 @@
 // src/components/materia_panel/ActividadForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { useNotification } from '../../context/NotificationContext'; // <-- 1. IMPORTAR EL HOOK
-import { FaSpinner } from 'react-icons/fa';
+import { useNotification } from '../../context/NotificationContext';
+import { FaSpinner, FaInfoCircle } from 'react-icons/fa'; 
 import './ActividadForm.css';
 
 const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnidad }) => {
@@ -15,18 +15,16 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
     const [loadingRubric, setLoadingRubric] = useState(false);
     const isEditing = Boolean(actividadToEdit);
     
-    const { showNotification } = useNotification(); // <-- 2. OBTENER LA FUNCIÓN
+    const { showNotification } = useNotification();
 
-    // useEffect para cargar todos los datos de la actividad en modo edición
+    // Cargar datos si es edición
     useEffect(() => {
         if (isEditing && actividadToEdit) {
-            setLoading(true); // Muestra un indicador de carga
+            setLoading(true);
             supabase.functions.invoke('get-activity-details', {
                 body: { actividad_id: actividadToEdit.id }
             }).then(({ data, error }) => {
                 if (error) throw error;
-                
-                // Llena el formulario con los datos obtenidos
                 setNombre(data.nombre);
                 setUnidad(data.unidad);
                 setTipoEntrega(data.tipo_entrega);
@@ -37,12 +35,11 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
             }).catch(error => {
                 const errorMessage = error.context?.details || error.message || "Error al cargar detalles.";
                 showNotification(errorMessage, 'error');
-                // alert("Error al cargar los detalles de la actividad: " + error.message); // <-- REEMPLAZADO
             }).finally(() => {
                 setLoading(false);
             });
         }
-    }, [actividadToEdit, isEditing, showNotification]); // <-- Añadir showNotification a dependencias
+    }, [actividadToEdit, isEditing, showNotification]);
 
     const handleCriterioChange = (index, field, value) => {
         const nuevosCriterios = [...criterios];
@@ -65,9 +62,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
 
     const handleSuggestRubric = async () => {
         if (!descripcion) {
-            // --- 3. REFACTORIZAR ERROR ---
             showNotification("Escribe una descripción para generar la rúbrica.", 'warning');
-            // alert("Por favor, escribe una descripción..."); // <-- REEMPLAZADO
             return;
         }
         setLoadingRubric(true);
@@ -80,16 +75,13 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
 
             if (data.criterios && data.criterios.length > 0) {
                 setCriterios(data.criterios);
-                showNotification("Rúbrica generada con éxito.", 'success'); // <-- Éxito
+                showNotification("Rúbrica generada con éxito.", 'success');
             } else {
                 showNotification("La IA no pudo generar una rúbrica válida.", 'warning');
-                // alert("La IA no pudo generar..."); // <-- REEMPLAZADO
             }
         } catch (error) {
-            // --- 3. REFACTORIZAR ERROR (Estándar) ---
             const errorMessage = error.context?.details || error.message || "Error al generar la rúbrica.";
             showNotification(errorMessage, 'error');
-            // alert("Error al generar la rúbrica con IA: " + error.message); // <-- REEMPLAZADO
         } finally {
             setLoadingRubric(false);
         }
@@ -100,9 +92,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (totalPuntos !== 100) {
-            // --- 3. REFACTORIZAR ERROR ---
             showNotification(`La suma debe ser 100. Actualmente es: ${totalPuntos}.`, 'error');
-            // alert(`La suma de los puntos...`); // <-- REEMPLAZADO
             return;
         }
         setLoading(true);
@@ -116,7 +106,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
-                descripcion: descripcion, // Guardamos también la descripción
+                descripcion: descripcion,
             };
 
             if (isEditing) {
@@ -129,20 +119,55 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
 
             if (error) throw error;
 
-            showNotification(data.message, 'success'); // <-- 4. REFACTORIZAR ÉXITO
-            // alert(data.message); // <-- REEMPLAZADO
+            showNotification(data.message, 'success');
             onSave(data.actividad);
 
-        } catch (error) { // --- 3. REFACTORIZAR ERROR (Estándar) ---
+        } catch (error) {
             const errorMessage = error.context?.details || error.message || "Error al guardar la actividad.";
             showNotification(errorMessage, 'error');
-            // alert(`Error al ${isEditing ? 'actualizar' : 'crear'}...`); // <-- REEMPLAZADO
         } finally {
             setLoading(false);
         }
     };
 
-    // ... (return JSX sin cambios) ...
+    // --- Función corregida para renderizar la instrucción de nomenclatura ---
+    const renderNamingInstruction = () => {
+        let instruction = "";
+        let detail = "";
+        let exampleFile = "";
+
+        if (tipoEntrega === 'individual') {
+            instruction = "[MATRICULA]_[NombreArchivo]";
+            detail = "Cada alumno debe subir su propio archivo. El sistema detecta la matrícula al inicio del nombre.";
+            exampleFile = "H001_EnsayoJuan.pdf";
+        } else if (tipoEntrega === 'grupal') {
+            instruction = "[MATRICULA_LIDER]_[NombreArchivo]";
+            detail = "Solo un integrante (el líder) sube el archivo. El sistema buscará su equipo y asignará la entrega a todos.";
+            exampleFile = "H001_ProyectoEquipoAlfa.pdf";
+        } else {
+            instruction = "Igual que Grupal o Individual";
+            detail = "Si el alumno tiene equipo, se asigna a todos. Si no tiene equipo, se asigna solo a él.";
+            exampleFile = "H001_Actividad.pdf";
+        }
+
+        return (
+            <div className={`instruction-box ${tipoEntrega}`}>
+                <div className="icon-area">
+                    <FaInfoCircle />
+                </div>
+                <div className="text-area">
+                    <strong>Instrucción para Alumnos ({tipoEntrega}):</strong>
+                    <p>{detail}</p>
+                    <div className="filename-example">
+                        Formato: <span className="code">{instruction}</span>
+                        <br/>
+                        Ejemplo: <span className="code">{exampleFile}</span>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     if (loading && isEditing) {
         return <p>Cargando datos de la actividad...</p>;
     }
@@ -174,7 +199,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                             id="tipo_entrega"
                             value={tipoEntrega}
                             onChange={(e) => setTipoEntrega(e.target.value)}
-                            disabled={isEditing} // <-- AÑADE ESTA LÍNEA
+                            disabled={isEditing}
                         >
                             <option value="individual">Individual</option>
                             <option value="grupal">Grupal</option>
@@ -183,6 +208,9 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                         {isEditing && <small>El tipo de entrega no se puede modificar después de crear la actividad.</small>}
                     </div>
                 </div>
+
+                {/* --- CAJA DE INSTRUCCIONES --- */}
+                {renderNamingInstruction()}
     
                 <div className="form-group">
                     <label htmlFor="descripcion_actividad">Descripción de la Actividad</label>
@@ -191,7 +219,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                         rows="4"
                         value={descripcion}
                         onChange={(e) => setDescripcion(e.target.value)}
-                        placeholder="Describe detalladamente qué deben hacer los alumnos. Esto servirá de contexto para la IA."
+                        placeholder="Describe detalladamente qué deben hacer los alumnos..."
                     ></textarea>
                 </div>
     
@@ -209,7 +237,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                                 <input
                                     type="text"
                                     placeholder="Descripción del criterio..."
-                                    value={criterio.descripcion}
+                                    value={criterio.descripcion || ''}
                                     onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
                                 />
                                 <input

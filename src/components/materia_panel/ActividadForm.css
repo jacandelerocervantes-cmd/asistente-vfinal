@@ -44,3 +44,61 @@
     margin-bottom: 10px;
     align-items: center;
 }
+
+/* Estilos para la Caja de Instrucciones */
+.instruction-box {
+    display: flex;
+    gap: 15px;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border-left: 5px solid #ccc;
+    background-color: #f9fafb;
+    font-size: 0.95rem;
+}
+
+.instruction-box.individual {
+    border-color: #3b82f6; /* Azul */
+    background-color: #eff6ff;
+    color: #1e40af;
+}
+
+.instruction-box.grupal {
+    border-color: #10b981; /* Verde */
+    background-color: #ecfdf5;
+    color: #065f46;
+}
+
+.instruction-box.mixta {
+    border-color: #f59e0b; /* Naranja */
+    background-color: #fffbeb;
+    color: #92400e;
+}
+
+.icon-area {
+    font-size: 1.4rem;
+    padding-top: 2px;
+}
+
+.text-area strong {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 1rem;
+}
+
+.filename-example {
+    margin-top: 10px;
+    padding: 8px;
+    background-color: rgba(255,255,255,0.6);
+    border: 1px solid rgba(0,0,0,0.05);
+    border-radius: 4px;
+}
+
+.filename-example .code {
+    font-family: monospace;
+    font-weight: bold;
+    background-color: #fff;
+    padding: 2px 5px;
+    border-radius: 3px;
+    border: 1px solid #e5e7eb;
+}
