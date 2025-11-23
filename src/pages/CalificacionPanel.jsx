@@ -1,30 +1,32 @@
 // src/pages/CalificacionPanel.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom'; 
 import { supabase } from '../supabaseClient';
 import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
-import { FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, FaRobot } from 'react-icons/fa';
+import { FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, FaRobot, FaCheckSquare, FaSquare } from 'react-icons/fa';
 
 const CalificacionPanel = () => {
-    const { id: actividadId } = useParams(); // Corregido: leemos 'id' de la URL
+    const { id: actividadId } = useParams();
     const [actividad, setActividad] = useState(null);
     const [loadingData, setLoadingData] = useState(true); // Estado para carga inicial de DB
     const [isSyncing, setIsSyncing] = useState(false);    // Estado para la sincronización en 2do plano
     const [calificaciones, setCalificaciones] = useState([]);
+    
+    // --- NUEVO: Estado para selección múltiple ---
+    const [selectedIds, setSelectedIds] = useState(new Set());
+    const [isStartingBulk, setIsStartingBulk] = useState(false);
+
     const { showNotification } = useNotification();
 
-    // 1. Cargar Información de la Actividad y Alumnos (Lo rápido)
     const fetchLocalData = useCallback(async () => {
         if (!actividadId) return;
         try {
-            // Cargar detalles de la actividad
             const { data: actData, error: actError } = await supabase
                 .from('actividades').select('*').eq('id', actividadId).single();
             if (actError) throw actError;
             setActividad(actData);
 
-            // Cargar lista de entregas/alumnos desde la BD
             const { data: calData, error: calError } = await supabase
                 .from('calificaciones')
                 .select('*, alumnos(id, nombre, apellido, matricula)')
@@ -42,7 +44,6 @@ const CalificacionPanel = () => {
         }
     }, [actividadId, showNotification]);
 
-    // 2. Sincronizar con Drive (Lo lento, va en segundo plano)
     const syncWithDrive = useCallback(async (silent = false) => {
         if (!actividadId) return;
         setIsSyncing(true);
@@ -55,10 +56,9 @@ const CalificacionPanel = () => {
 
             if (error) throw error;
 
-            // Si hubo cambios, recargamos la lista local
             if (data.nuevos > 0) {
                 showNotification(`Se encontraron ${data.nuevos} entregas nuevas.`, 'success');
-                await fetchLocalData(); // Recargar lista para mostrar lo nuevo
+                await fetchLocalData();
             } else if (!silent) {
                 showNotification('Todo actualizado. No hay archivos nuevos.', 'success');
             }
@@ -71,15 +71,67 @@ const CalificacionPanel = () => {
         }
     }, [actividadId, showNotification, fetchLocalData]);
 
-    // Efecto de Montaje: Carga datos Y dispara sincronización
     useEffect(() => {
         if (actividadId) {
-            fetchLocalData();      // 1. Muestra lo que hay rápido
-            syncWithDrive(true);   // 2. Busca novedades en silencio
+            fetchLocalData();
+            syncWithDrive(true);
         }
     }, [actividadId, fetchLocalData, syncWithDrive]);
 
-    // Helper para iconos
+    // --- NUEVO: Lógica de Selección ---
+
+    // Filtrar solo los que se pueden calificar (Entregado o Calificado, que tengan ID)
+    const itemsSelectable = useMemo(() => {
+        return calificaciones.filter(c => c.estado === 'entregado' || c.estado === 'calificado');
+    }, [calificaciones]);
+
+    const handleSelectOne = (id) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleSelectAll = (e) => {
+        if (e.target.checked) {
+            const allIds = itemsSelectable.map(c => c.id);
+            setSelectedIds(new Set(allIds));
+        } else {
+            setSelectedIds(new Set());
+        }
+    };
+
+    // --- NUEVO: Lógica de Evaluación Masiva ---
+    const handleEvaluacionMasiva = async () => {
+        const idsArray = Array.from(selectedIds);
+        if (idsArray.length === 0) return;
+
+        if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} alumnos? Esto se procesará en segundo plano.`)) {
+            return;
+        }
+
+        setIsStartingBulk(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', {
+                body: { calificaciones_ids: idsArray }
+            });
+
+            if (error) throw error;
+
+            showNotification(`Proceso iniciado: ${data.message}`, 'success');
+            setSelectedIds(new Set()); // Limpiar selección
+            fetchLocalData(); // Recargar para ver cambios de estado (a 'pendiente' o 'procesando')
+
+        } catch (error) {
+            console.error("Error evaluacion masiva:", error);
+            showNotification("Error al iniciar evaluación masiva: " + error.message, 'error');
+        } finally {
+            setIsStartingBulk(false);
+        }
+    };
+
     const getStatusIcon = (estado) => {
         switch (estado) {
             case 'calificado': return <FaCheckCircle className="icon-success" />;
@@ -88,31 +140,27 @@ const CalificacionPanel = () => {
         }
     };
 
+    // Checkbox "Todos" state
+    const isAllSelected = itemsSelectable.length > 0 && selectedIds.size === itemsSelectable.length;
+
     return (
         <div className="calificacion-panel-container">
-            {/* Header */}
             <div className="calificacion-header">
                 <div>
-                    {/* --- CORRECCIÓN DEL LINK DE RETORNO --- */}
                     <Link 
-                        // Usamos query param '?tab=actividades'
                         to={actividad ? `/materia/${actividad.materia_id}?tab=actividades` : '#'} 
                         className="back-link"
                     >
                         <FaArrowLeft /> Volver a Actividades
                     </Link>
-                    
                     <h2>{actividad ? actividad.nombre : 'Cargando actividad...'}</h2>
                     <p className="subtitle">Panel de Evaluación</p>
                 </div>
-                
                 <div className="header-actions">
-                    {/* Botón discreto para refrescar manualmente si hace falta */}
                     <button 
                         onClick={() => syncWithDrive(false)} 
                         disabled={isSyncing} 
                         className="btn-secondary btn-small icon-button"
-                        title="Buscar archivos nuevos en Drive ahora"
                     >
                         <FaSync className={isSyncing ? 'spin' : ''} /> 
                         {isSyncing ? ' Buscando...' : ' Actualizar Lista'}
@@ -120,10 +168,32 @@ const CalificacionPanel = () => {
                 </div>
             </div>
 
-            {/* Tabla de Alumnos */}
+            {/* --- NUEVO: Barra de Acciones Masivas --- */}
+            {selectedIds.size > 0 && (
+                <div className="bulk-actions-bar fade-in">
+                    <span>{selectedIds.size} seleccionados</span>
+                    <button 
+                        onClick={handleEvaluacionMasiva} 
+                        disabled={isStartingBulk}
+                        className="btn-primary icon-button"
+                    >
+                        {isStartingBulk ? <FaSync className="spin"/> : <FaRobot />}
+                        {isStartingBulk ? 'Iniciando...' : 'Evaluar Seleccionados con IA'}
+                    </button>
+                </div>
+            )}
+
             <div className="alumnos-list-container">
                 <div className="list-header">
-                    <span style={{width: '40px'}}></span>
+                    {/* --- NUEVO: Checkbox Seleccionar Todos --- */}
+                    <div style={{width: '40px', display: 'flex', justifyContent: 'center'}}>
+                        <input 
+                            type="checkbox" 
+                            onChange={handleSelectAll} 
+                            checked={isAllSelected}
+                            disabled={itemsSelectable.length === 0}
+                        />
+                    </div>
                     <span style={{flex: 2}}>Alumno / Equipo</span>
                     <span style={{flex: 1}}>Estado</span>
                     <span style={{flex: 1, textAlign: 'center'}}>Calificación</span>
@@ -134,53 +204,69 @@ const CalificacionPanel = () => {
                     <div className="loading-state">Cargando lista de alumnos...</div>
                 ) : (
                     <ul className="alumnos-list">
-                        {calificaciones.length > 0 ? calificaciones.map(cal => (
-                            <li key={cal.id} className={cal.estado === 'calificado' ? 'calificado-row' : ''}>
-                                <div className="status-icon-col">
-                                    {getStatusIcon(cal.estado)}
-                                </div>
-                                
-                                <div className="alumno-info">
-                                    <span className="entregable-nombre">
-                                        {cal.alumnos?.nombre} {cal.alumnos?.apellido}
-                                    </span>
-                                    <div className="matricula-text">
-                                        {cal.alumnos?.matricula}
+                        {calificaciones.length > 0 ? calificaciones.map(cal => {
+                            const canSelect = cal.estado === 'entregado' || cal.estado === 'calificado';
+                            return (
+                                <li key={cal.id} className={cal.estado === 'calificado' ? 'calificado-row' : ''}>
+                                    
+                                    {/* --- NUEVO: Checkbox Individual --- */}
+                                    <div style={{width: '40px', display: 'flex', justifyContent: 'center'}}>
+                                        {canSelect && (
+                                            <input 
+                                                type="checkbox"
+                                                checked={selectedIds.has(cal.id)}
+                                                onChange={() => handleSelectOne(cal.id)}
+                                            />
+                                        )}
                                     </div>
-                                </div>
 
-                                <div>
-                                    <span className={`status-pill ${cal.estado || 'pendiente'}`}>
-                                        {cal.estado === 'entregado' ? 'Entregado' : 
-                                         cal.estado === 'calificado' ? 'Calificado' : 'Pendiente'}
-                                    </span>
-                                </div>
-
-                                <div className="calificacion-display">
-                                    {cal.calificacion_obtenida ? (
-                                        <span className={cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}>
-                                            {cal.calificacion_obtenida}
+                                    <div className="status-icon-col">
+                                        {getStatusIcon(cal.estado)}
+                                    </div>
+                                    
+                                    <div className="alumno-info">
+                                        <span className="entregable-nombre">
+                                            {cal.alumnos?.nombre} {cal.alumnos?.apellido}
                                         </span>
-                                    ) : '-'}
-                                </div>
+                                        <div className="matricula-text">
+                                            {cal.alumnos?.matricula}
+                                        </div>
+                                    </div>
 
-                                <div style={{textAlign: 'right'}}>
-                                    {cal.estado === 'entregado' || cal.estado === 'calificado' ? (
-                                        <Link 
-                                            to={`/evaluacion/${cal.id}/calificar`} 
-                                            className="btn-primary btn-small"
-                                        >
-                                            <FaRobot /> Evaluar con IA
-                                        </Link>
-                                    ) : (
-                                        <span className="no-file-text">Sin archivo</span>
-                                    )}
-                                </div>
-                            </li>
-                        )) : (
+                                    <div>
+                                        <span className={`status-pill ${cal.estado || 'pendiente'}`}>
+                                            {cal.estado === 'entregado' ? 'Entregado' : 
+                                             cal.estado === 'calificado' ? 'Calificado' : 
+                                             cal.estado === 'procesando' ? 'Evaluando IA...' :
+                                             'Pendiente'}
+                                        </span>
+                                    </div>
+
+                                    <div className="calificacion-display">
+                                        {cal.calificacion_obtenida ? (
+                                            <span className={cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}>
+                                                {cal.calificacion_obtenida}
+                                            </span>
+                                        ) : '-'}
+                                    </div>
+
+                                    <div style={{textAlign: 'right'}}>
+                                        {/* Mantenemos el botón individual por si acaso */}
+                                        {(cal.estado === 'entregado' || cal.estado === 'calificado') && (
+                                            <Link 
+                                                to={`/evaluacion/${cal.id}/calificar`} 
+                                                className="btn-secondary btn-small btn-icon-only"
+                                                title="Ver detalle / Evaluar individual"
+                                            >
+                                                <FaRobot />
+                                            </Link>
+                                        )}
+                                    </div>
+                                </li>
+                            );
+                        }) : (
                             <div className="empty-state">
                                 <p>No se encontraron entregas todavía.</p>
-                                {isSyncing && <p><small>Buscando en Drive...</small></p>}
                             </div>
                         )}
                     </ul>

@@ -3,6 +3,11 @@ import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
+interface DriveFile {
+  id: string;
+  name: string;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -10,12 +15,28 @@ serve(async (req: Request) => {
     const { actividad_id } = await req.json();
     if (!actividad_id) throw new Error("Falta actividad_id");
 
+    // 1. Obtener el usuario (Docente) que llama a la función
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error("No autorizado");
+
+    const supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL')!,
+        Deno.env.get('SUPABASE_ANON_KEY')!,
+        { global: { headers: { Authorization: authHeader } } }
+    );
+    
+    const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
+    if (userError || !user) throw new Error("Usuario no autenticado.");
+    
+    const docenteUserId = user.id; // <--- ESTE ES EL ID QUE USAREMOS
+
+    // 2. Cliente Admin para operaciones de base de datos
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // 1. Obtener datos de la actividad
+    // 3. Obtener datos de la actividad
     const { data: actividad, error: actError } = await supabaseAdmin
         .from('actividades')
         .select('drive_folder_entregas_id, materia_id')
@@ -26,7 +47,7 @@ serve(async (req: Request) => {
         throw new Error("La actividad no tiene carpeta de entregas vinculada.");
     }
 
-    // 2. Llamar a Apps Script (CORREGIDO: nombre de parámetro exacto)
+    // 4. Llamar a Apps Script
     const googleUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
     console.log(`Consultando Drive Folder: ${actividad.drive_folder_entregas_id}`);
     
@@ -35,23 +56,35 @@ serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             action: 'get_folder_contents', 
-            drive_folder_id: actividad.drive_folder_entregas_id // <--- ¡AQUÍ ESTABA EL ERROR!
+            drive_folder_id: actividad.drive_folder_entregas_id
         })
     });
 
     if (!response.ok) throw new Error(`Error Google: ${response.status} ${response.statusText}`);
     const googleData = await response.json();
-    const archivos = googleData.archivos || googleData.data || googleData.files || []; 
 
-    console.log(`Google devolvió ${archivos.length} archivos.`);
+    // Manejo robusto de la respuesta de Google
+    // { status: 'success', archivos: { folders: [...], files: [...] } }
+    // Debemos acceder a googleData.archivos.files
+    let archivos: DriveFile[] = [];
+    
+    if (googleData.archivos && Array.isArray(googleData.archivos.files)) {
+        archivos = googleData.archivos.files;
+    } else if (Array.isArray(googleData.files)) {
+        archivos = googleData.files;
+    } else if (Array.isArray(googleData.archivos)) {
+        archivos = googleData.archivos;
+    }
 
-    // 3. Sincronizar con BD
+    console.log(`Google devolvió ${archivos.length} archivos (entregas).`);
+
+    // 5. Sincronizar con BD
     let nuevos = 0;
     const detalles = [];
     
     const { data: alumnos } = await supabaseAdmin
         .from('alumnos')
-        .select('id, matricula')
+        .select('id, matricula') // Ya no necesitamos user_id del alumno aquí estrictamente
         .eq('materia_id', actividad.materia_id);
         
     const mapaAlumnos = new Map();
@@ -60,7 +93,7 @@ serve(async (req: Request) => {
     });
 
     for (const archivo of archivos) {
-        const nombreArchivo = archivo.name.toUpperCase();
+        const nombreArchivo = archivo.name ? archivo.name.toUpperCase() : "";
         let encontrado = false;
 
         for (const [matricula, alumnoId] of mapaAlumnos) {
@@ -72,17 +105,19 @@ serve(async (req: Request) => {
                         alumno_id: alumnoId,
                         estado: 'entregado',
                         evidencia_drive_file_id: archivo.id,
-                        user_id: '481ce051-0e9a-4bd7-9e96-6c095a63183a' // ID temporal docente
+                        user_id: docenteUserId // <--- CORRECCIÓN: Usamos el ID del docente
                     }, { onConflict: 'actividad_id, alumno_id' });
                 
                 if (!upsertError) {
                     nuevos++;
                     encontrado = true;
                     detalles.push(`Vinculado: ${archivo.name} -> Alumno ID ${alumnoId}`);
+                } else {
+                    console.error("Error upsert:", upsertError);
                 }
             }
         }
-        if (!encontrado) detalles.push(`Ignorado: ${archivo.name}`);
+        if (!encontrado) detalles.push(`Ignorado (sin matrícula coincidente): ${archivo.name}`);
     }
 
     return new Response(JSON.stringify({ 
