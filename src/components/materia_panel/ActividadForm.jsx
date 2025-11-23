@@ -2,10 +2,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useNotification } from '../../context/NotificationContext'; // <-- 1. IMPORTAR EL HOOK
+import { FaSpinner } from 'react-icons/fa';
+import './ActividadForm.css';
 
-const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
+const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnidad }) => {
     const [nombre, setNombre] = useState('');
-    const [unidad, setUnidad] = useState(1);
+    const [unidad, setUnidad] = useState(initialUnidad || 1);
     const [descripcion, setDescripcion] = useState('');
     const [tipoEntrega, setTipoEntrega] = useState('individual');
     const [criterios, setCriterios] = useState([{ descripcion: '', puntos: 50 }, { descripcion: '', puntos: 50 }]);
@@ -146,15 +148,17 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
     }
 
     return (
-        <div className="actividad-form-container card">
-            <form onSubmit={handleSubmit} className="materia-form">
+        <div className="form-wrapper fade-in">
+            <div className="form-header">
                 <h3>{isEditing ? 'Editar Actividad' : 'Nueva Actividad'}</h3>
-                
+            </div>
+            
+            <form onSubmit={handleSubmit} className="materia-form">
                 <div className="form-group">
                     <label htmlFor="nombre_actividad">Nombre de la Actividad</label>
                     <input id="nombre_actividad" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
                 </div>
-
+    
                 <div className="form-group-horizontal">
                     <div className="form-group">
                         <label htmlFor="unidad_actividad">Unidad</label>
@@ -166,9 +170,9 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
                     </div>
                     <div className="form-group">
                         <label htmlFor="tipo_entrega">Tipo de Entrega</label>
-                        <select 
-                            id="tipo_entrega" 
-                            value={tipoEntrega} 
+                        <select
+                            id="tipo_entrega"
+                            value={tipoEntrega}
                             onChange={(e) => setTipoEntrega(e.target.value)}
                             disabled={isEditing} // <-- AÑADE ESTA LÍNEA
                         >
@@ -176,59 +180,59 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel }) => {
                             <option value="grupal">Grupal</option>
                             <option value="mixta">Mixta</option>
                         </select>
-                        {/* Mensaje de ayuda opcional */}
                         {isEditing && <small>El tipo de entrega no se puede modificar después de crear la actividad.</small>}
                     </div>
                 </div>
-
+    
                 <div className="form-group">
                     <label htmlFor="descripcion_actividad">Descripción de la Actividad</label>
-                    <textarea 
-                        id="descripcion_actividad" 
-                        rows="4" 
+                    <textarea
+                        id="descripcion_actividad"
+                        rows="4"
                         value={descripcion}
                         onChange={(e) => setDescripcion(e.target.value)}
                         placeholder="Describe detalladamente qué deben hacer los alumnos. Esto servirá de contexto para la IA."
                     ></textarea>
                 </div>
-
-                <h4 style={{ color: totalPuntos !== 100 ? '#e53e3e' : 'inherit' }}>
-                    Rúbrica de Evaluación (Total: {totalPuntos} / 100 pts)
-                </h4>
-                
-                <button type="button" onClick={handleSuggestRubric} disabled={loadingRubric || loading} className="btn-secondary">
-                    {loadingRubric ? 'Generando...' : '✨ Sugerir Rúbrica con IA'}
-                </button>
-
-                <ul className="criterios-list">
-                    {criterios.map((criterio, index) => (
-                        <li key={index} className="criterio-item">
-                            <input
-                                type="text"
-                                placeholder={`Criterio de evaluación ${index + 1}`}
-                                value={criterio.descripcion}
-                                onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
-                                required
-                            />
-                            <input
-                                type="number"
-                                min="0"
-                                className="puntos-input"
-                                placeholder="Puntos"
-                                value={criterio.puntos}
-                                onChange={(e) => handleCriterioChange(index, 'puntos', e.target.value)}
-                                required
-                            />
-                            <button type="button" onClick={() => handleRemoveCriterio(index)} className="btn-danger">X</button>
-                        </li>
-                    ))}
-                </ul>
-                <button type="button" onClick={handleAddCriterio} className="btn-secondary">＋ Añadir Criterio</button>
-
+    
+                <div className="rubrica-section">
+                    <div className="rubrica-header">
+                        <h4 style={{margin:0}}>Rúbrica de Evaluación ({totalPuntos}/100)</h4>
+                        <button type="button" onClick={handleSuggestRubric} className="btn-secondary btn-small">
+                            {loadingRubric ? <FaSpinner className="spin"/> : '✨ IA'} Sugerir
+                        </button>
+                    </div>
+    
+                    <div className="criterios-list">
+                        {criterios.map((criterio, index) => (
+                            <div key={index} className="criterio-row">
+                                <input
+                                    type="text"
+                                    placeholder="Descripción del criterio..."
+                                    value={criterio.descripcion}
+                                    onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
+                                />
+                                <input
+                                    type="number"
+                                    placeholder="Pts"
+                                    value={criterio.puntos}
+                                    onChange={(e) => handleCriterioChange(index, 'puntos', e.target.value)}
+                                />
+                                <button type="button" onClick={() => handleRemoveCriterio(index)} className="btn-danger btn-small">
+                                    &times;
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                    <button type="button" onClick={handleAddCriterio} className="btn-tertiary" style={{width:'100%', marginTop:'10px'}}>
+                        + Añadir Criterio
+                    </button>
+                </div>
+    
                 <div className="form-actions">
-                    <button type="button" onClick={onCancel} className="btn-tertiary" disabled={loading}>Cancelar</button>
+                    <button type="button" onClick={onCancel} className="btn-tertiary">Cancelar</button>
                     <button type="submit" className="btn-primary" disabled={loading}>
-                        {loading ? 'Guardando...' : (isEditing ? 'Actualizar Actividad' : 'Guardar Actividad')}
+                        {loading ? <FaSpinner className="spin"/> : (isEditing ? 'Guardar Cambios' : 'Crear Actividad')}
                     </button>
                 </div>
             </form>

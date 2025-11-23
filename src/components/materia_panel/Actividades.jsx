@@ -1,9 +1,10 @@
 // src/components/materia_panel/Actividades.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import ActividadForm from './ActividadForm';
-import ActividadCard from './ActividadCard'; // Se importa la nueva tarjeta
+import ActividadCard from './ActividadCard';
+import { FaPlus, FaTasks, FaSpinner, FaFilter } from 'react-icons/fa';
 import './Actividades.css';
 
 const Actividades = () => {
@@ -11,47 +12,52 @@ const Actividades = () => {
     const [actividades, setActividades] = useState([]);
     const [materia, setMateria] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('list');
+    const [view, setView] = useState('list'); // 'list' | 'form'
     const [actividadToEdit, setActividadToEdit] = useState(null);
+    
+    // Estado para el filtro de unidad (por defecto Unidad 1)
+    const [selectedUnidad, setSelectedUnidad] = useState(1);
 
     useEffect(() => {
-        const fetchInitialData = async () => {
-            setLoading(true);
-            try {
-                const { data: materiaData, error: materiaError } = await supabase
-                    .from('materias')
-                    .select('id, unidades, drive_url')
-                    .eq('id', materia_id)
-                    .single();
-                if (materiaError) throw materiaError;
-                setMateria(materiaData);
+        fetchInitialData();
+    }, [materia_id]);
 
-                const { data: actividadesData, error: actividadesError } = await supabase
-                    .from('actividades')
-                    .select('*')
-                    .eq('materia_id', materia_id)
-                    .order('created_at', { ascending: false });
-                if (actividadesError) throw actividadesError;
-                setActividades(actividadesData);
+    const fetchInitialData = async () => {
+        setLoading(true);
+        try {
+            // Cargar Materia
+            const { data: materiaData, error: materiaError } = await supabase
+                .from('materias')
+                .select('id, unidades, drive_url')
+                .eq('id', materia_id)
+                .single();
+            if (materiaError) throw materiaError;
+            setMateria(materiaData);
 
-            } catch (error) {
-                console.error("Error cargando datos de actividades:", error);
-                alert("No se pudieron cargar los datos de las actividades.");
-            } finally {
-                setLoading(false);
-            }
-        };
+            // Cargar Actividades
+            const { data: actividadesData, error: actividadesError } = await supabase
+                .from('actividades')
+                .select('*')
+                .eq('materia_id', materia_id)
+                .order('created_at', { ascending: false });
+            if (actividadesError) throw actividadesError;
+            setActividades(actividadesData || []);
 
-        if (view === 'list') {
-            fetchInitialData();
+        } catch (error) {
+            console.error("Error:", error);
+        } finally {
+            setLoading(false);
         }
-    }, [materia_id, view]);
+    };
 
-    const handleSave = (nuevaActividad) => {
-        if (nuevaActividad) {
-            setActividades(currentActividades => [nuevaActividad, ...currentActividades]);
-        }
-        setView('list');
+    // Filtrar actividades por la unidad seleccionada
+    const actividadesFiltradas = useMemo(() => {
+        return actividades.filter(act => parseInt(act.unidad) === parseInt(selectedUnidad));
+    }, [actividades, selectedUnidad]);
+
+    const handleCreate = () => {
+        setActividadToEdit(null);
+        setView('form');
     };
 
     const handleEdit = (actividad) => {
@@ -60,67 +66,95 @@ const Actividades = () => {
     };
 
     const handleDelete = async (actividad) => {
-        if (window.confirm(`¿Estás seguro de eliminar la actividad "${actividad.nombre}"? Esto también la borrará de Google Drive.`)) {
-            try {
-                // --- INICIO DEL CAMBIO ---
-                // Ya no usamos supabase.delete() directamente
-                const { error } = await supabase.functions.invoke('eliminar-recurso', {
-                    body: {
-                        recurso_id: actividad.id,
-                        tipo_recurso: 'actividad' // Le decimos a la función qué estamos borrando
-                    }
-                });
-                // --- FIN DEL CAMBIO ---
-
-                if (error) throw error;
-                
-                // Actualización optimista para eliminar de la UI
-                setActividades(current => current.filter(a => a.id !== actividad.id));
-                alert("Actividad eliminada exitosamente de Supabase y Drive.");
-
-            } catch (error) {
-                alert("Error al eliminar la actividad: " + error.message);
-            }
+        if (!window.confirm(`¿Eliminar "${actividad.nombre}"? Se borrará de Drive y BD.`)) return;
+        try {
+            const { error } = await supabase.functions.invoke('eliminar-recurso', {
+                body: { recurso_id: actividad.id, tipo_recurso: 'actividad' }
+            });
+            if (error) throw error;
+            setActividades(prev => prev.filter(a => a.id !== actividad.id));
+        } catch (err) {
+            alert("Error al eliminar: " + err.message);
         }
     };
 
-    if (loading) {
-        return <p>Cargando panel de actividades...</p>;
-    }
+    const handleFormSave = (actividadGuardada) => {
+        setActividades(prev => {
+            const exists = prev.find(a => a.id === actividadGuardada.id);
+            if (exists) return prev.map(a => a.id === actividadGuardada.id ? actividadGuardada : a);
+            return [actividadGuardada, ...prev];
+        });
+        // Si guardamos una actividad, cambiamos el filtro para verla si es necesario
+        if (actividadGuardada.unidad) {
+            setSelectedUnidad(parseInt(actividadGuardada.unidad));
+        }
+        setView('list');
+    };
 
+    if (loading) return <div style={{padding:'2rem', textAlign:'center'}}><FaSpinner className="spinner"/> Cargando...</div>;
+
+    // Renderizado Condicional de Vistas
     if (view === 'form') {
         return (
-            <ActividadForm
-                materia={materia}
-                actividadToEdit={actividadToEdit}
-                onSave={handleSave}
-                onCancel={() => setView('list')}
-            />
+            <div className="actividades-container fade-in">
+                <ActividadForm
+                    materia={materia}
+                    actividadToEdit={actividadToEdit}
+                    initialUnidad={selectedUnidad} // Pasamos la unidad actual como default
+                    onSave={handleFormSave}
+                    onCancel={() => setView('list')}
+                />
+            </div>
         );
     }
 
     return (
-        <div className="actividades-panel">
-            <div className="panel-actions">
-                <button onClick={() => { setActividadToEdit(null); setView('form'); }} className="btn-primary">
-                    ＋ Crear Actividad
-                </button>
+        <div className="actividades-container fade-in">
+            {/* Cabecera Armonizada con Filtro */}
+            <div className="section-header-actions">
+                <h3 className="section-title">
+                    <FaTasks style={{marginRight:'10px'}}/> 
+                    Actividades
+                </h3>
+                
+                <div className="header-controls">
+                    <div className="unidad-selector-wrapper">
+                        <FaFilter className="filter-icon" />
+                        <select 
+                            value={selectedUnidad} 
+                            onChange={(e) => setSelectedUnidad(Number(e.target.value))}
+                            className="unidad-select"
+                        >
+                            {materia && Array.from({ length: materia.unidades }, (_, i) => i + 1).map(num => (
+                                <option key={num} value={num}>Unidad {num}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <button onClick={handleCreate} className="btn-primary icon-button">
+                        <FaPlus /> Nueva Actividad
+                    </button>
+                </div>
             </div>
 
-            <div className="actividades-grid">
-                {actividades.length === 0 ? (
-                    <p>Aún no has creado ninguna actividad para esta materia.</p>
-                ) : (
-                    actividades.map(act => (
+            {/* Grid de Tarjetas Filtradas */}
+            {actividadesFiltradas.length === 0 ? (
+                <div className="empty-state-activities">
+                    <p>No hay actividades registradas en la <strong>Unidad {selectedUnidad}</strong>.</p>
+                    <button onClick={handleCreate} className="btn-secondary">Crear actividad en esta unidad</button>
+                </div>
+            ) : (
+                <div className="actividades-grid">
+                    {actividadesFiltradas.map(act => (
                         <ActividadCard 
                             key={act.id}
                             actividad={act}
                             onEdit={handleEdit}
                             onDelete={handleDelete}
                         />
-                    ))
-                )}
-            </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

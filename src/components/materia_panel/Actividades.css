@@ -1,62 +1,47 @@
 /* src/components/materia_panel/Actividades.css */
-.actividades-panel {
+
+.actividades-container {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xl);
+    gap: var(--spacing-lg);
+    width: 100%;
+}
+
+/* Cabecera de sección idéntica a Alumnos */
+.section-header-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.section-title {
+    font-size: 1.5rem;
+    color: var(--color-primary);
+    margin: 0;
+    font-weight: 600;
 }
 
 .actividades-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); /* Tarjetas más anchas */
   gap: var(--spacing-lg);
+  margin-top: var(--spacing-md);
 }
 
-/* Estilos para el futuro ActividadForm */
-.actividad-form-container {
-    padding: var(--spacing-lg);
-    border: 1px solid var(--color-border);
+/* Estado vacío más elegante */
+.empty-state-activities {
+    text-align: center;
+    padding: 3rem;
+    background-color: #fff;
+    border: 2px dashed var(--color-border);
     border-radius: var(--border-radius);
-    background-color: #fdfdfd;
+    color: #888;
 }
 
-.criterios-list {
-    list-style: none;
-    padding: 0;
-    margin-top: var(--spacing-lg);
-    border-top: 1px solid var(--color-border);
-}
-
-.criterio-item {
-    display: flex;
-    gap: var(--spacing-md);
-    align-items: center;
-    padding: var(--spacing-md) 0;
-    border-bottom: 1px solid var(--color-background-light);
-}
-
-.criterio-item input {
-    flex-grow: 1;
-}
-
-.criterio-item .puntos-input {
-    flex-grow: 0;
-    width: 80px;
-}
-
-/* ... (estilos existentes) ... */
-
-.actividad-card-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-top: 1px solid var(--color-border);
-    padding-top: var(--spacing-sm);
-    margin-top: var(--spacing-md);
-    font-size: 0.85rem;
-    color: #555;
-}
-
-.actividad-card.desactivada {
-    background-color: #f9f9f9;
-    opacity: 0.7;
+.empty-state-activities p {
+    margin-bottom: 1rem;
+    font-size: 1.1rem;
 }

@@ -1,0 +1,105 @@
+/* src/components/materia_panel/ActividadCard.css */
+
+.actividad-card {
+    background: #fff;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-light);
+    transition: all 0.2s ease-in-out;
+    border: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+.actividad-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    border-color: var(--color-primary-light, #bae6fd);
+}
+
+/* Borde izquierdo de color según estado */
+.actividad-card { border-left: 5px solid var(--color-secondary); } /* Activa */
+.actividad-card.desactivada { border-left: 5px solid #cbd5e1; opacity: 0.85; }
+
+.card-header {
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    background-color: #f8fafc;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.materia-nombre { /* Título */
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--color-text-dark);
+    margin: 0;
+    line-height: 1.3;
+}
+
+.card-body {
+    padding: 1.2rem 1rem;
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    color: #555;
+    font-size: 0.95rem;
+}
+
+.card-body p {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.card-body svg {
+    color: var(--color-primary);
+    opacity: 0.7;
+}
+
+/* Footer de la tarjeta */
+.actividad-card-footer {
+    padding: 0.8rem 1rem;
+    background-color: #fff;
+    border-top: 1px solid #f1f5f9;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Botón principal de acción (Evaluar) */
+.card-link-action {
+    text-decoration: none;
+    color: var(--color-primary);
+    font-weight: 600;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    transition: color 0.2s;
+}
+.card-link-action:hover {
+    color: var(--color-accent);
+    text-decoration: underline;
+}
+
+/* Botones de iconos pequeños */
+.card-actions {
+    display: flex;
+    gap: 5px;
+}
+.icon-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+.icon-btn:hover { background-color: #e2e8f0; color: var(--color-primary); }
+.icon-btn-delete:hover { background-color: #fee2e2; color: #ef4444; }
