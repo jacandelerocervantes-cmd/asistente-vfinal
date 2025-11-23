@@ -1,6 +1,6 @@
 // supabase/functions/sync-activity-deliveries/index.ts
 import { serve } from "std/http/server.ts";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
 serve(async (req: Request) => {
@@ -10,12 +10,12 @@ serve(async (req: Request) => {
     const { actividad_id } = await req.json();
     if (!actividad_id) throw new Error("Falta actividad_id");
 
-    const supabaseAdmin: SupabaseClient = createClient(
+    const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // 1. Obtener ID de la carpeta de entregas
+    // 1. Obtener datos de la actividad
     const { data: actividad, error: actError } = await supabaseAdmin
         .from('actividades')
         .select('drive_folder_entregas_id, materia_id')
@@ -26,7 +26,7 @@ serve(async (req: Request) => {
         throw new Error("La actividad no tiene carpeta de entregas vinculada.");
     }
 
-    // 2. Llamar a Apps Script
+    // 2. Llamar a Apps Script (CORREGIDO: nombre de parámetro exacto)
     const googleUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL');
     console.log(`Consultando Drive Folder: ${actividad.drive_folder_entregas_id}`);
     
@@ -35,40 +35,36 @@ serve(async (req: Request) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             action: 'get_folder_contents', 
-            folderId: actividad.drive_folder_entregas_id 
+            drive_folder_id: actividad.drive_folder_entregas_id // <--- ¡AQUÍ ESTABA EL ERROR!
         })
     });
 
     if (!response.ok) throw new Error(`Error Google: ${response.status} ${response.statusText}`);
     const googleData = await response.json();
-    const archivos = googleData.archivos || googleData.data || [];
+    const archivos = googleData.archivos || googleData.data || googleData.files || []; 
 
     console.log(`Google devolvió ${archivos.length} archivos.`);
 
-    // 3. Sincronizar con la base de datos (Lógica Mejorada)
+    // 3. Sincronizar con BD
     let nuevos = 0;
-    const detalles = []; // Para depuración
+    const detalles = [];
     
-    // Obtener alumnos y equipos
     const { data: alumnos } = await supabaseAdmin
         .from('alumnos')
-        .select('id, matricula, nombre, apellido')
+        .select('id, matricula')
         .eq('materia_id', actividad.materia_id);
         
-    // Mapa de Matrículas (Normalizado a mayúsculas)
     const mapaAlumnos = new Map();
-    alumnos?.forEach((a: { matricula: string; id: string }) => {
+    alumnos?.forEach(a => {
         if (a.matricula) mapaAlumnos.set(a.matricula.toUpperCase().trim(), a.id);
     });
 
     for (const archivo of archivos) {
-        const nombreArchivo = archivo.name.toUpperCase(); // Normalizar nombre archivo
+        const nombreArchivo = archivo.name.toUpperCase();
         let encontrado = false;
 
-        // Buscar coincidencia con Matrículas
         for (const [matricula, alumnoId] of mapaAlumnos) {
             if (nombreArchivo.includes(matricula)) {
-                // ¡COINCIDENCIA!
                 const { error: upsertError } = await supabaseAdmin
                     .from('calificaciones')
                     .upsert({
@@ -76,40 +72,28 @@ serve(async (req: Request) => {
                         alumno_id: alumnoId,
                         estado: 'entregado',
                         evidencia_drive_file_id: archivo.id,
-                        user_id: '481ce051-0e9a-4bd7-9e96-6c095a63183a' // ID del docente temporal
+                        user_id: '481ce051-0e9a-4bd7-9e96-6c095a63183a' // ID temporal docente
                     }, { onConflict: 'actividad_id, alumno_id' });
                 
                 if (!upsertError) {
                     nuevos++;
                     encontrado = true;
                     detalles.push(`Vinculado: ${archivo.name} -> Alumno ID ${alumnoId}`);
-                } else {
-                    console.error("Error upsert:", upsertError);
                 }
-                // No hacemos break aquí por si un archivo pertenece a un equipo (varios alumnos), 
-                // aunque para individual con break bastaría. Lo dejamos sin break por seguridad en grupales.
             }
         }
-        
-        if (!encontrado) detalles.push(`Ignorado: ${archivo.name} (No contiene ninguna matrícula conocida)`);
+        if (!encontrado) detalles.push(`Ignorado: ${archivo.name}`);
     }
 
     return new Response(JSON.stringify({ 
-        message: `Sincronización: ${nuevos} entregas procesadas.`,
+        message: `Sincronización exitosa. ${nuevos} entregas procesadas.`,
         nuevos,
-        total_archivos_drive: archivos.length,
-        detalles_debug: detalles // Esto te servirá para ver qué pasó
-    }), { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200 
-    });
+        detalles_debug: detalles
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
 
   } catch (error) {
     console.error("Error sync-activity:", error);
     const message = error instanceof Error ? error.message : "Error desconocido";
-    return new Response(JSON.stringify({ message }), { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400 
-    });
+    return new Response(JSON.stringify({ message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
   }
 });
