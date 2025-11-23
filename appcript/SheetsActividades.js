@@ -1,62 +1,48 @@
 /**
- * Guarda o actualiza una rúbrica en la hoja maestra de rúbricas.
- * @param {object} payload Datos (rubricas_spreadsheet_id, nombre_actividad, criterios).
- * @return {object} ID del spreadsheet y rango donde se guardó la rúbrica.
+ * Guarda la rúbrica de una actividad en el archivo de Rúbricas Maestras.
+ * Crea una pestaña nueva con el nombre de la actividad.
  */
 function handleGuardarRubrica(payload) {
-  Logger.log("Iniciando handleGuardarRubrica...");
   const { rubricas_spreadsheet_id, nombre_actividad, criterios } = payload;
-  if (!rubricas_spreadsheet_id || !nombre_actividad || !criterios || !Array.isArray(criterios)) {
-    throw new Error("Faltan datos requeridos: rubricas_spreadsheet_id, nombre_actividad, criterios (array).");
+  
+  if (!rubricas_spreadsheet_id || !nombre_actividad) throw new Error("Faltan datos para guardar rúbrica.");
+
+  const ss = SpreadsheetApp.openById(rubricas_spreadsheet_id);
+  
+  // Limpiar nombre de hoja (max 100 chars y caracteres prohibidos)
+  const safeName = nombre_actividad.substring(0, 95).replace(/[:\/\\\?\*\[\]]/g, "-");
+  
+  let sheet = ss.getSheetByName(safeName);
+  if (sheet) {
+    sheet.clear(); // Si ya existe (ej. edición), limpiamos para reescribir
+  } else {
+    sheet = ss.insertSheet(safeName);
   }
 
-  // Si no hay criterios, no hay nada que guardar.
-  if (criterios.length === 0) {
-    Logger.log("No se proporcionaron criterios. No se guardará ninguna rúbrica.");
-    return { message: "No se guardó la rúbrica porque no se proporcionaron criterios." };
+  // Encabezados
+  sheet.appendRow(["Criterio de Evaluación", "Puntos Máximos"]);
+  sheet.getRange("A1:B1").setFontWeight("bold").setBackground("#f3f3f3");
+  
+  // Escribir criterios
+  if (criterios && Array.isArray(criterios) && criterios.length > 0) {
+    const filas = criterios.map(c => [c.descripcion, c.puntos]);
+    sheet.getRange(2, 1, filas.length, 2).setValues(filas);
+    
+    // Totales
+    const totalRow = filas.length + 2;
+    sheet.getRange(`A${totalRow}`).setValue("TOTAL").setFontWeight("bold");
+    sheet.getRange(`B${totalRow}`).setFormula(`=SUM(B2:B${totalRow-1})`).setFontWeight("bold");
+  } else {
+    sheet.appendRow(["Sin criterios definidos", 0]);
   }
 
-  let spreadsheet;
-  try {
-    spreadsheet = SpreadsheetApp.openById(rubricas_spreadsheet_id);
-  } catch (e) {
-    throw new Error(`No se pudo abrir la hoja de cálculo de rúbricas con ID '${rubricas_spreadsheet_id}'. Verifica permisos o ID.`);
-  }
-
-  let sheet = spreadsheet.getSheetByName(NOMBRE_SHEET_MAESTRO_RUBRICAS);
-  if (!sheet) {
-      if (spreadsheet.getSheets().length > 0) {
-          sheet = spreadsheet.getSheets()[0].setName(NOMBRE_SHEET_MAESTRO_RUBRICAS);
-      } else {
-          sheet = spreadsheet.insertSheet(NOMBRE_SHEET_MAESTRO_RUBRICAS);
-      }
-      Logger.log(`Hoja "${NOMBRE_SHEET_MAESTRO_RUBRICAS}" creada/renombrada.`);
-  }
-
-  const lastRow = sheet.getLastRow();
-  const startRow = lastRow > 0 ? lastRow + 2 : 1;
-
-  sheet.getRange(startRow, 1, 1, 2).merge().setValue(`Rúbrica para: ${nombre_actividad}`).setFontWeight("bold").setBackground("#cfe2f3").setHorizontalAlignment("center");
-
-  const headers = ["Criterio de Evaluación", "Puntos"];
-  sheet.getRange(startRow + 1, 1, 1, 2).setValues([headers]).setFontWeight("bold");
-
-  const filasCriterios = criterios.map(c => [c.descripcion || '', c.puntos !== undefined ? c.puntos : '']);
-  if (filasCriterios.length > 0) {
-    sheet.getRange(startRow + 2, 1, filasCriterios.length, headers.length).setValues(filasCriterios);
-  }
-
+  // Formato
   sheet.setColumnWidth(1, 400);
   sheet.setColumnWidth(2, 100);
 
-  const endRow = startRow + 1 + filasCriterios.length;
-  const rangoDatos = `'${sheet.getName()}'!A${startRow + 1}:B${endRow}`;
-  Logger.log(`Rúbrica para "${nombre_actividad}" guardada en rango: ${rangoDatos}`);
-
-  SpreadsheetApp.flush();
   return {
-    rubrica_spreadsheet_id: spreadsheet.getId(),
-    rubrica_sheet_range: rangoDatos
+    rubrica_spreadsheet_id: rubricas_spreadsheet_id,
+    rubrica_sheet_range: `${safeName}!A1:B${criterios ? criterios.length + 2 : 2}`
   };
 }
 

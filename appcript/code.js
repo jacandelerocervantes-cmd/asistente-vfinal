@@ -51,6 +51,8 @@ function doPost(e) {
         return crearRespuestaExitosa(handleCreateMateriaStruct(payload));
       case 'create_activity_folder':
         return crearRespuestaExitosa(handleCreateActivityFolder(payload));
+      case 'guardar_rubrica':
+        return crearRespuestaExitosa(handleGuardarRubrica(payload));
       case 'get_or_create_rubric_sheet': // Asegúrate que esta acción aún sea necesaria
         return crearRespuestaExitosa(handleGetOrCreateRubricSheet(payload));
       case 'guardar_reporte_plagio':
