@@ -1,153 +1,184 @@
 // src/pages/CalificacionPanel.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom'; // Agregué Link para el botón de volver
+import { useParams, Link } from 'react-router-dom'; 
 import { supabase } from '../supabaseClient';
 import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
-import { FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle } from 'react-icons/fa';
+import { FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, FaRobot } from 'react-icons/fa';
 
 const CalificacionPanel = () => {
-    const { actividadId } = useParams();
+    const { id: actividadId } = useParams(); // Corregido: leemos 'id' de la URL
     const [actividad, setActividad] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [loadingData, setLoadingData] = useState(true); // Estado para carga inicial de DB
+    const [isSyncing, setIsSyncing] = useState(false);    // Estado para la sincronización en 2do plano
     const [calificaciones, setCalificaciones] = useState([]);
     const { showNotification } = useNotification();
 
-    // Cargar datos de la actividad
-    useEffect(() => {
-        const fetchActividad = async () => {
-            const { data } = await supabase.from('actividades').select('*').eq('id', actividadId).single();
-            setActividad(data);
-        };
-        fetchActividad();
-    }, [actividadId]);
+    // 1. Cargar Información de la Actividad y Alumnos (Lo rápido)
+    const fetchLocalData = useCallback(async () => {
+        if (!actividadId) return;
+        try {
+            // Cargar detalles de la actividad
+            const { data: actData, error: actError } = await supabase
+                .from('actividades').select('*').eq('id', actividadId).single();
+            if (actError) throw actError;
+            setActividad(actData);
 
-    // Función para obtener las calificaciones
-    const fetchCalificaciones = useCallback(async () => {
-        setIsLoading(true);
-        const { data, error } = await supabase
-            .from('calificaciones')
-            .select('*, alumnos(id, nombre, apellido, matricula)')
-            .eq('actividad_id', actividadId)
-            .order('created_at', { ascending: false });
+            // Cargar lista de entregas/alumnos desde la BD
+            const { data: calData, error: calError } = await supabase
+                .from('calificaciones')
+                .select('*, alumnos(id, nombre, apellido, matricula)')
+                .eq('actividad_id', actividadId)
+                .order('created_at', { ascending: false });
 
-        if (error) {
-            showNotification('Error al cargar lista: ' + error.message, 'error');
-        } else {
-            setCalificaciones(data || []);
+            if (calError) throw calError;
+            setCalificaciones(calData || []);
+
+        } catch (error) {
+            console.error("Error cargando datos locales:", error);
+            showNotification('Error al cargar datos: ' + error.message, 'error');
+        } finally {
+            setLoadingData(false);
         }
-        setIsLoading(false);
     }, [actividadId, showNotification]);
 
-    // Sincronizar con Drive (Llamada a la Edge Function)
-    const handleSync = useCallback(async () => {
-        setIsLoading(true);
-        showNotification('Buscando nuevas entregas en Drive...', 'info');
+    // 2. Sincronizar con Drive (Lo lento, va en segundo plano)
+    const syncWithDrive = useCallback(async (silent = false) => {
+        if (!actividadId) return;
+        setIsSyncing(true);
+        if (!silent) showNotification('Buscando entregas nuevas en Drive...', 'info');
+
         try {
-            // Llamamos a la función con el nombre correcto
             const { data, error } = await supabase.functions.invoke('sync-activity-deliveries', {
                 body: { actividad_id: actividadId }
             });
 
             if (error) throw error;
 
-            showNotification(`Sincronización completa. ${data.nuevos || 0} nuevos archivos.`, 'success');
-            await fetchCalificaciones();
+            // Si hubo cambios, recargamos la lista local
+            if (data.nuevos > 0) {
+                showNotification(`Se encontraron ${data.nuevos} entregas nuevas.`, 'success');
+                await fetchLocalData(); // Recargar lista para mostrar lo nuevo
+            } else if (!silent) {
+                showNotification('Todo actualizado. No hay archivos nuevos.', 'success');
+            }
 
         } catch (error) {
-            console.error(error);
-            showNotification('Error de sincronización: ' + (error.message || "Error de red"), 'error');
+            console.error("Error de sincronización:", error);
+            if (!silent) showNotification('No se pudo conectar con Drive: ' + error.message, 'error');
         } finally {
-            setIsLoading(false);
+            setIsSyncing(false);
         }
-    }, [actividadId, showNotification, fetchCalificaciones]);
+    }, [actividadId, showNotification, fetchLocalData]);
 
-    // Cargar al inicio
+    // Efecto de Montaje: Carga datos Y dispara sincronización
     useEffect(() => {
-        fetchCalificaciones();
-    }, [fetchCalificaciones]);
+        if (actividadId) {
+            fetchLocalData();      // 1. Muestra lo que hay rápido
+            syncWithDrive(true);   // 2. Busca novedades en silencio
+        }
+    }, [actividadId, fetchLocalData, syncWithDrive]);
 
-    // Helper para iconos de estado
+    // Helper para iconos
     const getStatusIcon = (estado) => {
         switch (estado) {
-            case 'calificado': return <FaCheckCircle />;
-            case 'entregado': return <FaClock />;
-            default: return <FaExclamationCircle />;
+            case 'calificado': return <FaCheckCircle className="icon-success" />;
+            case 'entregado': return <FaClock className="icon-info" />;
+            default: return <FaExclamationCircle className="icon-warning" />;
         }
     };
 
     return (
         <div className="calificacion-panel-container">
+            {/* Header */}
             <div className="calificacion-header">
                 <div>
                     <Link to={`/materia/${actividad?.materia_id}/actividades`} className="back-link">
                         <FaArrowLeft /> Volver a Actividades
                     </Link>
-                    <h2>{actividad ? actividad.nombre : 'Cargando...'}</h2>
-                    <p>Panel de Evaluación y Retroalimentación</p>
+                    <h2>{actividad ? actividad.nombre : 'Cargando actividad...'}</h2>
+                    <p className="subtitle">Panel de Evaluación</p>
                 </div>
                 
-                <button 
-                    onClick={handleSync} 
-                    disabled={isLoading} 
-                    className="btn-primary icon-button"
-                >
-                    <FaSync className={isLoading ? 'spin' : ''} />
-                    {isLoading ? 'Sincronizando...' : 'Sincronizar Entregas'}
-                </button>
+                <div className="header-actions">
+                    {/* Botón discreto para refrescar manualmente si hace falta */}
+                    <button 
+                        onClick={() => syncWithDrive(false)} 
+                        disabled={isSyncing} 
+                        className="btn-secondary btn-small icon-button"
+                        title="Buscar archivos nuevos en Drive ahora"
+                    >
+                        <FaSync className={isSyncing ? 'spin' : ''} /> 
+                        {isSyncing ? ' Buscando...' : ' Actualizar Lista'}
+                    </button>
+                </div>
             </div>
 
+            {/* Tabla de Alumnos */}
             <div className="alumnos-list-container">
                 <div className="list-header">
-                    <span style={{width: '30px'}}></span> {/* Espacio para checkbox/icono */}
-                    <span style={{flex: 2}}>Alumno</span>
+                    <span style={{width: '40px'}}></span>
+                    <span style={{flex: 2}}>Alumno / Equipo</span>
                     <span style={{flex: 1}}>Estado</span>
                     <span style={{flex: 1, textAlign: 'center'}}>Calificación</span>
                     <span style={{flex: 1, textAlign: 'right'}}>Acciones</span>
                 </div>
 
-                <ul className="alumnos-list">
-                    {calificaciones.length > 0 ? calificaciones.map(cal => (
-                        <li key={cal.id} className={cal.estado === 'calificado' ? 'calificado-row' : ''}>
-                            <div className="status-icon-col" style={{color: '#666'}}>
-                                {getStatusIcon(cal.estado)}
-                            </div>
-                            
-                            <div className="alumno-info">
-                                <span className="entregable-nombre">
-                                    {cal.alumnos?.nombre} {cal.alumnos?.apellido}
-                                </span>
-                                <div style={{fontSize: '0.85em', color: '#888'}}>
-                                    {cal.alumnos?.matricula}
+                {loadingData ? (
+                    <div className="loading-state">Cargando lista de alumnos...</div>
+                ) : (
+                    <ul className="alumnos-list">
+                        {calificaciones.length > 0 ? calificaciones.map(cal => (
+                            <li key={cal.id} className={cal.estado === 'calificado' ? 'calificado-row' : ''}>
+                                <div className="status-icon-col">
+                                    {getStatusIcon(cal.estado)}
                                 </div>
-                            </div>
-
-                            <div>
-                                <span className={`status-pill ${cal.estado || 'pendiente'}`}>
-                                    {cal.estado || 'Pendiente'}
-                                </span>
-                            </div>
-
-                            <div className="calificacion-display">
-                                {cal.calificacion_obtenida ? (
-                                    <span className={cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}>
-                                        {cal.calificacion_obtenida}
+                                
+                                <div className="alumno-info">
+                                    <span className="entregable-nombre">
+                                        {cal.alumnos?.nombre} {cal.alumnos?.apellido}
                                     </span>
-                                ) : '-'}
-                            </div>
+                                    <div className="matricula-text">
+                                        {cal.alumnos?.matricula}
+                                    </div>
+                                </div>
 
-                            <div style={{textAlign: 'right'}}>
-                                <button className="btn-secondary btn-small">
-                                    Evaluar con IA
-                                </button>
+                                <div>
+                                    <span className={`status-pill ${cal.estado || 'pendiente'}`}>
+                                        {cal.estado === 'entregado' ? 'Entregado' : 
+                                         cal.estado === 'calificado' ? 'Calificado' : 'Pendiente'}
+                                    </span>
+                                </div>
+
+                                <div className="calificacion-display">
+                                    {cal.calificacion_obtenida ? (
+                                        <span className={cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}>
+                                            {cal.calificacion_obtenida}
+                                        </span>
+                                    ) : '-'}
+                                </div>
+
+                                <div style={{textAlign: 'right'}}>
+                                    {cal.estado === 'entregado' || cal.estado === 'calificado' ? (
+                                        <Link 
+                                            to={`/evaluacion/${cal.id}/calificar`} 
+                                            className="btn-primary btn-small"
+                                        >
+                                            <FaRobot /> Evaluar con IA
+                                        </Link>
+                                    ) : (
+                                        <span className="no-file-text">Sin archivo</span>
+                                    )}
+                                </div>
+                            </li>
+                        )) : (
+                            <div className="empty-state">
+                                <p>No se encontraron entregas todavía.</p>
+                                {isSyncing && <p><small>Buscando en Drive...</small></p>}
                             </div>
-                        </li>
-                    )) : (
-                        <div style={{padding: '2rem', textAlign: 'center', color: '#666'}}>
-                            No hay entregas registradas. Pulsa "Sincronizar" para buscar archivos en Drive.
-                        </div>
-                    )}
-                </ul>
+                        )}
+                    </ul>
+                )}
             </div>
         </div>
     );
