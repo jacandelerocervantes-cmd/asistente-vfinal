@@ -58,21 +58,23 @@ function handleGetRubricText(payload) {
 
 /**
  * Extrae el texto de un archivo de Google Drive (Docs, Word, PDF, Texto).
+ * BLINDADO: Detecta correctamente Google Docs para evitar errores de OCR.
  * @param {object} payload Datos {drive_file_id}.
  * @return {object} Objeto con la clave 'texto_trabajo'.
  */
 function handleGetStudentWorkText(payload) {
-  const { drive_file_id, fileMimeType: _fileMimeType } = payload;
+  const { drive_file_id } = payload;
   if (!drive_file_id) { throw new Error("Falta 'drive_file_id'."); }
   Logger.log(`Iniciando handleGetStudentWorkText para file ID ${drive_file_id}...`);
 
   let file;
   let mimeType;
   let fileName;
+
   try {
-    // Obtenemos el mimeType real
+    // Usamos la API avanzada para obtener el tipo real exacto
     const partialFile = Drive.Files.get(drive_file_id, { fields: 'mimeType, title' });
-    mimeType = partialFile.mimeType;
+    mimeType = String(partialFile.mimeType); // Forzar a string por seguridad
     fileName = partialFile.title;
     Logger.log(`Extrayendo texto de fileId: ${drive_file_id}. Nombre: "${fileName}". MimeType Real: ${mimeType}`);
     file = DriveApp.getFileById(drive_file_id);
@@ -87,18 +89,18 @@ function handleGetStudentWorkText(payload) {
   let textContent = '';
 
   try {
-    // --- CORRECCIÓN CRÍTICA: Comparación robusta de MimeType ---
-    const mimeString = String(mimeType);
-
-    // PRIORIDAD 1: ¿Es un Google Doc? (Verificamos ambas formas del string)
-    if (mimeString === MimeType.GOOGLE_DOCS || mimeString === 'application/vnd.google-apps.document') {
+    // --- INICIO LÓGICA DE EXTRACCIÓN SEGURA ---
+    
+    // PRIORIDAD 1: ¿Es un Google Doc? (Verificamos ambas formas del string MIME)
+    if (mimeType === MimeType.GOOGLE_DOCS || mimeType === 'application/vnd.google-apps.document') {
       Logger.log("Leyendo como Google Doc (MimeType detectado)...");
       textContent = DocumentApp.openById(file.getId()).getBody().getText();
     } 
     // PRIORIDAD 2: ¿Es un PDF?
-    else if (mimeString === MimeType.PDF || mimeString === 'application/pdf') {
+    else if (mimeType === MimeType.PDF || mimeType === 'application/pdf') {
        Logger.log("Procesando PDF con OCR...");
        const blob = file.getBlob();
+       // Creamos un archivo temporal para el OCR
        const resource = { title: `[OCR TEMP] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
        const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
        try {
@@ -106,50 +108,62 @@ function handleGetStudentWorkText(payload) {
           Logger.log("OCR completado.");
        } finally {
           try { Drive.Files.remove(ocrFile.id); }
-          catch (removeError) { Logger.log(`Error al eliminar temp OCR: ${removeError.message}`); }
+          catch (removeError) { Logger.log(`Error al eliminar archivo OCR temporal ${ocrFile.id}: ${removeError.message}`); }
        }
     } 
     // PRIORIDAD 3: ¿Es un Word?
-    else if (mimeString === MimeType.MICROSOFT_WORD || mimeString === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-       Logger.log("Convirtiendo Word a Google Doc...");
+    else if (mimeType === MimeType.MICROSOFT_WORD || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+       Logger.log("Convirtiendo Word a Google Doc para leer texto...");
        const tempDoc = Drive.Files.copy({ title: `[TEMP CONVERT] ${fileName}`, mimeType: MimeType.GOOGLE_DOCS }, file.getId());
        try {
           textContent = DocumentApp.openById(tempDoc.id).getBody().getText();
+          Logger.log("Conversión y lectura completadas.");
        } finally {
-           try { Drive.Files.remove(tempDoc.id); } catch (e) {}
+           try { Drive.Files.remove(tempDoc.id); Logger.log("Archivo temporal de conversión eliminado."); }
+           catch (removeError) { Logger.log(`Error al eliminar archivo temporal de conversión ${tempDoc.id}: ${removeError.message}`); }
        }
     } 
     // PRIORIDAD 4: ¿Es texto plano?
-    else if (mimeString && mimeString.startsWith('text/')) {
+    else if (mimeType.startsWith('text/')) {
+        Logger.log("Leyendo como archivo de texto plano...");
         textContent = file.getBlob().getDataAsString('UTF-8');
     } 
-    // ÚLTIMO RECURSO: Intentar OCR en otros tipos (imágenes), PERO EVITAR DOCS
+    // ÚLTIMO RECURSO: Intentar OCR en cualquier otra cosa (ej. imágenes), PERO CON SALVAGUARDA
     else {
-      // --- SALVAGUARDA EXTRA ---
-      if (mimeString === 'application/vnd.google-apps.document') {
-          // Si por alguna razón extraña cayó aquí pero es un Doc, leerlo directo
-          Logger.log("Salvaguarda: Es un GDoc en el bloque else. Leyendo directo.");
+      Logger.log(`Tipo MIME ${mimeType} no soportado directamente.`);
+      
+      // --- SALVAGUARDA CRÍTICA ---
+      // Si por alguna razón el mimeType no coincidió arriba pero ES un doc de Google,
+      // NO intentar OCR. Esto evita el error que estabas viendo.
+      if (mimeType.includes('google-apps.document')) {
+          Logger.log("ACTIVANDO SALVAGUARDA: Detectado google-apps.document en fallback. Leyendo directo.");
           textContent = DocumentApp.openById(file.getId()).getBody().getText();
       } else {
-          // Si es imagen o algo desconocido, intentamos OCR
-          Logger.log(`Tipo MIME ${mimeString} no soportado directamente. Intentando OCR fallback...`);
-          
-          if (mimeString.startsWith('image/') || mimeString.startsWith('video/') || mimeString === 'application/zip') {
+          // Si es un tipo de archivo que definitivamente no es texto (imagen, video, zip)
+          if (mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType === 'application/zip') {
+              Logger.log(`Archivo ${fileName} (${mimeType}) requiere revisión manual.`);
               return { texto_trabajo: null, requiere_revision_manual: true };
           }
           
+          Logger.log("Intentando OCR de último recurso...");
           const blob = file.getBlob();
           const resource = { title: `[OCR TEMP fallback] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
+          // Drive.Files.insert fallará si es un GDoc, pero la salvaguarda de arriba debió prevenirlo
           const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
           try {
               textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
+              Logger.log("OCR (fallback) completado.");
           } finally {
               try { Drive.Files.remove(ocrFile.id); } catch (e) {}
           }
       }
     }
 
-    if (!textContent) throw new Error("No se pudo extraer texto.");
+    if (!textContent) {
+        throw new Error(`El archivo '${fileName}' (tipo ${mimeType}) no es un formato de texto legible ni pudo ser procesado con OCR.`);
+    }
+    
+    Logger.log(`Texto extraído exitosamente (longitud: ${textContent.length}).`);
     return { texto_trabajo: textContent };
 
   } catch (e) {
@@ -187,7 +201,6 @@ function handleGetJustificationText(payload) {
 
   let range;
   try {
-    // Usamos la variable limpia para obtener el rango
     range = spreadsheet.getRange(cleanRange); 
   } catch (e) {
      throw new Error(`Referencia de celda inválida: "${cleanRange}" (Original: "${justificacion_sheet_cell}"). Error: ${e.message}`);
@@ -208,25 +221,31 @@ function handleGetJustificationText(payload) {
 function handleGetMultipleFileContents(payload) {
   Logger.log("Iniciando handleGetMultipleFileContents...");
   const { drive_file_ids } = payload;
-  if (!drive_file_ids || !Array.isArray(drive_file_ids)) throw new Error("Se requiere 'drive_file_ids'.");
+  if (!drive_file_ids || !Array.isArray(drive_file_ids)) {
+    throw new Error("Se requiere un array de 'drive_file_ids'.");
+  }
+  Logger.log(`Recibidos ${drive_file_ids.length} IDs de archivo.`);
 
   const contenidos = drive_file_ids.map(fileId => {
     try {
       const resultado = handleGetStudentWorkText({ drive_file_id: fileId });
       if (resultado.requiere_revision_manual) {
-           return { fileId: fileId, texto: null, error: "Requiere revisión manual." };
+           return { fileId: fileId, texto: null, error: "Archivo requiere revisión manual (ej. imagen)." };
       }
       return { fileId: fileId, texto: resultado.texto_trabajo };
     } catch (e) {
-      return { fileId: fileId, texto: null, error: e.message };
+      Logger.log(`Error al leer archivo ${fileId} en handleGetMultipleFileContents: ${e.message}`);
+      return { fileId: fileId, texto: null, error: `No se pudo leer el archivo: ${e.message}` };
     }
   });
+
+  const exitosos = contenidos.filter(c => c.texto !== null).length;
+  Logger.log(`Lectura completada. Exitosos: ${exitosos}, Fallidos: ${drive_file_ids.length - exitosos}`);
   return contenidos;
 }
 
 /**
  * Lista los archivos dentro de una carpeta de Google Drive.
- * Lista las carpetas y archivos dentro de una carpeta de Google Drive.
  * @param {object} payload Datos {drive_folder_id}.
  * @return {object} Objeto con claves 'folders' y 'files' (arrays de {id, name, webViewLink, iconLink}).
  */
@@ -282,7 +301,6 @@ function handleGetFolderContents(payload) {
 
 /**
  * Lee todos los datos de asistencia de la hoja de cálculo de una materia.
- * (Función duplicada de SheetsAsistencia.js, revisar si se puede unificar)
  * @param {object} payload Datos { calificaciones_spreadsheet_id }.
  * @return {object} Objeto con la clave 'asistencias' (array de objetos).
  */
@@ -300,10 +318,8 @@ function handleLeerDatosAsistencia(payload) {
       throw new Error(`No se encontró la hoja "${NOMBRE_SHEET_ASISTENCIA}".`);
     }
 
-    // Leer todos los datos de la hoja de una sola vez para eficiencia
     const allData = sheet.getDataRange().getValues();
     
-    // La primera fila contiene los encabezados (Matrícula, Alumno, U1-S1, U1-S2, etc.)
     const headers = allData[0];
     const matriculaIndex = headers.indexOf("Matrícula");
     
@@ -312,25 +328,30 @@ function handleLeerDatosAsistencia(payload) {
     }
 
     const asistencias = [];
-    // Iterar sobre las filas de datos (a partir de la segunda fila)
     for (let i = 1; i < allData.length; i++) {
       const row = allData[i];
       const matricula = row[matriculaIndex];
-      if (!matricula) continue; // Omitir filas sin matrícula
+      if (!matricula) continue;
 
-      // Iterar sobre las columnas de asistencia (a partir de la columna después de "Alumno")
       for (let j = matriculaIndex + 1; j < headers.length; j++) {
-        const header = headers[j]; // Ej: "U1-S1"
-        const [unidad, sesion] = header.replace('U', '').split('-S');
-        const fecha = row[j]; // La celda contiene la fecha de la asistencia
+        const header = headers[j]; 
+        // Buscamos columnas con formato de sesión ej. "U1-S1"
+        if (typeof header === 'string' && header.includes('-S')) {
+             const parts = header.replace('U', '').split('-S');
+             if (parts.length === 2) {
+                 const unidad = parseInt(parts[0], 10);
+                 const sesion = parseInt(parts[1], 10);
+                 const fecha = row[j]; 
 
-        if (fecha && (fecha instanceof Date || String(fecha).trim() !== '')) {
-          asistencias.push({
-            matricula: String(matricula),
-            unidad: parseInt(unidad, 10),
-            sesion: parseInt(sesion, 10),
-            fecha: new Date(fecha).toISOString().slice(0, 10) // Formatear a YYYY-MM-DD
-          });
+                 if (fecha && (fecha instanceof Date || String(fecha).trim() !== '')) {
+                   asistencias.push({
+                     matricula: String(matricula),
+                     unidad: unidad,
+                     sesion: sesion,
+                     fecha: new Date(fecha).toISOString().slice(0, 10)
+                   });
+                 }
+             }
         }
       }
     }
