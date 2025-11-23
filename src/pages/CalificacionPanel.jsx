@@ -4,21 +4,26 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
-import { FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, FaRobot, FaCheckSquare, FaSquare } from 'react-icons/fa';
+import { 
+    FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, 
+    FaRobot, FaSearch, FaSpinner 
+} from 'react-icons/fa';
 
 const CalificacionPanel = () => {
     const { id: actividadId } = useParams();
     const [actividad, setActividad] = useState(null);
-    const [loadingData, setLoadingData] = useState(true); // Estado para carga inicial de DB
-    const [isSyncing, setIsSyncing] = useState(false);    // Estado para la sincronización en 2do plano
+    const [loadingData, setLoadingData] = useState(true);
+    const [isSyncing, setIsSyncing] = useState(false);
     const [calificaciones, setCalificaciones] = useState([]);
     
-    // --- NUEVO: Estado para selección múltiple ---
+    // Selección múltiple
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isStartingBulk, setIsStartingBulk] = useState(false);
+    const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
 
     const { showNotification } = useNotification();
 
+    // 1. Cargar Datos
     const fetchLocalData = useCallback(async () => {
         if (!actividadId) return;
         try {
@@ -44,6 +49,7 @@ const CalificacionPanel = () => {
         }
     }, [actividadId, showNotification]);
 
+    // 2. Sincronizar con Drive
     const syncWithDrive = useCallback(async (silent = false) => {
         if (!actividadId) return;
         setIsSyncing(true);
@@ -78,11 +84,10 @@ const CalificacionPanel = () => {
         }
     }, [actividadId, fetchLocalData, syncWithDrive]);
 
-    // --- NUEVO: Lógica de Selección ---
-
-    // Filtrar solo los que se pueden calificar (Entregado o Calificado, que tengan ID)
+    // --- Lógica de Selección ---
     const itemsSelectable = useMemo(() => {
-        return calificaciones.filter(c => c.estado === 'entregado' || c.estado === 'calificado');
+        // Solo permitir seleccionar si hay entrega o ya está calificado (implica que hay archivo)
+        return calificaciones.filter(c => c.estado === 'entregado' || c.estado === 'calificado' || c.estado === 'procesando');
     }, [calificaciones]);
 
     const handleSelectOne = (id) => {
@@ -103,14 +108,12 @@ const CalificacionPanel = () => {
         }
     };
 
-    // --- NUEVO: Lógica de Evaluación Masiva ---
+    // --- Lógica de Evaluación Masiva ---
     const handleEvaluacionMasiva = async () => {
         const idsArray = Array.from(selectedIds);
         if (idsArray.length === 0) return;
 
-        if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} alumnos? Esto se procesará en segundo plano.`)) {
-            return;
-        }
+        if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} alumnos?`)) return;
 
         setIsStartingBulk(true);
         try {
@@ -121,42 +124,79 @@ const CalificacionPanel = () => {
             if (error) throw error;
 
             showNotification(`Proceso iniciado: ${data.message}`, 'success');
-            setSelectedIds(new Set()); // Limpiar selección
-            fetchLocalData(); // Recargar para ver cambios de estado (a 'pendiente' o 'procesando')
+            setSelectedIds(new Set());
+            fetchLocalData();
 
         } catch (error) {
-            console.error("Error evaluacion masiva:", error);
-            showNotification("Error al iniciar evaluación masiva: " + error.message, 'error');
+            console.error("Error evaluación masiva:", error);
+            showNotification("Error al iniciar evaluación: " + error.message, 'error');
         } finally {
             setIsStartingBulk(false);
         }
     };
 
-    const getStatusIcon = (estado) => {
-        switch (estado) {
-            case 'calificado': return <FaCheckCircle className="icon-success" />;
-            case 'entregado': return <FaClock className="icon-info" />;
-            default: return <FaExclamationCircle className="icon-warning" />;
+    // --- NUEVO: Lógica de Comprobación de Plagio ---
+    const handleCheckPlagio = async () => {
+        const idsArray = Array.from(selectedIds);
+        
+        // Obtener los file_ids de Drive correspondientes a las calificaciones seleccionadas
+        const selectedCalifs = calificaciones.filter(c => idsArray.includes(c.id));
+        const driveFileIds = selectedCalifs
+            .map(c => c.evidencia_drive_file_id)
+            .filter(id => id); // Eliminar nulos
+
+        if (driveFileIds.length < 2) {
+            showNotification("Selecciona al menos 2 trabajos con archivo para comprobar plagio.", 'warning');
+            return;
+        }
+
+        if (!window.confirm(`¿Analizar plagio entre los ${driveFileIds.length} trabajos seleccionados?`)) return;
+
+        setIsCheckingPlagio(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('encolar-comprobacion-plagio', {
+                body: { 
+                    drive_file_ids: driveFileIds,
+                    materia_id: actividad?.materia_id // Necesario para guardar el reporte
+                }
+            });
+
+            if (error) throw error;
+
+            showNotification("Análisis de plagio iniciado. Se generará un reporte en la pestaña 'Reportes' pronto.", 'success');
+            setSelectedIds(new Set()); // Limpiar selección
+
+        } catch (error) {
+            console.error("Error plagio:", error);
+            showNotification("Error al iniciar comprobación de plagio: " + error.message, 'error');
+        } finally {
+            setIsCheckingPlagio(false);
         }
     };
 
-    // Checkbox "Todos" state
+    const getStatusIcon = (estado) => {
+        switch (estado) {
+            case 'calificado': return <FaCheckCircle className="icon-success" style={{color: '#16a34a', fontSize:'1.2rem'}} />;
+            case 'entregado': return <FaClock className="icon-info" style={{color: '#2563eb', fontSize:'1.2rem'}} />;
+            case 'procesando': return <FaSpinner className="spin" style={{color: '#ca8a04', fontSize:'1.2rem'}} />;
+            default: return <FaExclamationCircle style={{color: '#cbd5e1', fontSize:'1.2rem'}} />;
+        }
+    };
+
     const isAllSelected = itemsSelectable.length > 0 && selectedIds.size === itemsSelectable.length;
 
     return (
         <div className="calificacion-panel-container">
+            {/* Header */}
             <div className="calificacion-header">
                 <div>
-                    <Link 
-                        to={actividad ? `/materia/${actividad.materia_id}?tab=actividades` : '#'} 
-                        className="back-link"
-                    >
+                    <Link to={actividad ? `/materia/${actividad.materia_id}?tab=actividades` : '#'} className="back-link">
                         <FaArrowLeft /> Volver a Actividades
                     </Link>
-                    <h2>{actividad ? actividad.nombre : 'Cargando actividad...'}</h2>
+                    <h2>{actividad ? actividad.nombre : 'Cargando...'}</h2>
                     <p className="subtitle">Panel de Evaluación</p>
                 </div>
-                <div className="header-actions">
+                <div>
                     <button 
                         onClick={() => syncWithDrive(false)} 
                         disabled={isSyncing} 
@@ -168,25 +208,43 @@ const CalificacionPanel = () => {
                 </div>
             </div>
 
-            {/* --- NUEVO: Barra de Acciones Masivas --- */}
+            {/* Barra Flotante de Acciones Masivas */}
             {selectedIds.size > 0 && (
-                <div className="bulk-actions-bar fade-in">
-                    <span>{selectedIds.size} seleccionados</span>
-                    <button 
-                        onClick={handleEvaluacionMasiva} 
-                        disabled={isStartingBulk}
-                        className="btn-primary icon-button"
-                    >
-                        {isStartingBulk ? <FaSync className="spin"/> : <FaRobot />}
-                        {isStartingBulk ? 'Iniciando...' : 'Evaluar Seleccionados con IA'}
-                    </button>
+                <div className="bulk-actions-bar">
+                    <div className="bulk-actions-left">
+                        <span className="selected-count">{selectedIds.size} seleccionados</span>
+                    </div>
+                    <div className="bulk-actions-right">
+                        {/* BOTÓN PLAGIO */}
+                        <button 
+                            onClick={handleCheckPlagio} 
+                            disabled={isCheckingPlagio}
+                            className="btn-secondary btn-small icon-button"
+                            title="Comparar trabajos seleccionados"
+                        >
+                            {isCheckingPlagio ? <FaSpinner className="spin"/> : <FaSearch />}
+                            {isCheckingPlagio ? 'Enviando...' : 'Comprobar Plagio'}
+                        </button>
+
+                        {/* BOTÓN EVALUAR IA */}
+                        <button 
+                            onClick={handleEvaluacionMasiva} 
+                            disabled={isStartingBulk}
+                            className="btn-primary btn-small icon-button"
+                            title="Calificar con IA"
+                        >
+                            {isStartingBulk ? <FaSpinner className="spin"/> : <FaRobot />}
+                            {isStartingBulk ? 'Iniciando...' : 'Evaluar con IA'}
+                        </button>
+                    </div>
                 </div>
             )}
 
+            {/* Tabla Grid Alineada */}
             <div className="alumnos-list-container">
-                <div className="list-header">
-                    {/* --- NUEVO: Checkbox Seleccionar Todos --- */}
-                    <div style={{width: '40px', display: 'flex', justifyContent: 'center'}}>
+                {/* Encabezado de Tabla (Grid) */}
+                <div className="calificacion-grid-row list-header">
+                    <div className="col-center">
                         <input 
                             type="checkbox" 
                             onChange={handleSelectAll} 
@@ -194,79 +252,89 @@ const CalificacionPanel = () => {
                             disabled={itemsSelectable.length === 0}
                         />
                     </div>
-                    <span style={{flex: 2}}>Alumno / Equipo</span>
-                    <span style={{flex: 1}}>Estado</span>
-                    <span style={{flex: 1, textAlign: 'center'}}>Calificación</span>
-                    <span style={{flex: 1, textAlign: 'right'}}>Acciones</span>
+                    <div className="col-center"></div> {/* Columna para icono */}
+                    <div>Alumno / Equipo</div>
+                    <div>Estado</div>
+                    <div className="col-center">Nota</div>
+                    <div className="col-right">Acciones</div>
                 </div>
 
                 {loadingData ? (
-                    <div className="loading-state">Cargando lista de alumnos...</div>
+                    <div style={{padding: '2rem', textAlign: 'center', color: '#666'}}>
+                        <FaSpinner className="spin" /> Cargando alumnos...
+                    </div>
                 ) : (
                     <ul className="alumnos-list">
                         {calificaciones.length > 0 ? calificaciones.map(cal => {
-                            const canSelect = cal.estado === 'entregado' || cal.estado === 'calificado';
+                            const isSelected = selectedIds.has(cal.id);
+                            const canSelect = !!cal.evidencia_drive_file_id; // Solo si tiene archivo
+
                             return (
-                                <li key={cal.id} className={cal.estado === 'calificado' ? 'calificado-row' : ''}>
-                                    
-                                    {/* --- NUEVO: Checkbox Individual --- */}
-                                    <div style={{width: '40px', display: 'flex', justifyContent: 'center'}}>
-                                        {canSelect && (
-                                            <input 
-                                                type="checkbox"
-                                                checked={selectedIds.has(cal.id)}
-                                                onChange={() => handleSelectOne(cal.id)}
-                                            />
-                                        )}
-                                    </div>
-
-                                    <div className="status-icon-col">
-                                        {getStatusIcon(cal.estado)}
-                                    </div>
-                                    
-                                    <div className="alumno-info">
-                                        <span className="entregable-nombre">
-                                            {cal.alumnos?.nombre} {cal.alumnos?.apellido}
-                                        </span>
-                                        <div className="matricula-text">
-                                            {cal.alumnos?.matricula}
+                                <li key={cal.id} className={isSelected ? 'selected-bg' : ''}>
+                                    <div className="calificacion-grid-row">
+                                        
+                                        {/* 1. Checkbox */}
+                                        <div className="col-center">
+                                            {canSelect && (
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => handleSelectOne(cal.id)}
+                                                />
+                                            )}
                                         </div>
-                                    </div>
 
-                                    <div>
-                                        <span className={`status-pill ${cal.estado || 'pendiente'}`}>
-                                            {cal.estado === 'entregado' ? 'Entregado' : 
-                                             cal.estado === 'calificado' ? 'Calificado' : 
-                                             cal.estado === 'procesando' ? 'Evaluando IA...' :
-                                             'Pendiente'}
-                                        </span>
-                                    </div>
-
-                                    <div className="calificacion-display">
-                                        {cal.calificacion_obtenida ? (
-                                            <span className={cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}>
-                                                {cal.calificacion_obtenida}
+                                        {/* 2. Icono Estado */}
+                                        <div className="col-center">
+                                            {getStatusIcon(cal.estado)}
+                                        </div>
+                                        
+                                        {/* 3. Info Alumno */}
+                                        <div className="alumno-info">
+                                            <span className="entregable-nombre">
+                                                {cal.alumnos?.nombre} {cal.alumnos?.apellido}
                                             </span>
-                                        ) : '-'}
-                                    </div>
+                                            <span className="matricula-text">
+                                                {cal.alumnos?.matricula}
+                                            </span>
+                                        </div>
 
-                                    <div style={{textAlign: 'right'}}>
-                                        {/* Mantenemos el botón individual por si acaso */}
-                                        {(cal.estado === 'entregado' || cal.estado === 'calificado') && (
-                                            <Link 
-                                                to={`/evaluacion/${cal.id}/calificar`} 
-                                                className="btn-secondary btn-small btn-icon-only"
-                                                title="Ver detalle / Evaluar individual"
-                                            >
-                                                <FaRobot />
-                                            </Link>
-                                        )}
+                                        {/* 4. Estado Texto */}
+                                        <div>
+                                            <span className={`status-pill ${cal.estado || 'pendiente'}`}>
+                                                {cal.estado === 'procesando' ? cal.progreso_evaluacion || 'Procesando...' : 
+                                                 cal.estado || 'Pendiente'}
+                                            </span>
+                                        </div>
+
+                                        {/* 5. Nota */}
+                                        <div className="col-center">
+                                            {cal.calificacion_obtenida !== null ? (
+                                                <span className={`calificacion-badge ${cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
+                                                    {cal.calificacion_obtenida}
+                                                </span>
+                                            ) : '-'}
+                                        </div>
+
+                                        {/* 6. Acciones */}
+                                        <div className="col-right">
+                                            {(cal.estado === 'entregado' || cal.estado === 'calificado') && (
+                                                <Link 
+                                                    to={`/evaluacion/${cal.id}/calificar`} 
+                                                    className="btn-tertiary btn-small icon-button"
+                                                    title="Ver detalle / Evaluar manualmente"
+                                                    style={{padding: '6px 8px'}}
+                                                >
+                                                    <FaRobot />
+                                                </Link>
+                                            )}
+                                        </div>
                                     </div>
                                 </li>
                             );
                         }) : (
-                            <div className="empty-state">
-                                <p>No se encontraron entregas todavía.</p>
+                            <div style={{padding: '2rem', textAlign: 'center', color: '#888'}}>
+                                No se encontraron entregas todavía.
                             </div>
                         )}
                     </ul>
