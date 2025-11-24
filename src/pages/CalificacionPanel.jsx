@@ -20,13 +20,14 @@ const CalificacionPanel = () => {
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isStartingBulk, setIsStartingBulk] = useState(false);
     const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
+    // const [isRetrying, setIsRetrying] = useState(false); // No se usa si el reintento es masivo
 
     const { showNotification } = useNotification();
 
-    // Detectar si hay ALGO procesándose en toda la lista
-    const isAnyProcessing = useMemo(() => {
-        return calificaciones.some(c => c.estado === 'procesando');
-    }, [calificaciones]);
+    // --- ESTADO DERIVADO PARA BLOQUEO GLOBAL ---
+    const isGlobalProcessing = useMemo(() => {
+        return calificaciones.some(c => c.estado === 'procesando') || isStartingBulk || isCheckingPlagio;
+    }, [calificaciones, isStartingBulk, isCheckingPlagio]);
 
     // --- 0. HELPER: TRADUCTOR DE ERRORES (NUEVO) ---
     const traducirError = (errorRaw) => {
@@ -312,7 +313,7 @@ const CalificacionPanel = () => {
                 <div>
                     <button 
                         onClick={() => syncWithDrive(false)}
-                        disabled={isSyncing || isStartingBulk} 
+                        disabled={isSyncing || isGlobalProcessing} 
                         className="btn-secondary btn-small icon-button"
                     >
                         <FaSync className={isSyncing ? 'spin' : ''} />
@@ -324,10 +325,7 @@ const CalificacionPanel = () => {
             {selectedIds.size > 0 && (
                 <div className="bulk-actions-bar">
                     <span style={{fontWeight:'bold'}}>{selectedIds.size} seleccionados</span>
-                    <div style={{display:'flex', gap:'10px'}}>
-                        <button onClick={handleCheckPlagio} disabled={isCheckingPlagio || isStartingBulk} className="btn-secondary btn-small icon-button">
-                            {isCheckingPlagio ? <FaSpinner className="spin"/> : <FaSearch />} Plagio
-                        </button>
+                    <div style={{display:'flex', gap:'10px'}}> {/* Se eliminó el botón de plagio */}
                         <button onClick={handleEvaluacionMasiva} disabled={isStartingBulk} className="btn-primary btn-small icon-button">
                             {isStartingBulk ? <FaSpinner className="spin"/> : <FaRobot />} 
                             {isStartingBulk ? ' Iniciando...' : ' Evaluar con IA'}
@@ -342,8 +340,8 @@ const CalificacionPanel = () => {
                         <input 
                             type="checkbox" 
                             onChange={handleSelectAll} 
-                            // BLOQUEO GLOBAL: Si se está iniciando masivo O si hay algo procesando, bloqueamos todo
-                            disabled={itemsToDisplay.length === 0 || isStartingBulk || isCheckingPlagio || isAnyProcessing}
+                            // BLOQUEO TOTAL DE SELECCIÓN
+                            disabled={itemsToDisplay.length === 0 || isGlobalProcessing}
                         />
                     </div>
                     <div></div> 
@@ -362,8 +360,7 @@ const CalificacionPanel = () => {
                         {itemsToDisplay.length > 0 ? itemsToDisplay.map(item => {
                             const isSelected = selectedIds.has(item.id);
                             const hasFile = !!item.evidencia_drive_file_id;
-                            // Bloqueo de fila individual
-                            const isRowLocked = isStartingBulk || isAnyProcessing; 
+                            // const isRowLocked = isStartingBulk || isAnyProcessing; // Reemplazado por isGlobalProcessing
 
                             return (
                                 <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${item.estado === 'procesando' ? 'row-processing' : ''}`}>
@@ -374,7 +371,7 @@ const CalificacionPanel = () => {
                                                     type="checkbox" 
                                                     checked={isSelected} 
                                                     onChange={() => handleSelectOne(item)} 
-                                                    disabled={isRowLocked || isCheckingPlagio} 
+                                                disabled={isGlobalProcessing} 
                                                 />
                                             )}
                                         </div>
@@ -399,8 +396,20 @@ const CalificacionPanel = () => {
                                         </div>
 
                                         {/* ESTADO CON BADGES E INFORMACIÓN VISUAL */}
-                                        <div style={{display:'flex', alignItems:'center'}}>
-                                            {getStatusBadge(item)}
+                                        <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                                            {item.estado === 'procesando' ? (
+                                                <div className="mini-loader-conteiner" title={item.progreso_evaluacion}>
+                                                    {/* Loader CSS Pequeño */}
+                                                    <div className="spinner-tiny"></div> 
+                                                    <span className="status-text-small">{item.progreso_evaluacion || 'Procesando...'}</span>
+                                                </div>
+                                            ) : (
+                                                /* Badges normales para otros estados */
+                                                <span className={`status-pill ${item.estado || 'pendiente'}`}>
+                                                    {item.estado === 'fallido' ? 'Falló' : (item.estado || 'Pendiente')}
+                                                </span>
+                                            )}
+                                            
                                         </div>
 
                                         <div className="col-center">
@@ -414,9 +423,9 @@ const CalificacionPanel = () => {
                                         <div className="col-right">
                                             {/* Si falló, mostramos botón de reintentar explícito */}
                                             {item.estado === 'fallido' && (
-                                                <button 
-                                                    onClick={() => handleReintentar(item.id)} // Necesitas crear esta función simple que llame a evaluar solo este ID
-                                                    className="btn-error btn-small"
+                                                <button
+                                                    onClick={() => handleReintentar(item.id)}
+                                                    className="btn-error-retry"
                                                     title="Reintentar evaluación"
                                                 >
                                                     <FaSync /> Reintentar

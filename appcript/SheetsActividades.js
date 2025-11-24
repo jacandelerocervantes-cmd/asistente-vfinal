@@ -374,87 +374,62 @@ function handleEntregaActividad(payload) {
 }
 
 /**
- * Guarda la calificación de una ACTIVIDAD (no examen) en la hoja "Reporte Actividades".
- * OPTIMIZADO: Usa appendRow para nuevos y setValue para actualizaciones puntuales.
- * Evita timeouts por reescritura masiva.
- * * @param {object} payload Datos { calificaciones_spreadsheet_id, nombre_evaluacion, unidad, calificaciones }
+ * Guarda calificaciones de ACTIVIDADES en una hoja separada "Reporte Actividades".
+ * OPTIMIZADO: Usa mapa de búsqueda y escritura puntual para evitar Timeouts.
  */
 function handleGuardarCalificacionesActividad(payload) {
-  // Nota: En el payload recibimos 'nombre_evaluacion', que aquí corresponde al Nombre de la Actividad.
-  Logger.log(`Iniciando guardado de Actividad: "${payload.nombre_evaluacion}"...`);
-  
+  Logger.log(`Iniciando guardado Actividad: "${payload.nombre_evaluacion}"...`);
   const { calificaciones_spreadsheet_id, nombre_evaluacion, unidad, calificaciones } = payload;
 
   if (!calificaciones_spreadsheet_id || !nombre_evaluacion || !calificaciones) {
-    throw new Error("Faltan datos requeridos para guardar la actividad.");
+    throw new Error("Faltan datos requeridos.");
   }
 
   const spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
-  const nombreHoja = "Reporte Actividades"; // <--- CAMBIO CLAVE: Hoja separada
+  const nombreHoja = "Reporte Actividades";
   let sheet = spreadsheet.getSheetByName(nombreHoja);
 
   // 1. Crear hoja si no existe
   if (!sheet) {
     sheet = spreadsheet.insertSheet(nombreHoja);
-    // Encabezados específicos para Actividades
     sheet.appendRow(["Matrícula", "Nombre Alumno", "Nombre Actividad", "Unidad", "Calificación", "Retroalimentación"]);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, 6).setFontWeight("bold");
   }
 
-  // 2. Mapear datos existentes para búsqueda rápida (Evita bucles anidados lentos)
+  // 2. Mapear filas existentes (Matrícula + Actividad -> Fila)
   const data = sheet.getDataRange().getValues();
-  const headers = data[0];
+  const mapFilas = new Map(); // Clave: "MATRICULA|ACTIVIDAD" -> Valor: IndiceFila (Base 0)
   
-  const idxMat = headers.indexOf("Matrícula");
-  const idxAct = headers.indexOf("Nombre Actividad"); // Usamos "Nombre Actividad" como clave
-  const idxCalif = headers.indexOf("Calificación");
-  const idxRetro = headers.indexOf("Retroalimentación");
-
-  if (idxMat === -1 || idxAct === -1 || idxCalif === -1) {
-    throw new Error("La hoja 'Reporte Actividades' tiene encabezados incorrectos.");
-  }
-
-  // Mapa: "H001|Ensayo1" -> Número de fila (base 1)
-  const mapFilas = new Map();
+  // Asumimos columnas fijas por rendimiento: A=0(Mat), C=2(Act)
   for (let i = 1; i < data.length; i++) {
-    const matricula = String(data[i][idxMat]).trim().toUpperCase();
-    const actividad = String(data[i][idxAct]).trim();
-    if (matricula && actividad) {
-      mapFilas.set(`${matricula}|${actividad}`, i + 1); 
-    }
+    const key = `${String(data[i][0]).trim().toUpperCase()}|${String(data[i][2]).trim()}`;
+    mapFilas.set(key, i + 1); // Guardamos fila base 1 para getRange
   }
 
-  // 3. Guardar (Upsert: Actualizar o Insertar)
+  // 3. Escribir datos
   calificaciones.forEach(cal => {
-    const matriculaNorm = String(cal.matricula).trim().toUpperCase();
-    const nombreActividadNorm = String(nombre_evaluacion).trim();
-    const key = `${matriculaNorm}|${nombreActividadNorm}`;
-    
-    const filaExistente = mapFilas.get(key);
+    const key = `${String(cal.matricula).trim().toUpperCase()}|${String(nombre_evaluacion).trim()}`;
+    const fila = mapFilas.get(key);
+    const nota = cal.calificacion_final !== undefined ? cal.calificacion_final : cal.calificacion;
 
-    if (filaExistente) {
-      // CASO A: ACTUALIZAR (Solo tocamos las celdas necesarias, muy rápido)
-      sheet.getRange(filaExistente, idxCalif + 1).setValue(cal.calificacion_final || cal.calificacion);
-      if (cal.retroalimentacion && idxRetro !== -1) {
-        sheet.getRange(filaExistente, idxRetro + 1).setValue(cal.retroalimentacion);
-      }
+    if (fila) {
+      // ACTUALIZAR (Columna E=5 para Nota, F=6 para Retro)
+      sheet.getRange(fila, 5).setValue(nota);
+      sheet.getRange(fila, 6).setValue(cal.retroalimentacion || "");
     } else {
-      // CASO B: INSERTAR NUEVO (Al final de la hoja)
+      // INSERTAR
       sheet.appendRow([
-        cal.matricula, 
-        cal.nombre || "", 
-        nombre_evaluacion, 
-        unidad || "", 
-        cal.calificacion_final || cal.calificacion,
+        cal.matricula,
+        cal.nombre,
+        nombre_evaluacion,
+        unidad,
+        nota,
         cal.retroalimentacion || ""
       ]);
     }
   });
 
-  // Forzar escritura inmediata para evitar conflictos de caché
-  SpreadsheetApp.flush();
-  
-  Logger.log(`Guardado exitoso de ${calificaciones.length} calificaciones en Actividades.`);
-  return { message: "Guardado exitoso en Reporte Actividades" };
+  SpreadsheetApp.flush(); // Forzar guardado inmediato
+  return { message: "Guardado exitoso." };
 }

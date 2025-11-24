@@ -140,3 +140,43 @@
     50% { opacity: 0.6; }
     100% { opacity: 1; }
 }
+
+/* Loader minimalista (anillo giratorio pequeño) */
+.spinner-tiny {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #e2e8f0;
+    border-top-color: #3b82f6; /* Azul */
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+.mini-loader-conteiner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #64748b;
+    font-size: 0.85rem;
+    background: #f1f5f9;
+    padding: 4px 8px;
+    border-radius: 12px;
+}
+
+.btn-error-retry {
+    background-color: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fca5a5;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    display: flex; 
+    align-items: center; 
+    gap: 4px;
+}
+
+.btn-error-retry:hover { background-color: #fecaca; }
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
