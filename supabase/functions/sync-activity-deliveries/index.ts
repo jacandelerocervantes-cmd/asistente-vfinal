@@ -8,10 +8,12 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
+  let actividad_id: string | null = null;
+
   try {
-    const { actividad_id } = await req.json();
-    
-    // 1. Auth
+    const body = await req.json();
+    actividad_id = body.actividad_id;
+    if (!actividad_id) throw new Error("El 'actividad_id' es requerido en el cuerpo de la solicitud.");
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error("No autorizado");
     const supabaseClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
@@ -31,7 +33,10 @@ serve(async (req: Request) => {
 
     const mapaGrupos = new Map();
     if (['grupal', 'mixta'].includes(act.tipo_entrega)) {
-        const { data: rels } = await admin.from('alumnos_grupos').select('alumno_id, grupo_id').in('alumno_id', alumnos?.map(a=>a.id)||[]);
+        // 1. Obtener solo los grupos de esta materia
+        const { data: gruposDeMateria } = await admin.from('grupos').select('id').eq('materia_id', act.materia_id);
+        const grupoIds = gruposDeMateria?.map(g => g.id) || [];
+        const { data: rels } = await admin.from('alumnos_grupos').select('alumno_id, grupo_id').in('grupo_id', grupoIds);
         // Construir mapa: GrupoID -> [Array de AlumnoIDs]
         const grupos = new Map();
         rels?.forEach(r => { 
@@ -51,7 +56,11 @@ serve(async (req: Request) => {
         try {
             const res = await fetch(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ action: 'get_folder_contents', drive_folder_id: act.drive_folder_entregas_id })
+                body: JSON.stringify({ 
+                    action: 'get_folder_contents', 
+                    drive_folder_id: act.drive_folder_entregas_id,
+                    mime_types: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+                })
             });
             if (res.status === 429) {
                 console.warn("Google 429. Esperando...");
@@ -85,8 +94,12 @@ serve(async (req: Request) => {
             // Lógica Inteligente de Grupos
             const infoGrupo = mapaGrupos.get(uploaderId);
             
-            if (['grupal', 'mixta'].includes(act.tipo_entrega) && infoGrupo) {
-                // Tiene grupo -> A todos los miembros
+            if (act.tipo_entrega === 'grupal') {
+                if (!infoGrupo) throw new Error(`El alumno con matrícula en '${file.name}' no pertenece a ningún grupo para esta entrega grupal.`);
+                // Entrega grupal -> A todos los miembros
+                infoGrupo.miembros.forEach((mid: string) => targets.push({ id: mid, gid: infoGrupo.grupo_id }));
+            } else if (act.tipo_entrega === 'mixta' && infoGrupo) {
+                // Tiene grupo -> A todos los miembros del grupo
                 infoGrupo.miembros.forEach((mid: string) => targets.push({ id: mid, gid: infoGrupo.grupo_id }));
             } else {
                 // No tiene grupo o es individual -> Solo a él
@@ -107,7 +120,8 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ message: "Sincronizado", nuevos: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Error desconocido";
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido";
+    const message = `Error en sync-activity-deliveries para actividad ID ${actividad_id || 'desconocido'}: ${errorMessage}`;
     return new Response(JSON.stringify({ message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400

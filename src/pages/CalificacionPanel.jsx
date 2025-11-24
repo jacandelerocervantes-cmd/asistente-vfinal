@@ -82,7 +82,7 @@ const CalificacionPanel = () => {
             fetchLocalData();
             syncWithDrive(true);
         }
-    }, [actividadId, fetchLocalData, syncWithDrive]);
+    }, [actividadId]);
 
     // --- Lógica de Selección ---
     const itemsSelectable = useMemo(() => {
@@ -251,7 +251,10 @@ const CalificacionPanel = () => {
                     <ul className="alumnos-list">
                         {calificaciones.length > 0 ? calificaciones.map(cal => {
                             const isSelected = selectedIds.has(cal.id);
-                            const canSelect = !!cal.evidencia_drive_file_id;
+                            // Heurística para deshabilitar Google Docs nativos (IDs más largos)
+                            // y permitir solo archivos que parecen ser PDFs/Word subidos.
+                            const isLikelyCompatibleFile = cal.evidencia_drive_file_id && cal.evidencia_drive_file_id.length < 40;
+                            const canSelect = !!isLikelyCompatibleFile;
 
                             return (
                                 <li key={cal.id} className={isSelected ? 'selected-bg' : ''}>
