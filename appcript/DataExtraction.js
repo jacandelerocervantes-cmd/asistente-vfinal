@@ -63,112 +63,79 @@ function handleGetRubricText(payload) {
  * @return {object} Objeto con la clave 'texto_trabajo'.
  */
 function handleGetStudentWorkText(payload) {
+  Logger.log(`Iniciando handleGetStudentWorkText para file ID ${payload.drive_file_id}...`);
   const { drive_file_id } = payload;
-  if (!drive_file_id) { throw new Error("Falta 'drive_file_id'."); }
-  Logger.log(`Iniciando handleGetStudentWorkText para file ID ${drive_file_id}...`);
+  if (!drive_file_id) throw new Error("Falta 'drive_file_id'.");
 
-  let file;
+  // 1. OBTENER TIPO REAL Y NOMBRE
   let mimeType;
   let fileName;
-
   try {
-    // Usamos la API avanzada para obtener el tipo real exacto
-    const partialFile = Drive.Files.get(drive_file_id, { fields: 'mimeType, title' });
-    mimeType = String(partialFile.mimeType); // Forzar a string por seguridad
-    fileName = partialFile.title;
-    Logger.log(`Extrayendo texto de fileId: ${drive_file_id}. Nombre: "${fileName}". MimeType Real: ${mimeType}`);
-    file = DriveApp.getFileById(drive_file_id);
+    const file = Drive.Files.get(drive_file_id, { fields: 'mimeType, title' });
+    mimeType = file.mimeType;
+    fileName = file.title;
+    Logger.log(`Archivo: "${fileName}" | Tipo: ${mimeType}`);
   } catch (e) {
-     throw new Error(`No se pudo acceder al archivo con fileId ${drive_file_id}. ¿Permisos? Error: ${e.message}`);
+    throw new Error(`No se pudo acceder al archivo con ID ${drive_file_id}. ${e.message}`);
   }
-  
-  if (!mimeType) {
-      return { texto_trabajo: `[Error: El archivo '${fileName}' no tiene un tipo de archivo definido.]` };
-  }
-  
-  let textContent = '';
 
+  // 2. LÓGICA DE EXTRACCIÓN SEGURA
   try {
-    // --- INICIO LÓGICA DE EXTRACCIÓN SEGURA ---
-    
-    // PRIORIDAD 1: ¿Es un Google Doc? (Verificamos ambas formas del string MIME)
-    if (mimeType === MimeType.GOOGLE_DOCS || mimeType === 'application/vnd.google-apps.document') {
-      Logger.log("Leyendo como Google Doc (MimeType detectado)...");
-      textContent = DocumentApp.openById(file.getId()).getBody().getText();
-    } 
-    // PRIORIDAD 2: ¿Es un PDF?
-    else if (mimeType === MimeType.PDF || mimeType === 'application/pdf') {
-       Logger.log("Procesando PDF con OCR...");
-       const blob = file.getBlob();
-       // Creamos un archivo temporal para el OCR
-       const resource = { title: `[OCR TEMP] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
-       const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
-       try {
-          textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
-          Logger.log("OCR completado.");
-       } finally {
-          try { Drive.Files.remove(ocrFile.id); }
-          catch (removeError) { Logger.log(`Error al eliminar archivo OCR temporal ${ocrFile.id}: ${removeError.message}`); }
-       }
-    } 
-    // PRIORIDAD 3: ¿Es un Word?
-    else if (mimeType === MimeType.MICROSOFT_WORD || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-       Logger.log("Convirtiendo Word a Google Doc para leer texto...");
-       const tempDoc = Drive.Files.copy({ title: `[TEMP CONVERT] ${fileName}`, mimeType: MimeType.GOOGLE_DOCS }, file.getId());
-       try {
-          textContent = DocumentApp.openById(tempDoc.id).getBody().getText();
-          Logger.log("Conversión y lectura completadas.");
-       } finally {
-           try { Drive.Files.remove(tempDoc.id); Logger.log("Archivo temporal de conversión eliminado."); }
-           catch (removeError) { Logger.log(`Error al eliminar archivo temporal de conversión ${tempDoc.id}: ${removeError.message}`); }
-       }
-    } 
-    // PRIORIDAD 4: ¿Es texto plano?
-    else if (mimeType.startsWith('text/')) {
-        Logger.log("Leyendo como archivo de texto plano...");
-        textContent = file.getBlob().getDataAsString('UTF-8');
-    } 
-    // ÚLTIMO RECURSO: Intentar OCR en cualquier otra cosa (ej. imágenes), PERO CON SALVAGUARDA
-    else {
-      Logger.log(`Tipo MIME ${mimeType} no soportado directamente.`);
-      
-      // --- SALVAGUARDA CRÍTICA ---
-      // Si por alguna razón el mimeType no coincidió arriba pero ES un doc de Google,
-      // NO intentar OCR. Esto evita el error que estabas viendo.
-      if (mimeType.includes('google-apps.document')) {
-          Logger.log("ACTIVANDO SALVAGUARDA: Detectado google-apps.document en fallback. Leyendo directo.");
-          textContent = DocumentApp.openById(file.getId()).getBody().getText();
-      } else {
-          // Si es un tipo de archivo que definitivamente no es texto (imagen, video, zip)
-          if (mimeType.startsWith('image/') || mimeType.startsWith('video/') || mimeType === 'application/zip') {
-              Logger.log(`Archivo ${fileName} (${mimeType}) requiere revisión manual.`);
-              return { texto_trabajo: null, requiere_revision_manual: true };
-          }
-          
-          Logger.log("Intentando OCR de último recurso...");
-          const blob = file.getBlob();
-          const resource = { title: `[OCR TEMP fallback] ${fileName}` , mimeType: MimeType.GOOGLE_DOCS };
-          // Drive.Files.insert fallará si es un GDoc, pero la salvaguarda de arriba debió prevenirlo
-          const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: 'es' });
-          try {
-              textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
-              Logger.log("OCR (fallback) completado.");
-          } finally {
-              try { Drive.Files.remove(ocrFile.id); } catch (e) {}
-          }
+    // CASO A: Google Doc (Nativo) -> LEER DIRECTO
+    if (mimeType === 'application/vnd.google-apps.document') {
+      Logger.log("Leyendo como Google Doc...");
+      const textContent = DocumentApp.openById(drive_file_id).getBody().getText();
+      return { texto_trabajo: textContent };
+    }
+
+    // CASO B: PDF -> HACER OCR
+    if (mimeType === 'application/pdf') {
+      Logger.log("Procesando PDF con OCR...");
+      const resource = { title: `[OCR TEMP] ${fileName}`, mimeType: "application/vnd.google-apps.document" };
+      const blob = DriveApp.getFileById(drive_file_id).getBlob();
+      const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: "es" });
+      try {
+        const textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
+        return { texto_trabajo: textContent };
+      } finally {
+        Drive.Files.remove(ocrFile.id);
       }
     }
 
-    if (!textContent) {
-        throw new Error(`El archivo '${fileName}' (tipo ${mimeType}) no es un formato de texto legible ni pudo ser procesado con OCR.`);
+    // CASO C: Imagen (Foto de cuaderno, etc.) -> HACER OCR
+    if (mimeType.startsWith('image/')) {
+      Logger.log("Procesando imagen con OCR...");
+      const resource = { title: `[OCR IMG] ${fileName}`, mimeType: "application/vnd.google-apps.document" };
+      const blob = DriveApp.getFileById(drive_file_id).getBlob();
+      const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: "es" });
+      try {
+        const textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
+        return { texto_trabajo: textContent };
+      } finally {
+        Drive.Files.remove(ocrFile.id);
+      }
     }
-    
-    Logger.log(`Texto extraído exitosamente (longitud: ${textContent.length}).`);
+
+    // CASO D: Word -> CONVERTIR Y LEER
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+       Logger.log("Convirtiendo Word a Google Doc para leer texto...");
+       const tempDoc = Drive.Files.copy({ title: `[TEMP CONVERT] ${fileName}`, mimeType: 'application/vnd.google-apps.document' }, drive_file_id);
+       try {
+         const textContent = DocumentApp.openById(tempDoc.id).getBody().getText();
+         return { texto_trabajo: textContent };
+       } finally {
+         Drive.Files.remove(tempDoc.id);
+       }
+    }
+
+    // CASO E (Fallback): Texto plano o similar
+    Logger.log("Leyendo como archivo de texto plano (fallback)...");
+    const textContent = DriveApp.getFileById(drive_file_id).getBlob().getDataAsString('UTF-8');
     return { texto_trabajo: textContent };
 
   } catch (e) {
-    Logger.log(`ERROR en handleGetStudentWorkText para ID ${drive_file_id}: ${e.message}\nStack: ${e.stack}`);
-    throw new Error(`No se pudo leer el contenido del archivo "${fileName}". ${e.message}`);
+    Logger.log(`Error leyendo contenido del archivo ID ${drive_file_id}: ${e.message}`);
+    throw new Error(`No se pudo leer el contenido del archivo "${fileName}" (tipo ${mimeType}). ${e.message}`);
   }
 }
 
