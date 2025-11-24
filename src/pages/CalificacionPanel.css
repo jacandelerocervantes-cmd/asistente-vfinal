@@ -213,3 +213,8 @@
     color: #2563eb;
     text-decoration: underline;
 }
+
+/* CalificacionPanel.css */
+.row-finished {
+    background-color: #f0fdf4; /* Un verde muy suave */
+}

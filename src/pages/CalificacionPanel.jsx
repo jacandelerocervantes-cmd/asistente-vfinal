@@ -338,9 +338,11 @@ const CalificacionPanel = () => {
                             const isSelected = selectedIds.has(item.id);
                             const hasFile = !!item.evidencia_drive_file_id;
                             const isLocked = item.estado === 'procesando' || isStartingBulk;
+                            // NUEVO: También está bloqueado si ya fue calificado exitosamente
+                            const isFinished = item.estado === 'calificado';
 
                             return (
-                                <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${item.estado === 'procesando' ? 'row-processing' : ''}`}>
+                                <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${isLocked ? 'row-processing' : ''} ${isFinished ? 'row-finished' : ''}`}>
                                     <div className="tabla-grid-layout">
                                         
                                         <div className="col-center">
@@ -349,7 +351,8 @@ const CalificacionPanel = () => {
                                                     type="checkbox" 
                                                     checked={isSelected} 
                                                     onChange={() => handleSelectOne(item)}
-                                                    disabled={isLocked} 
+                                                    // BLOQUEO: Si hay proceso global, si esta fila procesa, O SI YA ESTÁ CALIFICADO
+                                                    disabled={isLocked || isFinished} 
                                                 />
                                             )}
                                         </div>
