@@ -2,16 +2,24 @@ import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
-// Configuración de reintentos para fetch
+// Helper para pausas
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Fetch robusto que lee el cuerpo UNA sola vez
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
-      // Clonamos la respuesta por seguridad si necesitamos leerla varias veces internamente en el retry (aunque aquí retornamos directo)
+      // Si falla por Rate Limit (429) o Server Error (5xx), reintentamos
+      if (res.status === 429 || res.status >= 500) {
+        throw new Error(`Server error ${res.status}`);
+      }
       return res;
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.log(`Intento ${i + 1} fallido (${errorMessage}). Reintentando en ${i + 2}s...`);
       if (i === retries - 1) throw err;
-      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      await wait(2000 * (i + 1)); // Espera exponencial (2s, 4s, 6s)
     }
   }
   throw new Error("Fallo fetch tras reintentos");
@@ -27,187 +35,105 @@ serve(async (req: Request) => {
   const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
   try {
-    // 1. OBTENER SIGUIENTE TRABAJO (Bloqueo para evitar concurrencia)
+    // 1. OBTENER TRABAJO (Bloqueo concurrente)
     const { data: jobData, error: jobError } = await supabaseAdmin.rpc('obtener_siguiente_trabajo_evaluacion');
-    
     if (jobError) throw new Error(`Error RPC: ${jobError.message}`);
     if (!jobData || jobData.length === 0) {
-      return new Response(JSON.stringify({ message: "No hay trabajos pendientes." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ message: "Sin trabajos pendientes." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    const jobId = jobData[0].job_id; // Ajustado según tu RPC que devuelve tabla(job_id)
+    const jobId = jobData[0].job_id;
     job_id_global = jobId;
-    console.log(`--- Procesando Trabajo ID: ${jobId} ---`);
+    console.log(`>>> INICIO PROCESAMIENTO TRABAJO ID: ${jobId} <<<`);
 
-    // 2. LEER DETALLES DEL TRABAJO
+    // 2. LEER DATOS
     const { data: colaItem, error: colaError } = await supabaseAdmin
       .from('cola_de_trabajos')
-      .select(`
-        *,
-        calificaciones (
-          id, actividad_id, alumno_id, grupo_id, evidencia_drive_file_id,
-          actividades ( 
-            id, nombre, unidad, rubrica_sheet_range, rubrica_spreadsheet_id,
-            drive_folder_id, drive_folder_entregas_id, tipo_entrega, materia_id,
-            materias ( nombre, calificaciones_spreadsheet_id, drive_url )
-          ),
-          alumnos ( id, nombre, apellido, matricula ),
-          grupos ( id, nombre )
-        )
-      `)
-      .eq('id', jobId)
-      .single();
+      .select(`*, calificaciones (id, actividad_id, alumno_id, grupo_id, evidencia_drive_file_id, actividades (id, nombre, unidad, rubrica_sheet_range, rubrica_spreadsheet_id, drive_folder_entregas_id, tipo_entrega, materia_id, materias (nombre, calificaciones_spreadsheet_id, drive_url)), alumnos (id, nombre, apellido, matricula), grupos (id, nombre))`)
+      .eq('id', jobId).single();
 
-    if (colaError || !colaItem) throw new Error("No se encontró información del trabajo en la cola.");
-    
+    if (colaError || !colaItem) throw new Error("No se encontró el trabajo en la BD.");
     const calif = colaItem.calificaciones;
     calificacion_id_global = calif.id;
     const act = calif.actividades;
     const mat = act.materias;
 
-    // Actualizar progreso visual
-    await supabaseAdmin.from('calificaciones').update({ 
-        estado: 'procesando', 
-        progreso_evaluacion: '1/4: Obteniendo archivos...' 
-    }).eq('id', calif.id);
+    await supabaseAdmin.from('calificaciones').update({ estado: 'procesando', progreso_evaluacion: '1/4: Leyendo archivo...' }).eq('id', calif.id);
 
-    // 3. OBTENER TEXTO DEL ALUMNO (Google Apps Script)
-    console.log("Paso 3: Obteniendo texto del alumno...");
+    // 3. OBTENER TEXTO (Apps Script)
     const scriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!;
     
-    const payloadTexto = {
-      action: 'get_student_work_text',
-      drive_file_id: calif.evidencia_drive_file_id
-    };
+    // --- FIX: Pausa artificial para no saturar a Gemini si hay muchos procesos ---
+    await wait(2000); 
 
     const resTexto = await fetchWithRetry(scriptUrl, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadTexto)
+      body: JSON.stringify({ action: 'get_student_work_text', drive_file_id: calif.evidencia_drive_file_id })
     });
 
-    // --- CORRECCIÓN DE LECTURA ---
-    // Leemos el texto UNA sola vez y parseamos.
-    const rawTextoResponse = await resTexto.text(); 
+    // LECTURA SEGURA DEL BODY
+    const rawTexto = await resTexto.text();
     let jsonTexto;
-    try {
-        jsonTexto = JSON.parse(rawTextoResponse);
-    } catch (_e) {
-        throw new Error(`Error parseando respuesta de Google (Texto Alumno): ${rawTextoResponse.substring(0, 200)}...`);
+    try { jsonTexto = JSON.parse(rawTexto); } catch { throw new Error(`Google devolvió respuesta inválida al leer texto.`); }
+
+    if (jsonTexto.requiere_revision_manual) {
+        console.warn("Archivo requiere revisión manual.");
+        await supabaseAdmin.from('calificaciones').update({ estado: 'requiere_revision_manual', progreso_evaluacion: 'Formato no legible por IA' }).eq('id', calif.id);
+        await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado', ultimo_error: 'Manual req.' }).eq('id', jobId);
+        return new Response(JSON.stringify({ message: "Marcado manual" }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    if (!resTexto.ok || jsonTexto.error) {
-       // Si Google nos dice que requiere revisión manual (ej. es una imagen difícil), lo manejamos suavemente.
-       if (jsonTexto.requiere_revision_manual) {
-           console.log(`El trabajo ${calif.id} requiere revisión manual.`);
-           await supabaseAdmin.from('calificaciones').update({ 
-               estado: 'requiere_revision_manual',
-               progreso_evaluacion: 'Requiere revisión manual (formato no legible)'
-           }).eq('id', calif.id);
-           
-           // Marcamos el trabajo como completado (aunque con otro estado) para sacarlo de la cola
-           await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado', ultimo_error: 'Revisión Manual Requerida' }).eq('id', jobId);
-           
-           return new Response(JSON.stringify({ message: "Marcado para revisión manual" }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-       }
-       throw new Error(`Error obteniendo texto: ${jsonTexto.error || jsonTexto.message || rawTextoResponse}`);
-    }
-
+    if (!resTexto.ok || !jsonTexto.texto_trabajo) throw new Error(`Error leyendo archivo: ${jsonTexto.error || 'Sin texto'}`);
     const textoAlumno = jsonTexto.texto_trabajo;
-    if (!textoAlumno || textoAlumno.length < 10) {
-        throw new Error("El archivo parece estar vacío o tener muy poco texto legible.");
-    }
-
-    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '2/4: Analizando rúbrica...' }).eq('id', calif.id);
 
     // 4. OBTENER RÚBRICA
-    const payloadRubrica = {
-      action: 'get_rubric_text',
-      spreadsheet_id: act.rubrica_spreadsheet_id,
-      rubrica_sheet_range: act.rubrica_sheet_range
-    };
-
+    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '2/4: Analizando rúbrica...' }).eq('id', calif.id);
     const resRubrica = await fetchWithRetry(scriptUrl, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadRubrica)
+      body: JSON.stringify({ action: 'get_rubric_text', spreadsheet_id: act.rubrica_spreadsheet_id, rubrica_sheet_range: act.rubrica_sheet_range })
     });
-    
-    const rawRubricaResponse = await resRubrica.text();
-    let jsonRubrica;
-    try { jsonRubrica = JSON.parse(rawRubricaResponse); }
-    catch(_e) { throw new Error(`Error parseando rúbrica: ${rawRubricaResponse.substring(0,200)}`); }
+    const jsonRubrica = await resRubrica.json();
+    if (!jsonRubrica.texto_rubrica) throw new Error("Error leyendo rúbrica.");
 
-    if (!jsonRubrica.texto_rubrica) throw new Error("No se pudo obtener el texto de la rúbrica.");
-
+    // 5. GEMINI
     await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '3/4: Evaluando con IA...' }).eq('id', calif.id);
-
-    // 5. EVALUAR CON GEMINI
-    console.log("Paso 5: Consultando a Gemini...");
     const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
 
     const prompt = `
-      Actúa como un profesor experto. Evalúa el siguiente trabajo escolar basándote ESTRICTAMENTE en la rúbrica proporcionada.
-      
-      RÚBRICA:
-      ${jsonRubrica.texto_rubrica}
-
-      TRABAJO DEL ALUMNO:
-      "${textoAlumno.substring(0, 15000)}" 
-
-      INSTRUCCIONES DE SALIDA:
-      Responde SOLAMENTE con un JSON válido (sin bloques de código markdown). El formato debe ser:
-      {
-        "calificacion_total": (número entre 0 y 100),
-        "justificacion_texto": "Explicación breve y constructiva dirigida al alumno sobre su nota, mencionando fortalezas y áreas de mejora según la rúbrica."
-      }
+      Eres un profesor evaluando. Usa esta RÚBRICA:\n${jsonRubrica.texto_rubrica}\n
+      Para evaluar este ALUMNO:\n"${textoAlumno.substring(0, 12000)}"\n
+      Responde SOLO un JSON: {"calificacion_total": number, "justificacion_texto": "string breve"}.
     `;
 
     const resGemini = await fetchWithRetry(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
-      })
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
 
-    const geminiJson = await resGemini.json();
-    const rawAIResponse = geminiJson.candidates?.[0]?.content?.parts?.[0]?.text;
-    
-    if (!rawAIResponse) throw new Error("Gemini no devolvió una respuesta válida.");
+    const geminiData = await resGemini.json();
+    const rawAI = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawAI) throw new Error("Gemini devolvió respuesta vacía (Posible sobrecarga).");
 
-    // Limpieza del JSON de Gemini (a veces pone ```json ... ```)
-    const cleanJsonString = rawAIResponse.replace(/```json/g, '').replace(/```/g, '').trim();
     let evaluacion;
     try {
-        evaluacion = JSON.parse(cleanJsonString);
-    } catch (_e) {
-        throw new Error(`La IA devolvió un formato inválido: ${cleanJsonString}`);
-    }
+        evaluacion = JSON.parse(rawAI.replace(/```json|```/g, '').trim());
+    } catch { throw new Error("Gemini no devolvió JSON válido."); }
 
-    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '4/4: Guardando resultados...' }).eq('id', calif.id);
-
-    // 6. GUARDAR EN GOOGLE SHEETS (Aquí ocurría el error "Body consumed")
-    console.log("Paso 6: Guardando en Sheets...");
+    // 6. GUARDAR EN SHEETS (Aquí estaba el error Body Consumed)
+    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '4/4: Guardando...' }).eq('id', calif.id);
     
-    const nombreAlumno = calif.alumnos ? `${calif.alumnos.nombre} ${calif.alumnos.apellido}` : "Desconocido";
-    const nombreEquipo = calif.grupos ? calif.grupos.nombre : "";
-    const matricula = calif.alumnos?.matricula || "S/M";
-
     const payloadSave = {
-      action: 'guardar_calificacion_detallada',
-      drive_url_materia: mat.drive_url, // Usamos la URL de la materia o el ID del sheet si el script lo soporta
-      calificaciones_spreadsheet_id: mat.calificaciones_spreadsheet_id, // Asegúrate que tu script soporte esto si lo tienes
+      action: 'guardar_calificacion_actividad',
+      calificaciones_spreadsheet_id: mat.calificaciones_spreadsheet_id,
+      nombre_evaluacion: act.nombre,
       unidad: act.unidad,
-      actividad: { nombre: act.nombre, id: act.id }, // Solo metadatos
-      calificaciones: [
-        {
-          matricula: matricula,
-          nombre: nombreAlumno,
-          equipo: nombreEquipo,
-          calificacion: evaluacion.calificacion_total,
-          retroalimentacion: evaluacion.justificacion_texto
-        }
-      ]
+      calificaciones: [{
+          matricula: calif.alumnos?.matricula || "S/M",
+          nombre: calif.alumnos ? `${calif.alumnos.nombre} ${calif.alumnos.apellido}` : "",
+          calificacion_final: evaluacion.calificacion_total,
+          retroalimentacion: evaluacion.justificacion_texto // Pasamos también la justificación
+      }]
     };
 
     const resSave = await fetchWithRetry(scriptUrl, {
@@ -215,80 +141,52 @@ serve(async (req: Request) => {
       body: JSON.stringify(payloadSave)
     });
 
-    // --- CORRECCIÓN CLAVE: LEER UNA SOLA VEZ ---
-    const rawSaveText = await resSave.text(); // <--- Leemos el stream AQUÍ y lo guardamos en variable
+    // --- FIX BODY CONSUMED ---
+    const rawSaveBody = await resSave.text(); // Leemos UNA VEZ
     let jsonSave;
-    
-    try {
-        jsonSave = JSON.parse(rawSaveText); // Usamos la variable, NO resSave.json()
-    } catch (_e) {
-        throw new Error(`Google Apps Script devolvió respuesta inválida al guardar: ${rawSaveText}`);
+    try { jsonSave = JSON.parse(rawSaveBody); } catch { 
+        // Si falla el JSON, usamos el texto crudo para el error
+        throw new Error(`Apps Script error (No JSON): ${rawSaveBody}`); 
     }
 
     if (!resSave.ok || jsonSave.status === 'error') {
-        throw new Error(`Error lógico al guardar en Sheets: ${jsonSave.message || rawSaveText}`);
+        throw new Error(`Apps Script error lógico: ${jsonSave.message || rawSaveBody}`);
     }
 
     // 7. ACTUALIZAR DB LOCAL
-    // Si es grupal/mixta, replicamos la nota a los compañeros del mismo grupo en la misma actividad
-    // (Tu lógica de frontend ya agrupa, pero en BD guardamos individualmente)
-    let idsAActualizar = [calif.id];
-    
+    let idsUpdate = [calif.id];
+    // Si es equipo, buscamos compañeros
     if (calif.grupo_id && ['grupal', 'mixta'].includes(act.tipo_entrega)) {
-        // Buscamos otros miembros del grupo en esta actividad que aún no tengan nota
-        const { data: companeros } = await supabaseAdmin
-            .from('calificaciones')
-            .select('id')
-            .eq('actividad_id', act.id)
-            .eq('grupo_id', calif.grupo_id);
-            
-        if (companeros) {
-            idsAActualizar = companeros.map(c => c.id);
-        }
+        const { data: comps } = await supabaseAdmin.from('calificaciones').select('id')
+            .eq('actividad_id', act.id).eq('grupo_id', calif.grupo_id);
+        if (comps) idsUpdate = comps.map(c => c.id);
     }
 
-    const { error: updateError } = await supabaseAdmin
-      .from('calificaciones')
-      .update({
+    await supabaseAdmin.from('calificaciones').update({
         calificacion_obtenida: evaluacion.calificacion_total,
         estado: 'calificado',
         progreso_evaluacion: 'Completado',
-        justificacion_sheet_cell: 'Ver en Sheets' // Opcional
-      })
-      .in('id', idsAActualizar);
+        justificacion_sheet_cell: 'Ver reporte'
+    }).in('id', idsUpdate);
 
-    if (updateError) throw new Error(`Error actualizando Supabase: ${updateError.message}`);
+    // Completar Job
+    await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado', updated_at: new Date() }).eq('id', jobId);
 
-    // 8. MARCAR TRABAJO COMO COMPLETADO
-    await supabaseAdmin.from('cola_de_trabajos').update({
-      estado: 'completado',
-      updated_at: new Date()
-    }).eq('id', jobId);
-
-    return new Response(JSON.stringify({ success: true, calificacion: evaluacion.calificacion_total }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    console.error("!!!!!!!!!! ERROR CAPTURADO !!!!!!!!!!");
-    console.error(error);
-
-    const errorMsg = error instanceof Error ? error.message : "Error desconocido";
-
-    // Revertir estado si falló
+    const errorMessage = error instanceof Error ? error.message : "Error desconocido en el procesamiento.";
+    console.error("ERROR FATAL:", errorMessage);
+    // Revertir estado para reintentar o mostrar error
     if (calificacion_id_global) {
-       await supabaseAdmin.from('calificaciones').update({ 
-           estado: 'entregado', // Regresa a entregado para reintentar
-           progreso_evaluacion: `Error: ${errorMsg.substring(0, 30)}...` 
-       }).eq('id', calificacion_id_global);
+        await supabaseAdmin.from('calificaciones').update({ 
+            estado: 'fallido', // Lo dejamos en fallido para que el usuario lo vea y decida reintentar
+            progreso_evaluacion: `Error: ${errorMessage.substring(0, 40)}` 
+        }).eq('id', calificacion_id_global);
     }
-
     if (job_id_global) {
-        // Aumentar intentos o marcar fallido
-        await supabaseAdmin.from('cola_de_trabajos').update({ 
-            estado: 'fallido', // La RPC se encarga de reintentar si intentos < 3
-            ultimo_error: errorMsg
-        }).eq('id', job_id_global);
+        await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'fallido', ultimo_error: errorMessage }).eq('id', job_id_global);
     }
-
-    return new Response(JSON.stringify({ error: errorMsg }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
+    return new Response(JSON.stringify({ error: errorMessage }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
   }
 });

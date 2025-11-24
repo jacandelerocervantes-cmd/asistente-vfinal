@@ -83,8 +83,8 @@ function doPost(e) {
         return crearRespuestaExitosa(handleGetJustificationText(payload));
       case 'guardar_calificacion_detallada': // Para calificaciones de actividades
         return crearRespuestaExitosa(handleGuardarCalificacionDetallada(payload));
-      case 'guardar_calificaciones_evaluacion': // Para calificaciones de evaluaciones
-        return crearRespuestaExitosa(handleGuardarCalificacionesEvaluacion(payload));
+      case 'guardar_calificacion_actividad':
+        return crearRespuestaExitosa(handleGuardarCalificacionesActividad(payload));
       case 'eliminar_recurso_drive': // <-- AÑADE ESTE CASO
         return crearRespuestaExitosa(handleEliminarRecurso(payload));
       case 'leer_datos_asistencia': // <-- AÑADE ESTE CASO
