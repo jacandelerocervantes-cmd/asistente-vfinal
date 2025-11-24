@@ -6,7 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
 import { 
     FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, 
-    FaRobot, FaSearch, FaSpinner 
+    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser
 } from 'react-icons/fa';
 
 const CalificacionPanel = () => {
@@ -16,7 +16,7 @@ const CalificacionPanel = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [calificaciones, setCalificaciones] = useState([]);
     
-    // Selección múltiple
+    // Selección múltiple (Guardamos IDs de calificación)
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isStartingBulk, setIsStartingBulk] = useState(false);
     const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
@@ -32,9 +32,14 @@ const CalificacionPanel = () => {
             if (actError) throw actError;
             setActividad(actData);
 
+            // CORRECCIÓN: Traemos también el nombre del grupo
             const { data: calData, error: calError } = await supabase
                 .from('calificaciones')
-                .select('*, alumnos(id, nombre, apellido, matricula)')
+                .select(`
+                    *, 
+                    alumnos(id, nombre, apellido, matricula),
+                    grupos(id, nombre) 
+                `)
                 .eq('actividad_id', actividadId)
                 .order('created_at', { ascending: false });
 
@@ -84,13 +89,49 @@ const CalificacionPanel = () => {
         }
     }, [actividadId]);
 
-    // --- Lógica de Selección ---
-    const itemsSelectable = useMemo(() => {
-        // Solo permitir seleccionar si hay entrega o ya está calificado (implica que hay archivo)
-        return calificaciones.filter(c => c.estado === 'entregado' || c.estado === 'calificado' || c.estado === 'procesando');
+    // --- LÓGICA DE AGRUPACIÓN VISUAL (NUEVO) ---
+    const itemsToDisplay = useMemo(() => {
+        const groups = {};
+        const individuals = [];
+
+        calificaciones.forEach(cal => {
+            // Si tiene grupo y nombre de grupo, lo agrupamos
+            if (cal.grupo_id && cal.grupos) {
+                if (!groups[cal.grupo_id]) {
+                    groups[cal.grupo_id] = {
+                        ...cal, // Usamos los datos base del primer miembro
+                        isGroup: true,
+                        displayName: cal.grupos.nombre,
+                        members: [cal], // Guardamos todos los miembros para referencia
+                        displayCount: 1
+                    };
+                } else {
+                    groups[cal.grupo_id].members.push(cal);
+                    groups[cal.grupo_id].displayCount++;
+                }
+            } else {
+                individuals.push({
+                    ...cal,
+                    isGroup: false,
+                    displayName: `${cal.alumnos?.nombre || ''} ${cal.alumnos?.apellido || ''}`,
+                    displayMatricula: cal.alumnos?.matricula
+                });
+            }
+        });
+
+        return [...Object.values(groups), ...individuals].sort((a, b) => {
+            // Ordenar primero grupos, luego individuos (opcional)
+            if (a.isGroup && !b.isGroup) return -1;
+            if (!a.isGroup && b.isGroup) return 1;
+            return 0;
+        });
     }, [calificaciones]);
 
-    const handleSelectOne = (id) => {
+    // --- Lógica de Selección Actualizada ---
+    const handleSelectOne = (item) => {
+        // Si seleccionas un grupo, seleccionamos el ID del "representante" (el de la fila mostrada)
+        // La función de evaluación ya sabe propagar la nota.
+        const id = item.id;
         setSelectedIds(prev => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
@@ -101,8 +142,12 @@ const CalificacionPanel = () => {
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            const allIds = itemsSelectable.map(c => c.id);
-            setSelectedIds(new Set(allIds));
+            // Seleccionamos solo los IDs visibles (representantes de grupo o individuos)
+            // Solo si tienen estado válido para seleccionar
+            const validIds = itemsToDisplay
+                .filter(item => ['entregado', 'calificado', 'procesando'].includes(item.estado))
+                .map(item => item.id);
+            setSelectedIds(new Set(validIds));
         } else {
             setSelectedIds(new Set());
         }
@@ -113,7 +158,7 @@ const CalificacionPanel = () => {
         const idsArray = Array.from(selectedIds);
         if (idsArray.length === 0) return;
 
-        if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} alumnos?`)) return;
+        if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} elementos seleccionados?`)) return;
 
         setIsStartingBulk(true);
         try {
@@ -135,40 +180,44 @@ const CalificacionPanel = () => {
         }
     };
 
-    // --- NUEVO: Lógica de Comprobación de Plagio ---
+    // --- Plagio ---
     const handleCheckPlagio = async () => {
         const idsArray = Array.from(selectedIds);
         
-        // Obtener los file_ids de Drive correspondientes a las calificaciones seleccionadas
-        const selectedCalifs = calificaciones.filter(c => idsArray.includes(c.id));
-        const driveFileIds = selectedCalifs
+        // Buscar los objetos originales basados en los IDs seleccionados
+        const selectedItems = itemsToDisplay.filter(i => idsArray.includes(i.id));
+        
+        const driveFileIds = selectedItems
             .map(c => c.evidencia_drive_file_id)
-            .filter(id => id); // Eliminar nulos
+            .filter(id => id); 
 
-        if (driveFileIds.length < 2) {
-            showNotification("Selecciona al menos 2 trabajos con archivo para comprobar plagio.", 'warning');
+        // Eliminar duplicados (por si acaso se seleccionaran varios del mismo grupo, aunque la UI lo evita)
+        const uniqueFiles = [...new Set(driveFileIds)];
+
+        if (uniqueFiles.length < 2) {
+            showNotification("Selecciona al menos 2 trabajos diferentes para comprobar plagio.", 'warning');
             return;
         }
 
-        if (!window.confirm(`¿Analizar plagio entre los ${driveFileIds.length} trabajos seleccionados?`)) return;
+        if (!window.confirm(`¿Analizar plagio entre los ${uniqueFiles.length} trabajos seleccionados?`)) return;
 
         setIsCheckingPlagio(true);
         try {
             const { data, error } = await supabase.functions.invoke('encolar-comprobacion-plagio', {
                 body: { 
-                    drive_file_ids: driveFileIds,
-                    materia_id: actividad?.materia_id // Necesario para guardar el reporte
+                    drive_file_ids: uniqueFiles,
+                    materia_id: actividad?.materia_id 
                 }
             });
 
             if (error) throw error;
 
-            showNotification("Análisis de plagio iniciado. Se generará un reporte en la pestaña 'Reportes' pronto.", 'success');
-            setSelectedIds(new Set()); // Limpiar selección
+            showNotification("Análisis de plagio iniciado.", 'success');
+            setSelectedIds(new Set()); 
 
         } catch (error) {
             console.error("Error plagio:", error);
-            showNotification("Error al iniciar comprobación de plagio: " + error.message, 'error');
+            showNotification("Error: " + error.message, 'error');
         } finally {
             setIsCheckingPlagio(false);
         }
@@ -183,8 +232,6 @@ const CalificacionPanel = () => {
         }
     };
 
-    const isAllSelected = itemsSelectable.length > 0 && selectedIds.size === itemsSelectable.length;
-
     return (
         <div className="calificacion-panel-container">
             {/* Header */}
@@ -194,7 +241,7 @@ const CalificacionPanel = () => {
                         <FaArrowLeft /> Volver a Actividades
                     </Link>
                     <h2>{actividad ? actividad.nombre : 'Cargando...'}</h2>
-                    <p className="subtitle">Panel de Evaluación</p>
+                    <p className="subtitle">Panel de Evaluación {actividad?.tipo_entrega === 'grupal' ? '(Vista Grupal)' : ''}</p>
                 </div>
                 <div>
                     <button 
@@ -225,96 +272,108 @@ const CalificacionPanel = () => {
 
             <div className="alumnos-list-container">
                 
-                {/* 1. ENCABEZADO (Usa la clase maestra tabla-grid-layout) */}
                 <div className="list-header tabla-grid-layout">
                     <div className="col-center">
                         <input 
                             type="checkbox" 
                             onChange={handleSelectAll} 
-                            checked={isAllSelected}
-                            disabled={itemsSelectable.length === 0 || isStartingBulk || isCheckingPlagio}
+                            disabled={itemsToDisplay.length === 0 || isStartingBulk || isCheckingPlagio}
                         />
                     </div>
-                    <div></div> {/* Espacio vacío para icono */}
+                    <div></div> 
                     <div>Alumno / Equipo</div>
                     <div>Estado</div>
                     <div className="col-center">Nota</div>
                     <div className="col-right">Acciones</div>
                 </div>
 
-                {/* 2. LISTA DE ALUMNOS */}
                 {loadingData ? (
                     <div style={{padding: '3rem', textAlign: 'center', color: '#64748b'}}>
-                        <FaSpinner className="spin" style={{fontSize:'1.5rem'}}/> <br/>Cargando alumnos...
+                        <FaSpinner className="spin" style={{fontSize:'1.5rem'}}/> <br/>Cargando datos...
                     </div>
                 ) : (
                     <ul className="alumnos-list">
-                        {calificaciones.length > 0 ? calificaciones.map(cal => {
-                            const isSelected = selectedIds.has(cal.id);
-                            // Heurística para deshabilitar Google Docs nativos (IDs más largos)
-                            // y permitir solo archivos que parecen ser PDFs/Word subidos.
-                            const isLikelyCompatibleFile = cal.evidencia_drive_file_id && cal.evidencia_drive_file_id.length < 40;
-                            const canSelect = !!isLikelyCompatibleFile;
+                        {itemsToDisplay.length > 0 ? itemsToDisplay.map(item => {
+                            const isSelected = selectedIds.has(item.id);
+                            const hasFile = !!item.evidencia_drive_file_id;
 
                             return (
-                                <li key={cal.id} className={isSelected ? 'selected-bg' : ''}>
-                                    
-                                    {/* 3. FILA (Usa la MISMA clase maestra tabla-grid-layout) */}
+                                <li key={item.id} className={isSelected ? 'selected-bg' : ''}>
                                     <div className="tabla-grid-layout">
                                         
-                                        {/* Col 1: Checkbox */}
+                                        {/* Checkbox */}
                                         <div className="col-center">
-                                            {canSelect && (
+                                            {hasFile && (
                                                 <input 
                                                     type="checkbox" 
                                                     checked={isSelected} 
-                                                    onChange={() => handleSelectOne(cal.id)} 
+                                                    onChange={() => handleSelectOne(item)} 
                                                     disabled={isStartingBulk || isCheckingPlagio}/>
                                             )}
                                         </div>
 
-                                        {/* Col 2: Icono */}
-                                        <div className="col-center">
-                                            {getStatusIcon(cal.estado)}
+                                        {/* Icono Tipo */}
+                                        <div className="col-center" title={item.isGroup ? "Entrega Grupal" : "Entrega Individual"}>
+                                            {item.isGroup ? <FaUsers style={{color:'#6366f1'}}/> : <FaUser style={{color:'#94a3b8'}}/>}
                                         </div>
                                         
-                                        {/* Col 3: Info Alumno */}
+                                        {/* Nombre */}
                                         <div className="alumno-info">
-                                            <span className="entregable-nombre">
-                                                {cal.alumnos?.nombre} {cal.alumnos?.apellido}
+                                            <span className="entregable-nombre" style={{fontSize: item.isGroup ? '1.05rem' : '1rem'}}>
+                                                {item.displayName}
                                             </span>
-                                            <span className="matricula-text">
-                                                {cal.alumnos?.matricula}
+                                            {item.isGroup ? (
+                                                <span className="matricula-text" style={{color: '#6366f1', fontSize: '0.8rem'}}>
+                                                    {item.displayCount} Integrantes
+                                                    <span style={{marginLeft:'5px', color:'#94a3b8'}}>(Calificación se aplicará a todos)</span>
+                                                </span>
+                                            ) : (
+                                                <span className="matricula-text">
+                                                    {item.displayMatricula}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Estado */}
+                                        <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                                            {getStatusIcon(item.estado)}
+                                            <span className={`status-pill ${item.estado || 'pendiente'}`}>
+                                                {item.estado === 'procesando' ? 'Evaluando...' : 
+                                                 item.estado || 'Pendiente'}
                                             </span>
                                         </div>
 
-                                        {/* Col 4: Estado */}
-                                        <div>
-                                            <span className={`status-pill ${cal.estado || 'pendiente'}`}>
-                                                {cal.estado === 'procesando' ? 'Evaluando...' : 
-                                                 cal.estado || 'Pendiente'}
-                                            </span>
-                                        </div>
-
-                                        {/* Col 5: Nota */}
+                                        {/* Nota */}
                                         <div className="col-center">
-                                            {cal.calificacion_obtenida !== null ? (
-                                                <span className={`calificacion-badge ${cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
-                                                    {cal.calificacion_obtenida}
+                                            {item.calificacion_obtenida !== null ? (
+                                                <span className={`calificacion-badge ${item.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
+                                                    {item.calificacion_obtenida}
                                                 </span>
                                             ) : '-'}
                                         </div>
 
-                                        {/* Col 6: Acciones */}
+                                        {/* Acciones */}
                                         <div className="col-right">
-                                            {(cal.estado === 'entregado' || cal.estado === 'calificado') && (
+                                            {(item.estado === 'entregado' || item.estado === 'calificado') && (
                                                 <Link 
-                                                    to={`/evaluacion/${cal.id}/calificar`} 
+                                                    to={`/evaluacion/${item.id}/calificar`} 
                                                     className="btn-secondary btn-small btn-icon-only"
-                                                    title="Evaluar"
+                                                    title="Ver Detalles / Evaluar Manualmente"
                                                 >
                                                     <FaRobot />
                                                 </Link>
+                                            )}
+                                            {item.drive_url_entrega && (
+                                                <a 
+                                                    href={item.drive_url_entrega} 
+                                                    target="_blank" 
+                                                    rel="noreferrer"
+                                                    className="btn-tertiary btn-small btn-icon-only"
+                                                    style={{marginLeft: '5px'}}
+                                                    title="Ver Archivo"
+                                                >
+                                                    Ver
+                                                </a>
                                             )}
                                         </div>
                                     </div>
