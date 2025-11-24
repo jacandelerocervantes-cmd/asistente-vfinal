@@ -6,7 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
 import { 
     FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, 
-    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser
+    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaExclamationTriangle, FaInfoCircle
 } from 'react-icons/fa';
 
 const CalificacionPanel = () => {
@@ -22,6 +22,22 @@ const CalificacionPanel = () => {
     const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
 
     const { showNotification } = useNotification();
+
+    // --- 0. HELPER: TRADUCTOR DE ERRORES (NUEVO) ---
+    const traducirError = (errorRaw) => {
+        if (!errorRaw) return "Error desconocido.";
+        const err = errorRaw.toLowerCase();
+
+        if (err.includes("body already consumed")) return "Error de conexión temporal. Por favor, reintenta.";
+        if (err.includes("ocr")) return "El sistema no pudo leer el texto del archivo (formato complejo).";
+        if (err.includes("json")) return "La IA devolvió un formato inesperado. Reintenta.";
+        if (err.includes("fetch")) return "Fallo de conexión con Google Drive.";
+        if (err.includes("empty")) return "El archivo parece estar vacío o sin texto seleccionable.";
+        if (err.includes("permission")) return "No tenemos permiso para leer este archivo.";
+        
+        // Si es un mensaje corto, lo mostramos, si es muy largo (técnico), mostramos genérico
+        return errorRaw.length > 50 ? "Error técnico interno. Contacta a soporte." : errorRaw;
+    };
 
     // 1. Cargar Datos Iniciales
     const fetchLocalData = useCallback(async () => {
@@ -88,29 +104,19 @@ const CalificacionPanel = () => {
         }
     }, [actividadId]);
 
-    // --- 3. SUSCRIPCIÓN REALTIME (NUEVO) ---
-    // Esto escucha cambios en la tabla 'calificaciones' y actualiza la UI en vivo
+    // 3. Suscripción Realtime
     useEffect(() => {
         if (!actividadId) return;
-
-        console.log(`Suscribiendo a cambios en tiempo real para actividad ${actividadId}...`);
         const channel = supabase
             .channel(`calificaciones-actividad-${actividadId}`)
             .on(
                 'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'calificaciones',
-                    filter: `actividad_id=eq.${actividadId}` // Filtramos solo esta actividad
-                },
+                { event: 'UPDATE', schema: 'public', table: 'calificaciones', filter: `actividad_id=eq.${actividadId}` },
                 (payload) => {
-                    console.log("Actualización en tiempo real recibida:", payload.new);
-                    // Actualizamos el estado local reemplazando el objeto modificado
-                    setCalificaciones(currentCalificaciones => 
-                        currentCalificaciones.map(cal => 
+                    setCalificaciones(current => 
+                        current.map(cal => 
                             cal.id === payload.new.id 
-                                ? { ...cal, ...payload.new } // Mantenemos relaciones, actualizamos campos base
+                                ? { ...cal, ...payload.new } 
                                 : cal
                         )
                     );
@@ -119,11 +125,8 @@ const CalificacionPanel = () => {
             .subscribe();
 
         // Limpieza al desmontar
-        return () => {
-            supabase.removeChannel(channel);
-        };
+        return () => { supabase.removeChannel(channel); };
     }, [actividadId]);
-
 
     // --- Lógica de Agrupación Visual ---
     const itemsToDisplay = useMemo(() => {
@@ -174,8 +177,9 @@ const CalificacionPanel = () => {
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
+            // CORRECCIÓN: No seleccionar los que ya se están procesando
             const validIds = itemsToDisplay
-                .filter(item => ['entregado', 'calificado', 'procesando', 'requiere_revision_manual'].includes(item.estado))
+                .filter(item => ['entregado', 'calificado', 'requiere_revision_manual', 'fallido'].includes(item.estado))
                 .map(item => item.id);
             setSelectedIds(new Set(validIds));
         } else {
@@ -186,17 +190,17 @@ const CalificacionPanel = () => {
     const handleEvaluacionMasiva = async () => {
         const idsArray = Array.from(selectedIds);
         if (idsArray.length === 0) return;
-        if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} elementos seleccionados?`)) return;
-
-        setIsStartingBulk(true);
+        
+        setIsStartingBulk(true); // Bloqueo inicial UI
         try {
             const { data, error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', {
                 body: { calificaciones_ids: idsArray }
             });
             if (error) throw error;
-            showNotification(`Proceso iniciado: ${data.message}`, 'success');
+            
+            showNotification(`Evaluación iniciada. El estado se actualizará automáticamente.`, 'success');
             setSelectedIds(new Set());
-            // No necesitamos fetchLocalData() aquí porque el Realtime actualizará la UI
+            
         } catch (error) {
             console.error("Error evaluación masiva:", error);
             showNotification("Error: " + error.message, 'error');
@@ -212,10 +216,10 @@ const CalificacionPanel = () => {
         const uniqueFiles = [...new Set(driveFileIds)];
 
         if (uniqueFiles.length < 2) {
-            showNotification("Selecciona al menos 2 trabajos diferentes para comprobar plagio.", 'warning');
+            showNotification("Selecciona al menos 2 trabajos diferentes.", 'warning');
             return;
         }
-        if (!window.confirm(`¿Analizar plagio entre los ${uniqueFiles.length} trabajos seleccionados?`)) return;
+        if (!window.confirm(`¿Analizar plagio entre ${uniqueFiles.length} trabajos?`)) return;
 
         setIsCheckingPlagio(true);
         try {
@@ -226,20 +230,50 @@ const CalificacionPanel = () => {
             showNotification("Análisis de plagio iniciado.", 'success');
             setSelectedIds(new Set()); 
         } catch (error) {
-            console.error("Error plagio:", error);
             showNotification("Error: " + error.message, 'error');
         } finally {
             setIsCheckingPlagio(false);
         }
     };
 
-    const getStatusIcon = (estado) => {
-        switch (estado) {
-            case 'calificado': return <FaCheckCircle className="icon-success" style={{color: '#16a34a', fontSize:'1.2rem'}} />;
-            case 'entregado': return <FaClock className="icon-info" style={{color: '#2563eb', fontSize:'1.2rem'}} />;
-            case 'procesando': return <FaSpinner className="spin" style={{color: '#ca8a04', fontSize:'1.2rem'}} />;
-            case 'requiere_revision_manual': return <FaExclamationCircle style={{color: '#dc2626', fontSize:'1.2rem'}} />; // Nuevo ícono para error manual
-            default: return <FaExclamationCircle style={{color: '#cbd5e1', fontSize:'1.2rem'}} />;
+    // Renderizado de Iconos de Estado
+    const getStatusBadge = (item) => {
+        switch (item.estado) {
+            case 'calificado': 
+                return (
+                    <div className="status-badge success" title="Evaluación completada">
+                        <FaCheckCircle /> <span>Calificado</span>
+                    </div>
+                );
+            case 'entregado': 
+                return (
+                    <div className="status-badge info" title="Listo para evaluar">
+                        <FaClock /> <span>Entregado</span>
+                    </div>
+                );
+            case 'procesando': 
+                return (
+                    <div className="status-badge warning pulsate" title="La IA está trabajando...">
+                        <FaSpinner className="spin" /> 
+                        <span>{item.progreso_evaluacion || 'Procesando...'}</span>
+                    </div>
+                );
+            case 'requiere_revision_manual':
+                return (
+                    <div className="status-badge danger" title="Requiere tu atención">
+                        <FaExclamationCircle /> <span>Revisión Manual</span>
+                    </div>
+                );
+            case 'fallido':
+                // Aquí mostramos el error traducido en el título (hover)
+                return (
+                    <div className="status-badge error" title={traducirError(item.progreso_evaluacion || item.ultimo_error)}>
+                        <FaExclamationTriangle /> 
+                        <span>Falló: Ver motivo</span>
+                    </div>
+                );
+            default: 
+                return <span className="status-pill pendiente">Pendiente</span>;
         }
     };
 
@@ -256,7 +290,7 @@ const CalificacionPanel = () => {
                 <div>
                     <button 
                         onClick={() => syncWithDrive(false)}
-                        disabled={isSyncing} 
+                        disabled={isSyncing || isStartingBulk} 
                         className="btn-secondary btn-small icon-button"
                     >
                         <FaSync className={isSyncing ? 'spin' : ''} />
@@ -269,11 +303,12 @@ const CalificacionPanel = () => {
                 <div className="bulk-actions-bar">
                     <span style={{fontWeight:'bold'}}>{selectedIds.size} seleccionados</span>
                     <div style={{display:'flex', gap:'10px'}}>
-                        <button onClick={handleCheckPlagio} disabled={isCheckingPlagio} className="btn-secondary btn-small icon-button">
-                            {isCheckingPlagio ? <FaSpinner className="spin"/> : <FaSearch />} Comprobar Plagio
+                        <button onClick={handleCheckPlagio} disabled={isCheckingPlagio || isStartingBulk} className="btn-secondary btn-small icon-button">
+                            {isCheckingPlagio ? <FaSpinner className="spin"/> : <FaSearch />} Plagio
                         </button>
                         <button onClick={handleEvaluacionMasiva} disabled={isStartingBulk} className="btn-primary btn-small icon-button">
-                            {isStartingBulk ? <FaSpinner className="spin"/> : <FaRobot />} Evaluar con IA
+                            {isStartingBulk ? <FaSpinner className="spin"/> : <FaRobot />} 
+                            {isStartingBulk ? ' Iniciando...' : ' Evaluar con IA'}
                         </button>
                     </div>
                 </div>
@@ -285,12 +320,13 @@ const CalificacionPanel = () => {
                         <input 
                             type="checkbox" 
                             onChange={handleSelectAll} 
+                            // Bloquear Select All si estamos iniciando proceso masivo
                             disabled={itemsToDisplay.length === 0 || isStartingBulk || isCheckingPlagio}
                         />
                     </div>
                     <div></div> 
                     <div>Alumno / Equipo</div>
-                    <div>Estado</div>
+                    <div>Estado y Progreso</div>
                     <div className="col-center">Nota</div>
                     <div className="col-right">Acciones</div>
                 </div>
@@ -304,9 +340,11 @@ const CalificacionPanel = () => {
                         {itemsToDisplay.length > 0 ? itemsToDisplay.map(item => {
                             const isSelected = selectedIds.has(item.id);
                             const hasFile = !!item.evidencia_drive_file_id;
+                            // BLOQUEO DE FILA: Si está procesando, no se puede seleccionar
+                            const isLocked = item.estado === 'procesando' || isStartingBulk;
 
                             return (
-                                <li key={item.id} className={isSelected ? 'selected-bg' : ''}>
+                                <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${isLocked ? 'row-locked' : ''}`}>
                                     <div className="tabla-grid-layout">
                                         <div className="col-center">
                                             {hasFile && (
@@ -314,7 +352,8 @@ const CalificacionPanel = () => {
                                                     type="checkbox" 
                                                     checked={isSelected} 
                                                     onChange={() => handleSelectOne(item)} 
-                                                    disabled={isStartingBulk || isCheckingPlagio}/>
+                                                    disabled={isLocked || isCheckingPlagio} 
+                                                />
                                             )}
                                         </div>
 
@@ -329,7 +368,6 @@ const CalificacionPanel = () => {
                                             {item.isGroup ? (
                                                 <span className="matricula-text" style={{color: '#6366f1', fontSize: '0.8rem'}}>
                                                     {item.displayCount} Integrantes
-                                                    <span style={{marginLeft:'5px', color:'#94a3b8'}}>(Calificación se aplicará a todos)</span>
                                                 </span>
                                             ) : (
                                                 <span className="matricula-text">
@@ -338,14 +376,9 @@ const CalificacionPanel = () => {
                                             )}
                                         </div>
 
-                                        {/* --- CORRECCIÓN: MOSTRAR PROGRESO EN TIEMPO REAL --- */}
-                                        <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
-                                            {getStatusIcon(item.estado)}
-                                            <span className={`status-pill ${item.estado || 'pendiente'}`}>
-                                                {item.estado === 'procesando' 
-                                                    ? (item.progreso_evaluacion || 'Evaluando...') 
-                                                    : (item.estado === 'requiere_revision_manual' ? 'Revisión Manual' : (item.estado || 'Pendiente'))}
-                                            </span>
+                                        {/* ESTADO CON BADGES E INFORMACIÓN VISUAL */}
+                                        <div style={{display:'flex', alignItems:'center'}}>
+                                            {getStatusBadge(item)}
                                         </div>
 
                                         <div className="col-center">
@@ -357,26 +390,31 @@ const CalificacionPanel = () => {
                                         </div>
 
                                         <div className="col-right">
-                                            {(item.estado === 'entregado' || item.estado === 'calificado' || item.estado === 'requiere_revision_manual') && (
-                                                <Link 
-                                                    to={`/evaluacion/${item.id}/calificar`} 
-                                                    className="btn-secondary btn-small btn-icon-only"
-                                                    title="Ver Detalles / Evaluar Manualmente"
-                                                >
-                                                    <FaRobot />
-                                                </Link>
-                                            )}
-                                            {item.drive_url_entrega && (
-                                                <a 
-                                                    href={item.drive_url_entrega} 
-                                                    target="_blank" 
-                                                    rel="noreferrer"
-                                                    className="btn-tertiary btn-small btn-icon-only"
-                                                    style={{marginLeft: '5px'}}
-                                                    title="Ver Archivo"
-                                                >
-                                                    Ver
-                                                </a>
+                                            {/* Ocultar acciones si está procesando para evitar conflictos */}
+                                            {item.estado !== 'procesando' && (
+                                                <>
+                                                    {(item.estado === 'entregado' || item.estado === 'calificado' || item.estado === 'requiere_revision_manual' || item.estado === 'fallido') && (
+                                                        <Link 
+                                                            to={`/evaluacion/${item.id}/calificar`} 
+                                                            className="btn-secondary btn-small btn-icon-only"
+                                                            title={item.estado === 'fallido' ? "Revisar error e intentar manual" : "Ver Detalles / Evaluar"}
+                                                        >
+                                                            {item.estado === 'fallido' ? <FaExclamationTriangle/> : <FaRobot />}
+                                                        </Link>
+                                                    )}
+                                                    {item.drive_url_entrega && (
+                                                        <a 
+                                                            href={item.drive_url_entrega} 
+                                                            target="_blank" 
+                                                            rel="noreferrer"
+                                                            className="btn-tertiary btn-small btn-icon-only"
+                                                            style={{marginLeft: '5px'}}
+                                                            title="Ver Archivo Original"
+                                                        >
+                                                            Ver
+                                                        </a>
+                                                    )}
+                                                </>
                                             )}
                                         </div>
                                     </div>

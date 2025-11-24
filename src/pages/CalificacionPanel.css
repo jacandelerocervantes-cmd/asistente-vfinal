@@ -103,3 +103,40 @@
 .status-pill.entregado { background: #dbeafe; color: #1e40af; }
 .status-pill.calificado { background: #dcfce7; color: #15803d; }
 .status-pill.procesando { background: #fef9c3; color: #a16207; }
+
+/* Agrega o actualiza en CalificacionPanel.css */
+
+.row-locked {
+    opacity: 0.6;
+    pointer-events: none; /* Evita clicks en toda la fila si está bloqueada */
+    background-color: #f8fafc;
+}
+
+/* Status Badges */
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    width: fit-content;
+    white-space: nowrap;
+}
+
+.status-badge.success { background-color: #dcfce7; color: #16a34a; }
+.status-badge.info { background-color: #dbeafe; color: #2563eb; }
+.status-badge.warning { background-color: #fef9c3; color: #ca8a04; }
+.status-badge.danger { background-color: #fee2e2; color: #dc2626; }
+.status-badge.error { background-color: #fee2e2; color: #b91c1c; cursor: help; } /* Cursor de ayuda para el tooltip */
+
+.pulsate {
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+}
