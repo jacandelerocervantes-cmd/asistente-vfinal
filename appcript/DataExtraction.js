@@ -1,4 +1,12 @@
 /**
+ * @OnlyCurrentDoc
+ */
+
+// ============================================================================
+// DATA EXTRACTION: MÓDULO DE LECTURA DE ARCHIVOS Y REPORTES
+// ============================================================================
+
+/**
  * Obtiene los criterios de una rúbrica específica.
  * @param {object} payload Datos {spreadsheet_id, rubrica_sheet_range}.
  * @return {object} Objeto con la clave 'criterios'.
@@ -57,85 +65,90 @@ function handleGetRubricText(payload) {
 }
 
 /**
- * Extrae el texto de un archivo de Google Drive (Docs, Word, PDF, Texto).
- * BLINDADO: Detecta correctamente Google Docs para evitar errores de OCR.
- * @param {object} payload Datos {drive_file_id}.
- * @return {object} Objeto con la clave 'texto_trabajo'.
+ * Extrae el texto de un archivo de Google Drive.
+ * LÓGICA BLINDADA:
+ * 1. Detecta Google Docs y lee directo.
+ * 2. Detecta Texto plano y lee blob.
+ * 3. Para PDFs/Word/Imágenes: Intenta OCR primero. Si falla (error de API), intenta conversión simple.
+ * 4. Si todo falla, devuelve flag de revisión manual.
  */
 function handleGetStudentWorkText(payload) {
   Logger.log(`Iniciando handleGetStudentWorkText para file ID ${payload.drive_file_id}...`);
   const { drive_file_id } = payload;
   if (!drive_file_id) throw new Error("Falta 'drive_file_id'.");
 
-  // 1. OBTENER TIPO REAL Y NOMBRE
-  let mimeType;
-  let fileName;
+  let file;
   try {
-    const file = Drive.Files.get(drive_file_id, { fields: 'mimeType, title' });
-    mimeType = file.mimeType;
-    fileName = file.title;
-    Logger.log(`Archivo: "${fileName}" | Tipo: ${mimeType}`);
+    file = DriveApp.getFileById(drive_file_id);
   } catch (e) {
-    throw new Error(`No se pudo acceder al archivo con ID ${drive_file_id}. ${e.message}`);
+    throw new Error(`Archivo no encontrado o sin permisos (ID: ${drive_file_id}).`);
   }
 
-  // 2. LÓGICA DE EXTRACCIÓN SEGURA
+  const mimeType = file.getMimeType();
+  const fileName = file.getName();
+  Logger.log(`Procesando: "${fileName}" | Tipo: ${mimeType}`);
+
   try {
-    // CASO A: Google Doc (Nativo) -> LEER DIRECTO
-    if (mimeType === 'application/vnd.google-apps.document') {
-      Logger.log("Leyendo como Google Doc...");
-      const textContent = DocumentApp.openById(drive_file_id).getBody().getText();
-      return { texto_trabajo: textContent };
+    // CASO A: Google Doc (Nativo) -> LEER DIRECTO (¡Sin OCR!)
+    if (mimeType === MimeType.GOOGLE_DOCS) {
+      Logger.log("Detectado Google Doc nativo. Leyendo cuerpo directamente...");
+      const doc = DocumentApp.openById(drive_file_id);
+      return { texto_trabajo: doc.getBody().getText() };
     }
 
-    // CASO B: PDF -> HACER OCR
-    if (mimeType === 'application/pdf') {
-      Logger.log("Procesando PDF con OCR...");
-      const resource = { title: `[OCR TEMP] ${fileName}`, mimeType: "application/vnd.google-apps.document" };
-      const blob = DriveApp.getFileById(drive_file_id).getBlob();
-      const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: "es" });
+    // CASO B: Texto Plano (txt, html, etc)
+    if (mimeType === MimeType.PLAIN_TEXT || mimeType === MimeType.HTML) {
+      Logger.log("Detectado texto plano. Leyendo blob...");
+      return { texto_trabajo: file.getBlob().getDataAsString() };
+    }
+
+    // CASO C: Word (docx), PDF o Imágenes -> Requieren conversión/OCR
+    if (mimeType === MimeType.MICROSOFT_WORD || mimeType === MimeType.PDF || mimeType.startsWith('image/')) {
+      
+      // Estrategia 1: Intentar OCR (Mejor para escaneos y PDFs complejos)
       try {
-        const textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
-        return { texto_trabajo: textContent };
-      } finally {
-        Drive.Files.remove(ocrFile.id);
+        Logger.log("Intentando lectura con OCR...");
+        const resource = { title: `[TEMP_OCR] ${fileName}`, mimeType: MimeType.GOOGLE_DOCS };
+        // 'ocr: true' es lo ideal, pero a veces falla con ciertos PDFs
+        const tempFile = Drive.Files.insert(resource, file.getBlob(), { ocr: true, ocrLanguage: "es" });
+        
+        const text = DocumentApp.openById(tempFile.id).getBody().getText();
+        try { Drive.Files.remove(tempFile.id); } catch(e) { Logger.log("Limpieza OCR falló: " + e.message); }
+        return { texto_trabajo: text };
+        
+      } catch (ocrError) {
+        Logger.log(`OCR falló (${ocrError.message}). Intentando conversión simple...`);
+
+        // Estrategia 2: Conversión Simple (Mejor para PDFs de texto nativo o Word que falló en OCR)
+        // Solo intentamos esto si el archivo NO es una imagen pura (las imágenes requieren OCR sí o sí)
+        if (!mimeType.startsWith('image/')) {
+          try {
+            const resource = { title: `[TEMP_CONVERT] ${fileName}`, mimeType: MimeType.GOOGLE_DOCS };
+            // 'convert: true' es más tolerante que OCR
+            const tempFile = Drive.Files.insert(resource, file.getBlob(), { convert: true });
+            
+            const text = DocumentApp.openById(tempFile.id).getBody().getText();
+            try { Drive.Files.remove(tempFile.id); } catch(e) { Logger.log("Limpieza Convert falló: " + e.message); }
+            return { texto_trabajo: text };
+
+          } catch (convertError) {
+             Logger.log(`Conversión simple también falló: ${convertError.message}`);
+          }
+        }
       }
     }
 
-    // CASO C: Imagen (Foto de cuaderno, etc.) -> HACER OCR
-    if (mimeType.startsWith('image/')) {
-      Logger.log("Procesando imagen con OCR...");
-      const resource = { title: `[OCR IMG] ${fileName}`, mimeType: "application/vnd.google-apps.document" };
-      const blob = DriveApp.getFileById(drive_file_id).getBlob();
-      const ocrFile = Drive.Files.insert(resource, blob, { ocr: true, ocrLanguage: "es" });
-      try {
-        const textContent = DocumentApp.openById(ocrFile.id).getBody().getText();
-        return { texto_trabajo: textContent };
-      } finally {
-        Drive.Files.remove(ocrFile.id);
-      }
-    }
-
-    // CASO D: Word -> CONVERTIR Y LEER
-    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-       Logger.log("Convirtiendo Word a Google Doc para leer texto...");
-       const tempDoc = Drive.Files.copy({ title: `[TEMP CONVERT] ${fileName}`, mimeType: 'application/vnd.google-apps.document' }, drive_file_id);
-       try {
-         const textContent = DocumentApp.openById(tempDoc.id).getBody().getText();
-         return { texto_trabajo: textContent };
-       } finally {
-         Drive.Files.remove(tempDoc.id);
-       }
-    }
-
-    // CASO E (Fallback): Texto plano o similar
-    Logger.log("Leyendo como archivo de texto plano (fallback)...");
-    const textContent = DriveApp.getFileById(drive_file_id).getBlob().getDataAsString('UTF-8');
-    return { texto_trabajo: textContent };
+    // CASO D: Fallback final (Tipo no soportado o fallaron conversiones)
+    Logger.log("No se pudo extraer texto automáticamente. Solicitando revisión manual.");
+    return { 
+      texto_trabajo: "El sistema no pudo extraer texto legible automáticamente de este archivo.", 
+      requiere_revision_manual: true 
+    };
 
   } catch (e) {
-    Logger.log(`Error leyendo contenido del archivo ID ${drive_file_id}: ${e.message}`);
-    throw new Error(`No se pudo leer el contenido del archivo "${fileName}" (tipo ${mimeType}). ${e.message}`);
+    // Error catastrófico (ej. cuota excedida, error interno de Drive)
+    Logger.log(`Error crítico en extracción: ${e.message}`);
+    throw new Error(`Error procesando archivo: ${e.message}`);
   }
 }
 
@@ -197,7 +210,7 @@ function handleGetMultipleFileContents(payload) {
     try {
       const resultado = handleGetStudentWorkText({ drive_file_id: fileId });
       if (resultado.requiere_revision_manual) {
-           return { fileId: fileId, texto: null, error: "Archivo requiere revisión manual (ej. imagen)." };
+           return { fileId: fileId, texto: null, error: "Archivo requiere revisión manual (ej. imagen o formato no soportado)." };
       }
       return { fileId: fileId, texto: resultado.texto_trabajo };
     } catch (e) {
@@ -208,7 +221,7 @@ function handleGetMultipleFileContents(payload) {
 
   const exitosos = contenidos.filter(c => c.texto !== null).length;
   Logger.log(`Lectura completada. Exitosos: ${exitosos}, Fallidos: ${drive_file_ids.length - exitosos}`);
-  return contenidos;
+  return { contenidos: contenidos };
 }
 
 /**
@@ -280,9 +293,9 @@ function handleLeerDatosAsistencia(payload) {
 
   try {
     const spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
-    const sheet = spreadsheet.getSheetByName(NOMBRE_SHEET_ASISTENCIA);
+    const sheet = spreadsheet.getSheetByName("Reporte de Asistencia"); // Nombre hardcoded según constantes
     if (!sheet) {
-      throw new Error(`No se encontró la hoja "${NOMBRE_SHEET_ASISTENCIA}".`);
+      throw new Error(`No se encontró la hoja "Reporte de Asistencia".`);
     }
 
     const allData = sheet.getDataRange().getValues();
@@ -302,20 +315,29 @@ function handleLeerDatosAsistencia(payload) {
 
       for (let j = matriculaIndex + 1; j < headers.length; j++) {
         const header = headers[j]; 
-        // Buscamos columnas con formato de sesión ej. "U1-S1"
-        if (typeof header === 'string' && header.includes('-S')) {
-             const parts = header.replace('U', '').split('-S');
+        // Buscamos columnas con formato de sesión ej. "DD/MM-S#"
+        // La lógica anterior usaba "U1-S1", ajusta si tu formato es diferente
+        if (typeof header === 'string' && header.includes('-')) {
+             // Lógica flexible para detectar Unidad/Sesión o Fecha/Sesión
+             // Si el header es DD/MM-S1
+             const parts = header.split('-');
              if (parts.length === 2) {
-                 const unidad = parseInt(parts[0], 10);
-                 const sesion = parseInt(parts[1], 10);
-                 const fecha = row[j]; 
-
-                 if (fecha && (fecha instanceof Date || String(fecha).trim() !== '')) {
+                 const sesionPart = parts[1]; // "S1" o "1"
+                 let sesion = parseInt(sesionPart.replace('S',''), 10);
+                 if (isNaN(sesion)) sesion = 1; // Default
+                 
+                 // Para la unidad, asumimos que viene en el payload o la hoja tiene nombre de unidad
+                 // O simplemente devolvemos la fecha y sesión
+                 
+                 const val = row[j]; 
+                 // Asumiendo que 1=Presente, 0=Ausente
+                 if (val === 1 || val === 0 || val === true || val === false) {
                    asistencias.push({
                      matricula: String(matricula),
-                     unidad: unidad,
-                     sesion: sesion,
-                     fecha: new Date(fecha).toISOString().slice(0, 10)
+                     // Si no podemos deducir la unidad del header, la dejamos pendiente o 
+                     // el llamador debe filtrar. Aquí devolvemos crudo.
+                     header_original: header, 
+                     presente: (val == 1 || val === true)
                    });
                  }
              }
