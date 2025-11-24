@@ -10,78 +10,107 @@ serve(async (req: Request) => {
 
   try {
     const { actividad_id } = await req.json();
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) throw new Error("No auth header");
-
-    const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
-    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
     
-    const { data: { user } } = await supabase.auth.getUser();
-    const docenteId = user?.id;
+    // 1. Auth
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) throw new Error("No autorizado");
+    const supabaseClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader } } });
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    if (!user) throw new Error("Usuario inválido");
 
-    // 1. Datos Actividad
+    const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+
+    // 2. Datos Actividad
     const { data: act } = await admin.from('actividades').select('drive_folder_entregas_id, materia_id, tipo_entrega').eq('id', actividad_id).single();
-    if (!act?.drive_folder_entregas_id) throw new Error("Sin carpeta Drive vinculada.");
+    if (!act?.drive_folder_entregas_id) throw new Error("Sin carpeta Drive");
 
-    // 2. Mapa Alumnos y Grupos
+    // 3. Preparar Mapa de Grupos (CRUCIAL PARA MIXTAS/GRUPALES)
     const { data: alumnos } = await admin.from('alumnos').select('id, matricula').eq('materia_id', act.materia_id);
     const mapaAlumnos = new Map();
     alumnos?.forEach(a => { if(a.matricula) mapaAlumnos.set(a.matricula.toUpperCase().trim(), a.id); });
 
-    const mapaGrupos = new Map(); // alumnoId -> { grupo_id, miembros: [ids_compañeros] }
+    const mapaGrupos = new Map();
     if (['grupal', 'mixta'].includes(act.tipo_entrega)) {
         const { data: rels } = await admin.from('alumnos_grupos').select('alumno_id, grupo_id').in('alumno_id', alumnos?.map(a=>a.id)||[]);
-        const grupos = new Map(); 
-        rels?.forEach(r => { if(!grupos.has(r.grupo_id)) grupos.set(r.grupo_id, []); grupos.get(r.grupo_id).push(r.alumno_id); });
-        rels?.forEach(r => { mapaGrupos.set(r.alumno_id, { grupo_id: r.grupo_id, miembros: grupos.get(r.grupo_id) }); });
-    }
-
-    // 3. Obtener Archivos (CON REINTENTOS para evitar error 429)
-    let archivos = [];
-    for (let i = 0; i < 3; i++) {
-        const res = await fetch(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ action: 'get_folder_contents', drive_folder_id: act.drive_folder_entregas_id })
+        // Construir mapa: GrupoID -> [Array de AlumnoIDs]
+        const grupos = new Map();
+        rels?.forEach(r => { 
+            if(!grupos.has(r.grupo_id)) grupos.set(r.grupo_id, []); 
+            grupos.get(r.grupo_id).push(r.alumno_id);
         });
-        if (res.status === 429) { await wait(2000 * (i+1)); continue; } // Esperar y reintentar
-        if (!res.ok) throw new Error("Error Google: " + res.status);
-        const json = await res.json();
-        archivos = json.archivos?.files || json.files || json.archivos || [];
-        break;
+        // Construir mapa: AlumnoID -> {grupo_id, miembros}
+        rels?.forEach(r => { 
+            mapaGrupos.set(r.alumno_id, { grupo_id: r.grupo_id, miembros: grupos.get(r.grupo_id) }); 
+        });
     }
 
-    // 4. Procesar
+    // 4. Conectar a Google CON REINTENTOS (SOLUCIÓN ERROR 429)
+    let archivos = [];
+    let intentos = 0;
+    while(intentos < 3) {
+        try {
+            const res = await fetch(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ action: 'get_folder_contents', drive_folder_id: act.drive_folder_entregas_id })
+            });
+            if (res.status === 429) {
+                console.warn("Google 429. Esperando...");
+                await wait(3000 * (intentos + 1));
+                intentos++;
+                continue;
+            }
+            if (!res.ok) throw new Error("Google Error " + res.status);
+            const json = await res.json();
+            archivos = json.archivos?.files || json.files || [];
+            break; // Éxito
+        } catch(e) {
+            intentos++;
+            if(intentos >= 3) throw e;
+            await wait(1000);
+        }
+    }
+
+    // 5. Procesar
     let updates = 0;
     for (const file of archivos) {
         const name = file.name.toUpperCase();
-        let alumnoId = null;
-        for (const [mat, id] of mapaAlumnos) { if (name.includes(mat)) { alumnoId = id; break; } }
+        let uploaderId = null;
+        // Detectar matrícula en nombre
+        for (const [mat, id] of mapaAlumnos) { 
+            if (name.includes(mat)) { uploaderId = id; break; } 
+        }
 
-        if (alumnoId) {
+        if (uploaderId) {
             const targets = [];
-            const grupoInfo = mapaGrupos.get(alumnoId);
+            // Lógica Inteligente de Grupos
+            const infoGrupo = mapaGrupos.get(uploaderId);
             
-            // Lógica Grupal/Mixta
-            if (grupoInfo) {
-                grupoInfo.miembros.forEach((mid: string) => targets.push({ id: mid, gid: grupoInfo.grupo_id }));
+            if (['grupal', 'mixta'].includes(act.tipo_entrega) && infoGrupo) {
+                // Tiene grupo -> A todos los miembros
+                infoGrupo.miembros.forEach((mid: string) => targets.push({ id: mid, gid: infoGrupo.grupo_id }));
             } else {
-                targets.push({ id: alumnoId, gid: null });
+                // No tiene grupo o es individual -> Solo a él
+                targets.push({ id: uploaderId, gid: null });
             }
 
+            // Guardar
             for (const t of targets) {
                 const { error } = await admin.from('calificaciones').upsert({
                     actividad_id, alumno_id: t.id, grupo_id: t.gid,
-                    estado: 'entregado', evidencia_drive_file_id: file.id, user_id: docenteId
+                    estado: 'entregado', evidencia_drive_file_id: file.id, user_id: user.id
                 }, { onConflict: 'actividad_id, alumno_id' });
                 if (!error) updates++;
             }
         }
     }
 
-    return new Response(JSON.stringify({ message: "OK", procesados: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ message: "Sincronizado", nuevos: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-    return new Response(JSON.stringify({ error: errorMessage }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
+    const message = error instanceof Error ? error.message : "Error desconocido";
+    return new Response(JSON.stringify({ message }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 400
+    });
   }
 });

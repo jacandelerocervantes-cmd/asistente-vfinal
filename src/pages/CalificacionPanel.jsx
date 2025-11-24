@@ -198,52 +198,35 @@ const CalificacionPanel = () => {
                 </div>
                 <div>
                     <button 
-                        onClick={() => syncWithDrive(false)} 
+                        onClick={() => syncWithDrive(false)}
                         disabled={isSyncing} 
                         className="btn-secondary btn-small icon-button"
                     >
-                        <FaSync className={isSyncing ? 'spin' : ''} /> 
+                        <FaSync className={isSyncing ? 'spin' : ''} />
                         {isSyncing ? ' Buscando...' : ' Actualizar Lista'}
                     </button>
                 </div>
             </div>
 
-            {/* Barra Flotante de Acciones Masivas */}
+            {/* Barra Flotante */}
             {selectedIds.size > 0 && (
                 <div className="bulk-actions-bar">
-                    <div className="bulk-actions-left">
-                        <span className="selected-count">{selectedIds.size} seleccionados</span>
-                    </div>
-                    <div className="bulk-actions-right">
-                        {/* BOTÓN PLAGIO */}
-                        <button 
-                            onClick={handleCheckPlagio} 
-                            disabled={isCheckingPlagio}
-                            className="btn-secondary btn-small icon-button"
-                            title="Comparar trabajos seleccionados"
-                        >
-                            {isCheckingPlagio ? <FaSpinner className="spin"/> : <FaSearch />}
-                            {isCheckingPlagio ? 'Enviando...' : 'Comprobar Plagio'}
+                    <span style={{fontWeight:'bold'}}>{selectedIds.size} seleccionados</span>
+                    <div style={{display:'flex', gap:'10px'}}>
+                        <button onClick={handleCheckPlagio} disabled={isCheckingPlagio} className="btn-secondary btn-small icon-button">
+                            {isCheckingPlagio ? <FaSpinner className="spin"/> : <FaSearch />} Comprobar Plagio
                         </button>
-
-                        {/* BOTÓN EVALUAR IA */}
-                        <button 
-                            onClick={handleEvaluacionMasiva} 
-                            disabled={isStartingBulk}
-                            className="btn-primary btn-small icon-button"
-                            title="Calificar con IA"
-                        >
-                            {isStartingBulk ? <FaSpinner className="spin"/> : <FaRobot />}
-                            {isStartingBulk ? 'Iniciando...' : 'Evaluar con IA'}
+                        <button onClick={handleEvaluacionMasiva} disabled={isStartingBulk} className="btn-primary btn-small icon-button">
+                            {isStartingBulk ? <FaSpinner className="spin"/> : <FaRobot />} Evaluar con IA
                         </button>
                     </div>
                 </div>
             )}
 
-            {/* Tabla Grid Alineada */}
             <div className="alumnos-list-container">
-                {/* Encabezado de Tabla (Grid) */}
-                <div className="grid-template list-header">
+                
+                {/* 1. ENCABEZADO (Usa la clase maestra tabla-grid-layout) */}
+                <div className="list-header tabla-grid-layout">
                     <div className="col-center">
                         <input 
                             type="checkbox" 
@@ -252,44 +235,47 @@ const CalificacionPanel = () => {
                             disabled={itemsSelectable.length === 0}
                         />
                     </div>
-                    <div className="col-center"></div> {/* Columna para icono */}
+                    <div></div> {/* Espacio vacío para icono */}
                     <div>Alumno / Equipo</div>
                     <div>Estado</div>
                     <div className="col-center">Nota</div>
                     <div className="col-right">Acciones</div>
                 </div>
 
+                {/* 2. LISTA DE ALUMNOS */}
                 {loadingData ? (
-                    <div style={{padding: '2rem', textAlign: 'center', color: '#666'}}>
-                        <FaSpinner className="spin" /> Cargando alumnos...
+                    <div style={{padding: '3rem', textAlign: 'center', color: '#64748b'}}>
+                        <FaSpinner className="spin" style={{fontSize:'1.5rem'}}/> <br/>Cargando alumnos...
                     </div>
                 ) : (
                     <ul className="alumnos-list">
                         {calificaciones.length > 0 ? calificaciones.map(cal => {
                             const isSelected = selectedIds.has(cal.id);
-                            const canSelect = !!cal.evidencia_drive_file_id; // Solo si tiene archivo
+                            const canSelect = !!cal.evidencia_drive_file_id;
 
                             return (
                                 <li key={cal.id} className={isSelected ? 'selected-bg' : ''}>
-                                    <div className="grid-template">
+                                    
+                                    {/* 3. FILA (Usa la MISMA clase maestra tabla-grid-layout) */}
+                                    <div className="tabla-grid-layout">
                                         
-                                        {/* 1. Checkbox */}
+                                        {/* Col 1: Checkbox */}
                                         <div className="col-center">
                                             {canSelect && (
                                                 <input 
-                                                    type="checkbox"
-                                                    checked={isSelected}
+                                                    type="checkbox" 
+                                                    checked={isSelected} 
                                                     onChange={() => handleSelectOne(cal.id)}
                                                 />
                                             )}
                                         </div>
 
-                                        {/* 2. Icono Estado */}
+                                        {/* Col 2: Icono */}
                                         <div className="col-center">
                                             {getStatusIcon(cal.estado)}
                                         </div>
                                         
-                                        {/* 3. Info Alumno */}
+                                        {/* Col 3: Info Alumno */}
                                         <div className="alumno-info">
                                             <span className="entregable-nombre">
                                                 {cal.alumnos?.nombre} {cal.alumnos?.apellido}
@@ -299,15 +285,15 @@ const CalificacionPanel = () => {
                                             </span>
                                         </div>
 
-                                        {/* 4. Estado Texto */}
+                                        {/* Col 4: Estado */}
                                         <div>
                                             <span className={`status-pill ${cal.estado || 'pendiente'}`}>
-                                                {cal.estado === 'procesando' ? 'Procesando...' : 
+                                                {cal.estado === 'procesando' ? 'Evaluando...' : 
                                                  cal.estado || 'Pendiente'}
                                             </span>
                                         </div>
 
-                                        {/* 5. Nota */}
+                                        {/* Col 5: Nota */}
                                         <div className="col-center">
                                             {cal.calificacion_obtenida !== null ? (
                                                 <span className={`calificacion-badge ${cal.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
@@ -316,12 +302,12 @@ const CalificacionPanel = () => {
                                             ) : '-'}
                                         </div>
 
-                                        {/* 6. Acciones */}
+                                        {/* Col 6: Acciones */}
                                         <div className="col-right">
                                             {(cal.estado === 'entregado' || cal.estado === 'calificado') && (
                                                 <Link 
                                                     to={`/evaluacion/${cal.id}/calificar`} 
-                                                    className="btn-tertiary btn-small icon-button"
+                                                    className="btn-secondary btn-small btn-icon-only"
                                                     title="Evaluar"
                                                 >
                                                     <FaRobot />
@@ -333,7 +319,7 @@ const CalificacionPanel = () => {
                             );
                         }) : (
                             <div style={{padding: '3rem', textAlign: 'center', color: '#94a3b8'}}>
-                                No se encontraron alumnos o entregas.
+                                No se encontraron entregas.
                             </div>
                         )}
                     </ul>
