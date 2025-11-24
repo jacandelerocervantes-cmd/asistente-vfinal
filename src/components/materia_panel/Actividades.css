@@ -1,47 +1,98 @@
 /* src/components/materia_panel/Actividades.css */
 
 .actividades-container {
+    width: 100%;
+    max-width: 1200px; /* Evita que se estire demasiado en pantallas ultra anchas */
+    margin: 0 auto;
+    padding: var(--spacing-md);
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-lg);
-    width: 100%;
+    gap: 2rem;
 }
 
-/* Cabecera de sección idéntica a Alumnos */
+/* --- Cabecera de Sección --- */
 .section-header-actions {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: var(--spacing-md);
-    padding-bottom: var(--spacing-sm);
-    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #e2e8f0;
+    margin-bottom: 1rem;
 }
 
 .section-title {
-    font-size: 1.5rem;
+    font-size: 1.8rem;
     color: var(--color-primary);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     margin: 0;
+}
+
+/* --- Controles (Filtro + Botón) --- */
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.unidad-selector-wrapper {
+    display: flex;
+    align-items: center;
+    background-color: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 8px 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.unidad-select {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 0.95rem;
     font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    margin-left: 8px;
 }
 
+/* --- GRID DE TARJETAS (Alineación) --- */
 .actividades-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); /* Tarjetas más anchas */
-  gap: var(--spacing-lg);
-  margin-top: var(--spacing-md);
+    display: grid;
+    /* Esto asegura columnas iguales y responsivas */
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); 
+    gap: 25px;
+    align-items: start; /* Alinea al topo para que no se estiren raro */
 }
 
-/* Estado vacío más elegante */
+/* --- Estado Vacío --- */
 .empty-state-activities {
+    grid-column: 1 / -1; /* Ocupa todo el ancho */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    background-color: #f8fafc;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    color: #64748b;
     text-align: center;
-    padding: 3rem;
-    background-color: #fff;
-    border: 2px dashed var(--color-border);
-    border-radius: var(--border-radius);
-    color: #888;
 }
 
 .empty-state-activities p {
-    margin-bottom: 1rem;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Animación */
+.fade-in {
+    animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
