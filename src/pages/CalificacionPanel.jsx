@@ -5,8 +5,8 @@ import { supabase } from '../supabaseClient';
 import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
 import { 
-    FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle, 
-    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaExclamationTriangle, FaInfoCircle
+    FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle,
+    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt
 } from 'react-icons/fa';
 
 const CalificacionPanel = () => {
@@ -16,7 +16,6 @@ const CalificacionPanel = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [calificaciones, setCalificaciones] = useState([]);
     
-    // Selección múltiple
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isStartingBulk, setIsStartingBulk] = useState(false);
     const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
@@ -24,28 +23,10 @@ const CalificacionPanel = () => {
 
     const { showNotification } = useNotification();
 
-    // --- ESTADO DERIVADO PARA BLOQUEO GLOBAL ---
     const isGlobalProcessing = useMemo(() => {
         return calificaciones.some(c => c.estado === 'procesando') || isStartingBulk || isCheckingPlagio;
     }, [calificaciones, isStartingBulk, isCheckingPlagio]);
 
-    // --- 0. HELPER: TRADUCTOR DE ERRORES (NUEVO) ---
-    const traducirError = (errorRaw) => {
-        if (!errorRaw) return "Error desconocido.";
-        const err = errorRaw.toLowerCase();
-
-        if (err.includes("body already consumed")) return "Error de conexión temporal. Por favor, reintenta.";
-        if (err.includes("ocr")) return "El sistema no pudo leer el texto del archivo (formato complejo).";
-        if (err.includes("json")) return "La IA devolvió un formato inesperado. Reintenta.";
-        if (err.includes("fetch")) return "Fallo de conexión con Google Drive.";
-        if (err.includes("empty")) return "El archivo parece estar vacío o sin texto seleccionable.";
-        if (err.includes("permission")) return "No tenemos permiso para leer este archivo.";
-        
-        // Si es un mensaje corto, lo mostramos, si es muy largo (técnico), mostramos genérico
-        return errorRaw.length > 50 ? "Error técnico interno. Contacta a soporte." : errorRaw;
-    };
-
-    // 1. Cargar Datos Iniciales
     const fetchLocalData = useCallback(async () => {
         if (!actividadId) return;
         try {
@@ -68,14 +49,13 @@ const CalificacionPanel = () => {
             setCalificaciones(calData || []);
 
         } catch (error) {
-            console.error("Error cargando datos locales:", error);
-            showNotification('Error al cargar datos: ' + error.message, 'error');
+            console.error("Error fetch:", error);
+            showNotification("Error cargando datos", "error");
         } finally {
             setLoadingData(false);
         }
     }, [actividadId, showNotification]);
 
-    // 2. Sincronizar con Drive
     const syncWithDrive = useCallback(async (silent = false) => {
         if (!actividadId) return;
         setIsSyncing(true);
@@ -110,7 +90,6 @@ const CalificacionPanel = () => {
         }
     }, [actividadId]);
 
-    // 3. Suscripción Realtime
     useEffect(() => {
         if (!actividadId) return;
         const channel = supabase
@@ -134,7 +113,6 @@ const CalificacionPanel = () => {
         return () => { supabase.removeChannel(channel); };
     }, [actividadId]);
 
-    // --- Lógica de Agrupación Visual ---
     const itemsToDisplay = useMemo(() => {
         const groups = {};
         const individuals = [];
@@ -170,7 +148,6 @@ const CalificacionPanel = () => {
         });
     }, [calificaciones]);
 
-    // --- Handlers ---
     const handleSelectOne = (item) => {
         const id = item.id;
         setSelectedIds(prev => {
@@ -360,112 +337,81 @@ const CalificacionPanel = () => {
                         {itemsToDisplay.length > 0 ? itemsToDisplay.map(item => {
                             const isSelected = selectedIds.has(item.id);
                             const hasFile = !!item.evidencia_drive_file_id;
-                            // const isRowLocked = isStartingBulk || isAnyProcessing; // Reemplazado por isGlobalProcessing
+                            const isLocked = item.estado === 'procesando' || isStartingBulk;
 
                             return (
                                 <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${item.estado === 'procesando' ? 'row-processing' : ''}`}>
                                     <div className="tabla-grid-layout">
+                                        
                                         <div className="col-center">
                                             {hasFile && (
                                                 <input 
                                                     type="checkbox" 
                                                     checked={isSelected} 
-                                                    onChange={() => handleSelectOne(item)} 
-                                                disabled={isGlobalProcessing} 
+                                                    onChange={() => handleSelectOne(item)}
+                                                    disabled={isLocked} 
                                                 />
                                             )}
                                         </div>
 
-                                        <div className="col-center" title={item.isGroup ? "Entrega Grupal" : "Entrega Individual"}>
+                                        <div className="col-center" title={item.isGroup ? "Grupal" : "Individual"}>
                                             {item.isGroup ? <FaUsers style={{color:'#6366f1'}}/> : <FaUser style={{color:'#94a3b8'}}/>}
                                         </div>
                                         
                                         <div className="alumno-info">
-                                            <span className="entregable-nombre" style={{fontSize: item.isGroup ? '1.05rem' : '1rem'}}>
-                                                {item.displayName}
-                                            </span>
-                                            {item.isGroup ? (
-                                                <span className="matricula-text" style={{color: '#6366f1', fontSize: '0.8rem'}}>
-                                                    {item.displayCount} Integrantes
-                                                </span>
+                                            {item.drive_url_entrega ? (
+                                                <a 
+                                                    href={item.drive_url_entrega} 
+                                                    target="_blank" 
+                                                    rel="noreferrer"
+                                                    className="alumno-link-archivo"
+                                                    title="Clic para ver el archivo entregado"
+                                                >
+                                                    <span className="entregable-nombre">{item.displayName}</span>
+                                                    <FaExternalLinkAlt style={{fontSize:'0.7rem', marginLeft:'5px', opacity:0.5}}/>
+                                                </a>
                                             ) : (
-                                                <span className="matricula-text">
-                                                    {item.displayMatricula}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        {/* ESTADO CON BADGES E INFORMACIÓN VISUAL */}
-                                        <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
-                                            {item.estado === 'procesando' ? (
-                                                <div className="mini-loader-conteiner" title={item.progreso_evaluacion}>
-                                                    {/* Loader CSS Pequeño */}
-                                                    <div className="spinner-tiny"></div> 
-                                                    <span className="status-text-small">{item.progreso_evaluacion || 'Procesando...'}</span>
-                                                </div>
-                                            ) : (
-                                                /* Badges normales para otros estados */
-                                                <span className={`status-pill ${item.estado || 'pendiente'}`}>
-                                                    {item.estado === 'fallido' ? 'Falló' : (item.estado || 'Pendiente')}
-                                                </span>
+                                                <span className="entregable-nombre">{item.displayName}</span>
                                             )}
                                             
+                                            <span className="matricula-text">
+                                                {item.isGroup ? `${item.displayCount} Integrantes` : item.displayMatricula}
+                                            </span>
+                                        </div>
+
+                                        <div style={{display:'flex', alignItems:'center'}}>
+                                            {getStatusBadge(item)}
                                         </div>
 
                                         <div className="col-center">
-                                            {item.calificacion_obtenida !== null ? (
-                                                <span className={`calificacion-badge ${item.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
-                                                    {item.calificacion_obtenida}
-                                                </span>
-                                            ) : '-'}
+                                            <span className="calificacion-badge">
+                                                {item.calificacion_obtenida != null ? item.calificacion_obtenida : '-'}
+                                            </span>
                                         </div>
 
-                                        <div className="col-right">
-                                            {/* Si falló, mostramos botón de reintentar explícito */}
+                                        <div className="col-right actions-group">
+                                            
+                                            <Link 
+                                                to={`/evaluacion/${item.id}/calificar`} 
+                                                className="btn-tertiary btn-small"
+                                                title="Abrir evaluador manual"
+                                            >
+                                                <FaEdit /> Manual
+                                            </Link>
+
                                             {item.estado === 'fallido' && (
-                                                <button
-                                                    onClick={() => handleReintentar(item.id)}
-                                                    className="btn-error-retry"
-                                                    title="Reintentar evaluación"
-                                                >
+                                                <button onClick={() => handleReintentar(item.id)} className="btn-error-retry btn-small">
                                                     <FaSync /> Reintentar
                                                 </button>
-                                            )}
-                                            
-                                            {/* Resto de botones normales */}
-                                            {item.estado !== 'procesando' && item.estado !== 'fallido' && (
-                                                <>
-                                                    {(item.estado === 'entregado' || item.estado === 'calificado' || item.estado === 'requiere_revision_manual') && (
-                                                        <Link 
-                                                            to={`/evaluacion/${item.id}/calificar`} 
-                                                            className="btn-secondary btn-small btn-icon-only"
-                                                            title={"Ver Detalles / Evaluar"}
-                                                        >
-                                                            <FaRobot />
-                                                        </Link>
-                                                    )}
-                                                    {item.drive_url_entrega && (
-                                                        <a 
-                                                            href={item.drive_url_entrega} 
-                                                            target="_blank" 
-                                                            rel="noreferrer"
-                                                            className="btn-tertiary btn-small btn-icon-only"
-                                                            style={{marginLeft: '5px'}}
-                                                            title="Ver Archivo Original"
-                                                        >
-                                                            Ver
-                                                        </a>
-                                                    )}
-                                                </>
                                             )}
                                         </div>
                                     </div>
                                 </li>
                             );
                         }) : (
-                            <div style={{padding: '3rem', textAlign: 'center', color: '#94a3b8'}}>
+                            <li style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8' }}>
                                 No se encontraron entregas.
-                            </div>
+                            </li>
                         )}
                     </ul>
                 )}

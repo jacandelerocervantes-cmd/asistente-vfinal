@@ -558,3 +558,83 @@ function handleGetFinalUnitGrades(payload) {
     throw new Error(`Error al leer las calificaciones de la unidad ${unidad}: ${error.message}`);
   }
 }
+
+/**
+ * Actualiza la "Sábana" de calificaciones (Matriz: Alumnos vs Actividades).
+ * Si la columna de la actividad no existe, la crea.
+ * Si el alumno no existe, lo añade.
+ * Escribe la calificación en la intersección.
+ */
+function handleUpdateGradebook(payload) {
+  Logger.log(`Iniciando updateGradebook para: "${payload.nombre_actividad}" (U${payload.unidad})`);
+  const { calificaciones_spreadsheet_id, unidad, nombre_actividad, calificaciones } = payload;
+
+  if (!calificaciones_spreadsheet_id || !unidad || !nombre_actividad || !calificaciones) {
+    throw new Error("Faltan datos para Gradebook (spreadsheet_id, unidad, nombre_actividad, calificaciones).");
+  }
+
+  const spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
+  // Una hoja por Unidad para mantener orden: "Resumen Calificaciones - Unidad 1"
+  const sheetName = `Resumen Calificaciones - Unidad ${unidad}`;
+  let sheet = spreadsheet.getSheetByName(sheetName);
+
+  // 1. Crear hoja si no existe
+  if (!sheet) {
+    sheet = spreadsheet.insertSheet(sheetName);
+    sheet.appendRow(["Matrícula", "Nombre Alumno"]); // Encabezados fijos
+    sheet.setFrozenRows(1);
+    sheet.setFrozenColumns(2);
+    sheet.getRange(1, 1, 1, 2).setFontWeight("bold");
+  }
+
+  // 2. Gestionar Columnas (Buscar actividad o crearla)
+  // Leemos solo la primera fila para buscar cabeceras
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn() || 2).getValues()[0];
+  
+  // Normalizamos nombres para búsqueda (opcional, aquí exacto)
+  let colIndex = headers.indexOf(nombre_actividad); // Base 0
+
+  if (colIndex === -1) {
+    // Nueva Actividad -> Nueva Columna
+    colIndex = headers.length; 
+    sheet.getRange(1, colIndex + 1).setValue(nombre_actividad).setFontWeight("bold");
+    sheet.setColumnWidth(colIndex + 1, 100); // Ancho razonable para nota
+    Logger.log(`Columna creada para "${nombre_actividad}" en índice ${colIndex}`);
+  }
+
+  // 3. Mapear Alumnos (Matrícula -> Fila)
+  // Leemos columna A (Matrículas) para mapear rápido
+  const lastRow = sheet.getLastRow();
+  const mapAlumnos = new Map();
+  
+  if (lastRow > 1) {
+    const matriculas = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < matriculas.length; i++) {
+      const mat = String(matriculas[i][0]).trim().toUpperCase();
+      if (mat) mapAlumnos.set(mat, i + 2); // Fila real (Base 1, +2 por header y array 0)
+    }
+  }
+
+  // 4. Escribir Calificaciones
+  calificaciones.forEach(cal => {
+    const matricula = String(cal.matricula).trim().toUpperCase();
+    if (!matricula || matricula === "S/M") return;
+
+    let row = mapAlumnos.get(matricula);
+
+    if (!row) {
+      // Alumno nuevo -> Append row
+      sheet.appendRow([matricula, cal.nombre]);
+      row = sheet.getLastRow();
+      mapAlumnos.set(matricula, row);
+    }
+
+    // Escribir Nota
+    // getRange(row, column)
+    const nota = cal.calificacion_final !== undefined ? cal.calificacion_final : cal.calificacion;
+    sheet.getRange(row, colIndex + 1).setValue(nota);
+  });
+
+  SpreadsheetApp.flush();
+  return { message: "Gradebook actualizado." };
+}

@@ -24,6 +24,12 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries = 3) =>
   throw new Error("Fetch falló tras reintentos");
 };
 
+interface AlumnoParaGuardar {
+  matricula: string;
+  nombre: string;
+  calificacion_final: number;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -57,6 +63,7 @@ serve(async (req: Request) => {
     const calif = item.calificaciones;
     calif_id_ref = calif.id;
     const act = calif.actividades;
+    const mat = act.materias;
 
     // 3. OBTENER TEXTO (Apps Script)
     await supabaseAdmin.from('calificaciones').update({ estado: 'procesando', progreso_evaluacion: '1/4: Leyendo...' }).eq('id', calif.id);
@@ -117,32 +124,63 @@ serve(async (req: Request) => {
     try { evalJson = JSON.parse(aiText.replace(/```json|```/g, '').trim()); } 
     catch { throw new Error("Error parseando JSON de Gemini."); }
 
-    // 6. GUARDAR EN SHEETS (Corrección Body Consumed y Script Nuevo)
-    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '4/4: Guardando...' }).eq('id', calif.id);
+    // 6. GUARDAR EN SHEETS (KARDEX)
+    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '4/4: Actualizando Kardex...' }).eq('id', calif.id);
+    
+    // Expandir Grupo si aplica
+    let alumnosParaGuardar = [];
+
+    if (calif.grupo_id && ['grupal', 'mixta'].includes(act.tipo_entrega)) {
+        const { data: miembros } = await supabaseAdmin
+            .from('alumnos_grupos')
+            .select('alumnos(matricula, nombre, apellido)')
+            .eq('grupo_id', calif.grupo_id);
+            
+        if (miembros && miembros.length > 0) {
+            alumnosParaGuardar = miembros.map(m => {
+                const alumno = Array.isArray(m.alumnos) ? m.alumnos[0] : m.alumnos;
+                return {
+                matricula: alumno?.matricula || 'S/M',
+                nombre: alumno ? `${alumno.nombre} ${alumno.apellido}` : 'Desconocido',
+                calificacion_final: evalJson.calificacion_total
+            }});
+        } else {
+            // Fallback
+            alumnosParaGuardar.push({
+                matricula: calif.alumnos?.matricula || "S/M",
+                nombre: `${calif.alumnos?.nombre} ${calif.alumnos?.apellido}`,
+                calificacion_final: evalJson.calificacion_total
+            });
+        }
+    } else {
+        // Individual
+        alumnosParaGuardar.push({
+            matricula: calif.alumnos?.matricula || "S/M",
+            nombre: `${calif.alumnos?.nombre} ${calif.alumnos?.apellido}`,
+            calificacion_final: evalJson.calificacion_total
+        });
+    }
 
     const payloadSave = {
-        action: 'guardar_calificacion_actividad', // <--- LLAMAMOS A LA FUNCIÓN NUEVA
-        calificaciones_spreadsheet_id: act.materias.calificaciones_spreadsheet_id,
-        nombre_evaluacion: act.nombre,
-        unidad: act.unidad,
-        calificaciones: [{
-            matricula: calif.alumnos?.matricula || "S/M",
-            nombre: calif.alumnos ? `${calif.alumnos.nombre}` : "",
-            calificacion_final: evalJson.calificacion_total,
-            retroalimentacion: evalJson.justificacion_texto
-        }]
+      action: 'update_gradebook', // <--- LLAMADA CORRECTA
+      calificaciones_spreadsheet_id: mat.calificaciones_spreadsheet_id,
+      unidad: act.unidad,
+      nombre_actividad: act.nombre,
+      calificaciones: alumnosParaGuardar
     };
 
     const resSave = await fetchWithRetry(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payloadSave)
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloadSave)
     });
 
-    // --- FIX DEFINITIVO BODY CONSUMED ---
-    const rawSave = await resSave.text(); // Leemos UNA vez
-    let jsonSave;
-    try { jsonSave = JSON.parse(rawSave); } catch { throw new Error(`Error GAS: ${rawSave}`); }
-    if (jsonSave.status === 'error') throw new Error(`Error GAS Lógico: ${jsonSave.message}`);
+    const rawSave = await resSave.text();
+    try { 
+        const jsonSave = JSON.parse(rawSave);
+        if (jsonSave.status === 'error') throw new Error(jsonSave.message);
+    } catch (e) { 
+        throw new Error(`Error guardando en Sheets: ${e instanceof Error ? e.message : String(e) || rawSave}`);
+    }
 
     // 7. ACTUALIZAR DB Y FINALIZAR
     // Actualizar grupo si aplica

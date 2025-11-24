@@ -180,3 +180,36 @@
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
+.alumno-link-archivo {
+    color: #1e293b;
+    text-decoration: none;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+
+.alumno-link-archivo:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}
+
+.actions-group {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.link-archivo-nombre {
+    color: #1e293b;
+    font-weight: 600;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+
+.link-archivo-nombre:hover {
+    color: #2563eb;
+    text-decoration: underline;
+}

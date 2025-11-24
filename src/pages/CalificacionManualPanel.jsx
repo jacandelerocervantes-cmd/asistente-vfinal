@@ -17,10 +17,13 @@ const CalificacionManualPanel = () => {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            // Cargar datos de la evaluación
+            // Cargar datos de la CALIFICACIÓN (que es el punto de entrada)
             const { data: evData, error: evError } = await supabase
-                .from('evaluaciones')
-                .select('id, titulo, materia_id')
+                .from('calificaciones')
+                .select(`
+                    id,
+                    actividades (id, nombre, materia_id)
+                `)
                 .eq('id', evaluacionId)
                 .single();
             if (evError) throw evError;
@@ -29,8 +32,8 @@ const CalificacionManualPanel = () => {
             // Cargar solo las preguntas abiertas de esta evaluación
             const { data: paData, error: paError } = await supabase
                 .from('preguntas')
-                .select('id, texto_pregunta, puntos')
-                .eq('evaluacion_id', evaluacionId)
+                .select('id, texto_pregunta, puntos') // <-- CORREGIDO
+                .eq('evaluacion_id', evData.actividades.id) // <-- CORREGIDO
                 .eq('tipo_pregunta', 'abierta'); // Filtrar por tipo
             if (paError) throw paError;
             setPreguntasAbiertas(paData || []);
@@ -44,7 +47,7 @@ const CalificacionManualPanel = () => {
                     calificacion_final,
                     alumnos ( id, nombre, apellido )
                 `)
-                .eq('evaluacion_id', evaluacionId);
+                .eq('evaluacion_id', evData.actividades.id); // <-- CORREGIDO
 
             if (filtroEstado !== 'todos') {
                 queryIntentos = queryIntentos.eq('estado', filtroEstado);
@@ -111,8 +114,8 @@ const CalificacionManualPanel = () => {
 
     return (
         <div className="calificacion-manual-panel container">
-             <Link to={`/materia/${evaluacion.materia_id}?tab=Evaluaciones`} className="back-link">&larr; Volver a Evaluaciones</Link>
-            <h2>Calificar: {evaluacion.titulo}</h2>
+             <Link to={`/actividad/${evaluacion.actividades.id}/calificaciones`} className="back-link">&larr; Volver al Panel de Calificación</Link>
+            <h2>Calificar: {evaluacion.actividades.nombre}</h2>
             <p>Revisión de preguntas abiertas.</p>
 
             <div className="filtros-calificacion">

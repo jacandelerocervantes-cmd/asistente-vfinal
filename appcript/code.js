@@ -85,6 +85,8 @@ function doPost(e) {
         return crearRespuestaExitosa(handleGuardarCalificacionDetallada(payload));
       case 'guardar_calificacion_actividad':
         return crearRespuestaExitosa(handleGuardarCalificacionesActividad(payload));
+      case 'update_gradebook':
+        return crearRespuestaExitosa(handleUpdateGradebook(payload));
       case 'eliminar_recurso_drive': // <-- AÑADE ESTE CASO
         return crearRespuestaExitosa(handleEliminarRecurso(payload));
       case 'leer_datos_asistencia': // <-- AÑADE ESTE CASO
