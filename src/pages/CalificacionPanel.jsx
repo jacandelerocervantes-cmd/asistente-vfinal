@@ -16,14 +16,14 @@ const CalificacionPanel = () => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [calificaciones, setCalificaciones] = useState([]);
     
-    // Selección múltiple (Guardamos IDs de calificación)
+    // Selección múltiple
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isStartingBulk, setIsStartingBulk] = useState(false);
     const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
 
     const { showNotification } = useNotification();
 
-    // 1. Cargar Datos
+    // 1. Cargar Datos Iniciales
     const fetchLocalData = useCallback(async () => {
         if (!actividadId) return;
         try {
@@ -32,7 +32,6 @@ const CalificacionPanel = () => {
             if (actError) throw actError;
             setActividad(actData);
 
-            // CORRECCIÓN: Traemos también el nombre del grupo
             const { data: calData, error: calError } = await supabase
                 .from('calificaciones')
                 .select(`
@@ -89,20 +88,56 @@ const CalificacionPanel = () => {
         }
     }, [actividadId]);
 
-    // --- LÓGICA DE AGRUPACIÓN VISUAL (NUEVO) ---
+    // --- 3. SUSCRIPCIÓN REALTIME (NUEVO) ---
+    // Esto escucha cambios en la tabla 'calificaciones' y actualiza la UI en vivo
+    useEffect(() => {
+        if (!actividadId) return;
+
+        console.log(`Suscribiendo a cambios en tiempo real para actividad ${actividadId}...`);
+        const channel = supabase
+            .channel(`calificaciones-actividad-${actividadId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'calificaciones',
+                    filter: `actividad_id=eq.${actividadId}` // Filtramos solo esta actividad
+                },
+                (payload) => {
+                    console.log("Actualización en tiempo real recibida:", payload.new);
+                    // Actualizamos el estado local reemplazando el objeto modificado
+                    setCalificaciones(currentCalificaciones => 
+                        currentCalificaciones.map(cal => 
+                            cal.id === payload.new.id 
+                                ? { ...cal, ...payload.new } // Mantenemos relaciones, actualizamos campos base
+                                : cal
+                        )
+                    );
+                }
+            )
+            .subscribe();
+
+        // Limpieza al desmontar
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, [actividadId]);
+
+
+    // --- Lógica de Agrupación Visual ---
     const itemsToDisplay = useMemo(() => {
         const groups = {};
         const individuals = [];
 
         calificaciones.forEach(cal => {
-            // Si tiene grupo y nombre de grupo, lo agrupamos
             if (cal.grupo_id && cal.grupos) {
                 if (!groups[cal.grupo_id]) {
                     groups[cal.grupo_id] = {
-                        ...cal, // Usamos los datos base del primer miembro
+                        ...cal, 
                         isGroup: true,
                         displayName: cal.grupos.nombre,
-                        members: [cal], // Guardamos todos los miembros para referencia
+                        members: [cal],
                         displayCount: 1
                     };
                 } else {
@@ -120,17 +155,14 @@ const CalificacionPanel = () => {
         });
 
         return [...Object.values(groups), ...individuals].sort((a, b) => {
-            // Ordenar primero grupos, luego individuos (opcional)
             if (a.isGroup && !b.isGroup) return -1;
             if (!a.isGroup && b.isGroup) return 1;
             return 0;
         });
     }, [calificaciones]);
 
-    // --- Lógica de Selección Actualizada ---
+    // --- Handlers ---
     const handleSelectOne = (item) => {
-        // Si seleccionas un grupo, seleccionamos el ID del "representante" (el de la fila mostrada)
-        // La función de evaluación ya sabe propagar la nota.
         const id = item.id;
         setSelectedIds(prev => {
             const next = new Set(prev);
@@ -142,10 +174,8 @@ const CalificacionPanel = () => {
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            // Seleccionamos solo los IDs visibles (representantes de grupo o individuos)
-            // Solo si tienen estado válido para seleccionar
             const validIds = itemsToDisplay
-                .filter(item => ['entregado', 'calificado', 'procesando'].includes(item.estado))
+                .filter(item => ['entregado', 'calificado', 'procesando', 'requiere_revision_manual'].includes(item.estado))
                 .map(item => item.id);
             setSelectedIds(new Set(validIds));
         } else {
@@ -153,11 +183,9 @@ const CalificacionPanel = () => {
         }
     };
 
-    // --- Lógica de Evaluación Masiva ---
     const handleEvaluacionMasiva = async () => {
         const idsArray = Array.from(selectedIds);
         if (idsArray.length === 0) return;
-
         if (!window.confirm(`¿Iniciar evaluación automática para ${idsArray.length} elementos seleccionados?`)) return;
 
         setIsStartingBulk(true);
@@ -165,56 +193,38 @@ const CalificacionPanel = () => {
             const { data, error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', {
                 body: { calificaciones_ids: idsArray }
             });
-
             if (error) throw error;
-
             showNotification(`Proceso iniciado: ${data.message}`, 'success');
             setSelectedIds(new Set());
-            fetchLocalData();
-
+            // No necesitamos fetchLocalData() aquí porque el Realtime actualizará la UI
         } catch (error) {
             console.error("Error evaluación masiva:", error);
-            showNotification("Error al iniciar evaluación: " + error.message, 'error');
+            showNotification("Error: " + error.message, 'error');
         } finally {
             setIsStartingBulk(false);
         }
     };
 
-    // --- Plagio ---
     const handleCheckPlagio = async () => {
         const idsArray = Array.from(selectedIds);
-        
-        // Buscar los objetos originales basados en los IDs seleccionados
         const selectedItems = itemsToDisplay.filter(i => idsArray.includes(i.id));
-        
-        const driveFileIds = selectedItems
-            .map(c => c.evidencia_drive_file_id)
-            .filter(id => id); 
-
-        // Eliminar duplicados (por si acaso se seleccionaran varios del mismo grupo, aunque la UI lo evita)
+        const driveFileIds = selectedItems.map(c => c.evidencia_drive_file_id).filter(id => id);
         const uniqueFiles = [...new Set(driveFileIds)];
 
         if (uniqueFiles.length < 2) {
             showNotification("Selecciona al menos 2 trabajos diferentes para comprobar plagio.", 'warning');
             return;
         }
-
         if (!window.confirm(`¿Analizar plagio entre los ${uniqueFiles.length} trabajos seleccionados?`)) return;
 
         setIsCheckingPlagio(true);
         try {
             const { data, error } = await supabase.functions.invoke('encolar-comprobacion-plagio', {
-                body: { 
-                    drive_file_ids: uniqueFiles,
-                    materia_id: actividad?.materia_id 
-                }
+                body: { drive_file_ids: uniqueFiles, materia_id: actividad?.materia_id }
             });
-
             if (error) throw error;
-
             showNotification("Análisis de plagio iniciado.", 'success');
             setSelectedIds(new Set()); 
-
         } catch (error) {
             console.error("Error plagio:", error);
             showNotification("Error: " + error.message, 'error');
@@ -228,13 +238,13 @@ const CalificacionPanel = () => {
             case 'calificado': return <FaCheckCircle className="icon-success" style={{color: '#16a34a', fontSize:'1.2rem'}} />;
             case 'entregado': return <FaClock className="icon-info" style={{color: '#2563eb', fontSize:'1.2rem'}} />;
             case 'procesando': return <FaSpinner className="spin" style={{color: '#ca8a04', fontSize:'1.2rem'}} />;
+            case 'requiere_revision_manual': return <FaExclamationCircle style={{color: '#dc2626', fontSize:'1.2rem'}} />; // Nuevo ícono para error manual
             default: return <FaExclamationCircle style={{color: '#cbd5e1', fontSize:'1.2rem'}} />;
         }
     };
 
     return (
         <div className="calificacion-panel-container">
-            {/* Header */}
             <div className="calificacion-header">
                 <div>
                     <Link to={actividad ? `/materia/${actividad.materia_id}?tab=actividades` : '#'} className="back-link">
@@ -255,7 +265,6 @@ const CalificacionPanel = () => {
                 </div>
             </div>
 
-            {/* Barra Flotante */}
             {selectedIds.size > 0 && (
                 <div className="bulk-actions-bar">
                     <span style={{fontWeight:'bold'}}>{selectedIds.size} seleccionados</span>
@@ -271,7 +280,6 @@ const CalificacionPanel = () => {
             )}
 
             <div className="alumnos-list-container">
-                
                 <div className="list-header tabla-grid-layout">
                     <div className="col-center">
                         <input 
@@ -300,8 +308,6 @@ const CalificacionPanel = () => {
                             return (
                                 <li key={item.id} className={isSelected ? 'selected-bg' : ''}>
                                     <div className="tabla-grid-layout">
-                                        
-                                        {/* Checkbox */}
                                         <div className="col-center">
                                             {hasFile && (
                                                 <input 
@@ -312,12 +318,10 @@ const CalificacionPanel = () => {
                                             )}
                                         </div>
 
-                                        {/* Icono Tipo */}
                                         <div className="col-center" title={item.isGroup ? "Entrega Grupal" : "Entrega Individual"}>
                                             {item.isGroup ? <FaUsers style={{color:'#6366f1'}}/> : <FaUser style={{color:'#94a3b8'}}/>}
                                         </div>
                                         
-                                        {/* Nombre */}
                                         <div className="alumno-info">
                                             <span className="entregable-nombre" style={{fontSize: item.isGroup ? '1.05rem' : '1rem'}}>
                                                 {item.displayName}
@@ -334,16 +338,16 @@ const CalificacionPanel = () => {
                                             )}
                                         </div>
 
-                                        {/* Estado */}
+                                        {/* --- CORRECCIÓN: MOSTRAR PROGRESO EN TIEMPO REAL --- */}
                                         <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
                                             {getStatusIcon(item.estado)}
                                             <span className={`status-pill ${item.estado || 'pendiente'}`}>
-                                                {item.estado === 'procesando' ? 'Evaluando...' : 
-                                                 item.estado || 'Pendiente'}
+                                                {item.estado === 'procesando' 
+                                                    ? (item.progreso_evaluacion || 'Evaluando...') 
+                                                    : (item.estado === 'requiere_revision_manual' ? 'Revisión Manual' : (item.estado || 'Pendiente'))}
                                             </span>
                                         </div>
 
-                                        {/* Nota */}
                                         <div className="col-center">
                                             {item.calificacion_obtenida !== null ? (
                                                 <span className={`calificacion-badge ${item.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
@@ -352,9 +356,8 @@ const CalificacionPanel = () => {
                                             ) : '-'}
                                         </div>
 
-                                        {/* Acciones */}
                                         <div className="col-right">
-                                            {(item.estado === 'entregado' || item.estado === 'calificado') && (
+                                            {(item.estado === 'entregado' || item.estado === 'calificado' || item.estado === 'requiere_revision_manual') && (
                                                 <Link 
                                                     to={`/evaluacion/${item.id}/calificar`} 
                                                     className="btn-secondary btn-small btn-icon-only"
