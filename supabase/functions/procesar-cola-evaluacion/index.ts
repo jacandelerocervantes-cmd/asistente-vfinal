@@ -381,9 +381,13 @@ serve(async (req: Request) => {
         console.log(`[Catch Bloque SINGLE] Intentando actualizar trabajo ${trabajoId} a 'fallido'. Error: "${errorMessage.substring(0, 500)}..."`);
         await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'fallido', ultimo_error: errorMessage }).eq('id', trabajoId);
         if (calificacionId) {
-          await supabaseAdmin.from('calificaciones').update({ estado: 'fallido', progreso_evaluacion: `Error: ${errorMessage.substring(0, 100)}...` }).eq('id', calificacionId);
+          // IMPORTANTE: Si la evaluación falla, se revierte el estado a 'entregado' para permitir un reintento.
+          await supabaseAdmin.from('calificaciones').update({ 
+            estado: 'entregado', 
+            progreso_evaluacion: `Error en evaluación: ${errorMessage.substring(0, 150)}...` 
+          }).eq('id', calificacionId);
         }
-        console.log(`[Catch Bloque SINGLE] Trabajo ${trabajoId} marcado como 'fallido'.`);
+        console.log(`[Catch Bloque SINGLE] Trabajo ${trabajoId} marcado como 'fallido' y calificación revertida a 'entregado'.`);
       } catch (dbError) {
         if (dbError instanceof Error) {
             console.error(`[Catch Bloque SINGLE] Error ADICIONAL al marcar como fallido: ${dbError.message}`);

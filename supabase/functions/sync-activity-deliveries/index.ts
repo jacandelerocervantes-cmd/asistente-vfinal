@@ -36,6 +36,9 @@ serve(async (req: Request) => {
         // 1. Obtener solo los grupos de esta materia
         const { data: gruposDeMateria } = await admin.from('grupos').select('id').eq('materia_id', act.materia_id);
         const grupoIds = gruposDeMateria?.map(g => g.id) || [];
+        if (act.tipo_entrega === 'grupal' && grupoIds.length === 0) {
+            throw new Error(`La actividad es '${act.tipo_entrega}' pero no se encontraron grupos configurados para la materia ID ${act.materia_id}.`);
+        }
         const { data: rels } = await admin.from('alumnos_grupos').select('alumno_id, grupo_id').in('grupo_id', grupoIds);
         // Construir mapa: GrupoID -> [Array de AlumnoIDs]
         const grupos = new Map();
@@ -43,6 +46,9 @@ serve(async (req: Request) => {
             if(!grupos.has(r.grupo_id)) grupos.set(r.grupo_id, []); 
             grupos.get(r.grupo_id).push(r.alumno_id);
         });
+        if (mapaGrupos.size === 0 && rels && rels.length > 0) {
+             throw new Error(`Existen grupos para la materia ID ${act.materia_id}, pero no se pudo construir el mapa de alumnos a grupos. Revise las relaciones en 'alumnos_grupos'.`);
+        }
         // Construir mapa: AlumnoID -> {grupo_id, miembros}
         rels?.forEach(r => { 
             mapaGrupos.set(r.alumno_id, { grupo_id: r.grupo_id, miembros: grupos.get(r.grupo_id) }); 
@@ -102,7 +108,10 @@ serve(async (req: Request) => {
             }
             
             if (act.tipo_entrega === 'grupal') {
-                if (!infoGrupo) throw new Error(`El alumno con matrícula en '${file.name}' no pertenece a ningún grupo para esta entrega grupal.`);
+                if (!infoGrupo) {
+                    const matriculasEncontradas = uploaderIds.map(uid => [...mapaAlumnos.entries()].find(([, id]) => id === uid)?.[0] || 'ID desconocido');
+                    throw new Error(`Entrega grupal '${file.name}' ignorada. Ninguno de los alumnos con matrícula(s) [${matriculasEncontradas.join(', ')}] pertenece a un grupo en esta materia.`);
+                }
                 // Entrega grupal -> A todos los miembros
                 infoGrupo.miembros.forEach((mid: string) => targets.push({ id: mid, gid: infoGrupo.grupo_id }));
             } else if (act.tipo_entrega === 'mixta' && infoGrupo) {
@@ -117,7 +126,7 @@ serve(async (req: Request) => {
             for (const t of targets) {
                 const { error } = await admin.from('calificaciones').upsert({
                     actividad_id, alumno_id: t.id, grupo_id: t.gid,
-                    estado: 'entregado', evidencia_drive_file_id: file.id, user_id: user.id
+                    estado: 'entregado', evidencia_drive_file_id: file.id, user_id: t.id
                 }, { onConflict: 'actividad_id, alumno_id' });
                 if (!error) updates++;
             }
