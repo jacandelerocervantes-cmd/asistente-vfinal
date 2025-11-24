@@ -23,6 +23,11 @@ const CalificacionPanel = () => {
 
     const { showNotification } = useNotification();
 
+    // Detectar si hay ALGO procesándose en toda la lista
+    const isAnyProcessing = useMemo(() => {
+        return calificaciones.some(c => c.estado === 'procesando');
+    }, [calificaciones]);
+
     // --- 0. HELPER: TRADUCTOR DE ERRORES (NUEVO) ---
     const traducirError = (errorRaw) => {
         if (!errorRaw) return "Error desconocido.";
@@ -209,6 +214,23 @@ const CalificacionPanel = () => {
         }
     };
 
+    const handleReintentar = async (calificacionId) => {
+        if (!calificacionId) return;
+        
+        // No usamos el bloqueo global 'isStartingBulk' para permitir otras acciones.
+        // El bloqueo de fila individual se encargará de la UI.
+        try {
+            const { error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', {
+                body: { calificaciones_ids: [calificacionId] }
+            });
+            if (error) throw error;
+            
+            showNotification(`Reintento iniciado para la entrega.`, 'info');
+        } catch (error) {
+            showNotification("No se pudo reintentar la evaluación: " + error.message, 'error');
+        }
+    };
+
     const handleCheckPlagio = async () => {
         const idsArray = Array.from(selectedIds);
         const selectedItems = itemsToDisplay.filter(i => idsArray.includes(i.id));
@@ -320,8 +342,8 @@ const CalificacionPanel = () => {
                         <input 
                             type="checkbox" 
                             onChange={handleSelectAll} 
-                            // Bloquear Select All si estamos iniciando proceso masivo
-                            disabled={itemsToDisplay.length === 0 || isStartingBulk || isCheckingPlagio}
+                            // BLOQUEO GLOBAL: Si se está iniciando masivo O si hay algo procesando, bloqueamos todo
+                            disabled={itemsToDisplay.length === 0 || isStartingBulk || isCheckingPlagio || isAnyProcessing}
                         />
                     </div>
                     <div></div> 
@@ -340,11 +362,11 @@ const CalificacionPanel = () => {
                         {itemsToDisplay.length > 0 ? itemsToDisplay.map(item => {
                             const isSelected = selectedIds.has(item.id);
                             const hasFile = !!item.evidencia_drive_file_id;
-                            // BLOQUEO DE FILA: Si está procesando, no se puede seleccionar
-                            const isLocked = item.estado === 'procesando' || isStartingBulk;
+                            // Bloqueo de fila individual
+                            const isRowLocked = isStartingBulk || isAnyProcessing; 
 
                             return (
-                                <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${isLocked ? 'row-locked' : ''}`}>
+                                <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${item.estado === 'procesando' ? 'row-processing' : ''}`}>
                                     <div className="tabla-grid-layout">
                                         <div className="col-center">
                                             {hasFile && (
@@ -352,7 +374,7 @@ const CalificacionPanel = () => {
                                                     type="checkbox" 
                                                     checked={isSelected} 
                                                     onChange={() => handleSelectOne(item)} 
-                                                    disabled={isLocked || isCheckingPlagio} 
+                                                    disabled={isRowLocked || isCheckingPlagio} 
                                                 />
                                             )}
                                         </div>
@@ -390,16 +412,27 @@ const CalificacionPanel = () => {
                                         </div>
 
                                         <div className="col-right">
-                                            {/* Ocultar acciones si está procesando para evitar conflictos */}
-                                            {item.estado !== 'procesando' && (
+                                            {/* Si falló, mostramos botón de reintentar explícito */}
+                                            {item.estado === 'fallido' && (
+                                                <button 
+                                                    onClick={() => handleReintentar(item.id)} // Necesitas crear esta función simple que llame a evaluar solo este ID
+                                                    className="btn-error btn-small"
+                                                    title="Reintentar evaluación"
+                                                >
+                                                    <FaSync /> Reintentar
+                                                </button>
+                                            )}
+                                            
+                                            {/* Resto de botones normales */}
+                                            {item.estado !== 'procesando' && item.estado !== 'fallido' && (
                                                 <>
-                                                    {(item.estado === 'entregado' || item.estado === 'calificado' || item.estado === 'requiere_revision_manual' || item.estado === 'fallido') && (
+                                                    {(item.estado === 'entregado' || item.estado === 'calificado' || item.estado === 'requiere_revision_manual') && (
                                                         <Link 
                                                             to={`/evaluacion/${item.id}/calificar`} 
                                                             className="btn-secondary btn-small btn-icon-only"
-                                                            title={item.estado === 'fallido' ? "Revisar error e intentar manual" : "Ver Detalles / Evaluar"}
+                                                            title={"Ver Detalles / Evaluar"}
                                                         >
-                                                            {item.estado === 'fallido' ? <FaExclamationTriangle/> : <FaRobot />}
+                                                            <FaRobot />
                                                         </Link>
                                                     )}
                                                     {item.drive_url_entrega && (

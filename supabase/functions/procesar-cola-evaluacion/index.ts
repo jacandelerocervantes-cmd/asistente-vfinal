@@ -210,27 +210,24 @@ serve(async (req: Request) => {
       ]
     };
 
-    // --- FIX CRÍTICO AQUÍ ---
     const resSave = await fetchWithRetry(scriptUrl, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payloadSave)
     });
 
-    // Leemos UNA SOLA VEZ
-    const rawSaveResponse = await resSave.text();
+    // --- CORRECCIÓN CLAVE: LEER UNA SOLA VEZ ---
+    const rawSaveText = await resSave.text(); // <--- Leemos el stream AQUÍ y lo guardamos en variable
     let jsonSave;
     
-    // Intentamos parsear, pero si falla, tenemos el texto crudo para el error
     try {
-        jsonSave = JSON.parse(rawSaveResponse);    } catch (_e) {
-        // Si no es JSON, probablemente es un error HTML de Google o texto plano
-        throw new Error(`Google Apps Script falló al guardar. Respuesta cruda: ${rawSaveResponse}`);
+        jsonSave = JSON.parse(rawSaveText); // Usamos la variable, NO resSave.json()
+    } catch (_e) {
+        throw new Error(`Google Apps Script devolvió respuesta inválida al guardar: ${rawSaveText}`);
     }
 
     if (!resSave.ok || jsonSave.status === 'error') {
-        throw new Error(`Error lógico en Google Script al guardar: ${jsonSave.message || rawSaveResponse}`);
+        throw new Error(`Error lógico al guardar en Sheets: ${jsonSave.message || rawSaveText}`);
     }
-    // ------------------------
 
     // 7. ACTUALIZAR DB LOCAL
     // Si es grupal/mixta, replicamos la nota a los compañeros del mismo grupo en la misma actividad
