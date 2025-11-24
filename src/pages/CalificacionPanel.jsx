@@ -243,7 +243,7 @@ const CalificacionPanel = () => {
             {/* Tabla Grid Alineada */}
             <div className="alumnos-list-container">
                 {/* Encabezado de Tabla (Grid) */}
-                <div className="calificacion-grid-row list-header">
+                <div className="grid-template list-header">
                     <div className="col-center">
                         <input 
                             type="checkbox" 
@@ -271,7 +271,7 @@ const CalificacionPanel = () => {
 
                             return (
                                 <li key={cal.id} className={isSelected ? 'selected-bg' : ''}>
-                                    <div className="calificacion-grid-row">
+                                    <div className="grid-template">
                                         
                                         {/* 1. Checkbox */}
                                         <div className="col-center">
@@ -302,7 +302,7 @@ const CalificacionPanel = () => {
                                         {/* 4. Estado Texto */}
                                         <div>
                                             <span className={`status-pill ${cal.estado || 'pendiente'}`}>
-                                                {cal.estado === 'procesando' ? cal.progreso_evaluacion || 'Procesando...' : 
+                                                {cal.estado === 'procesando' ? 'Procesando...' : 
                                                  cal.estado || 'Pendiente'}
                                             </span>
                                         </div>
@@ -322,8 +322,7 @@ const CalificacionPanel = () => {
                                                 <Link 
                                                     to={`/evaluacion/${cal.id}/calificar`} 
                                                     className="btn-tertiary btn-small icon-button"
-                                                    title="Ver detalle / Evaluar manualmente"
-                                                    style={{padding: '6px 8px'}}
+                                                    title="Evaluar"
                                                 >
                                                     <FaRobot />
                                                 </Link>
@@ -333,8 +332,8 @@ const CalificacionPanel = () => {
                                 </li>
                             );
                         }) : (
-                            <div style={{padding: '2rem', textAlign: 'center', color: '#888'}}>
-                                No se encontraron entregas todavía.
+                            <div style={{padding: '3rem', textAlign: 'center', color: '#94a3b8'}}>
+                                No se encontraron alumnos o entregas.
                             </div>
                         )}
                     </ul>
