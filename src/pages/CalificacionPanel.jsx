@@ -232,7 +232,7 @@ const CalificacionPanel = () => {
                             type="checkbox" 
                             onChange={handleSelectAll} 
                             checked={isAllSelected}
-                            disabled={itemsSelectable.length === 0}
+                            disabled={itemsSelectable.length === 0 || isStartingBulk || isCheckingPlagio}
                         />
                     </div>
                     <div></div> {/* Espacio vacío para icono */}
@@ -268,8 +268,8 @@ const CalificacionPanel = () => {
                                                 <input 
                                                     type="checkbox" 
                                                     checked={isSelected} 
-                                                    onChange={() => handleSelectOne(cal.id)}
-                                                />
+                                                    onChange={() => handleSelectOne(cal.id)} 
+                                                    disabled={isStartingBulk || isCheckingPlagio}/>
                                             )}
                                         </div>
 

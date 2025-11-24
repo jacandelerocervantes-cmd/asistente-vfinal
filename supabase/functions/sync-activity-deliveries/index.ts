@@ -83,16 +83,23 @@ serve(async (req: Request) => {
     let updates = 0;
     for (const file of archivos) {
         const name = file.name.toUpperCase();
-        let uploaderId = null;
-        // Detectar matrícula en nombre
+        const uploaderIds = [];
+
+        // Detectar TODAS las matrículas en el nombre del archivo
         for (const [mat, id] of mapaAlumnos) { 
-            if (name.includes(mat)) { uploaderId = id; break; } 
+            if (name.includes(mat)) { uploaderIds.push(id); } 
         }
 
-        if (uploaderId) {
+        if (uploaderIds.length > 0) {
             const targets = [];
-            // Lógica Inteligente de Grupos
-            const infoGrupo = mapaGrupos.get(uploaderId);
+            // Para entregas grupales/mixtas, encontrar el grupo de CUALQUIER miembro en el nombre del archivo
+            let infoGrupo = null;
+            if (['grupal', 'mixta'].includes(act.tipo_entrega)) {
+                for (const uploaderId of uploaderIds) {
+                    infoGrupo = mapaGrupos.get(uploaderId);
+                    if (infoGrupo) break; // Encontramos el grupo, salimos del bucle
+                }
+            }
             
             if (act.tipo_entrega === 'grupal') {
                 if (!infoGrupo) throw new Error(`El alumno con matrícula en '${file.name}' no pertenece a ningún grupo para esta entrega grupal.`);
@@ -103,7 +110,7 @@ serve(async (req: Request) => {
                 infoGrupo.miembros.forEach((mid: string) => targets.push({ id: mid, gid: infoGrupo.grupo_id }));
             } else {
                 // No tiene grupo o es individual -> Solo a él
-                targets.push({ id: uploaderId, gid: null });
+                targets.push({ id: uploaderIds[0], gid: null });
             }
 
             // Guardar
