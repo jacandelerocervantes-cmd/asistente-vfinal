@@ -2,213 +2,183 @@ import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
 import { corsHeaders } from '../_shared/cors.ts';
 
-// Helper para esperar (Throttle)
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Helper para fetch con reintentos
+// Fetch blindado con reintentos
 const fetchWithRetry = async (url: string, options: RequestInit, retries = 3) => {
   for (let i = 0; i < retries; i++) {
     try {
       const res = await fetch(url, options);
-      if (res.status === 429) { // Too Many Requests
-        console.log(`Rate limit 429. Esperando ${2 * (i + 1)}s...`);
-        await wait(2000 * (i + 1));
+      if (res.status === 429) { // Si Gemini dice "Calma, vas muy rápido"
+        console.log(`Rate Limit (429). Esperando ${3 * (i + 1)}s...`);
+        await wait(3000 * (i + 1));
         continue;
       }
-      return res; // Retornamos la respuesta original (sin leer el body aún)
+      return res;
     } catch (err) {
       if (i === retries - 1) throw err;
       await wait(1000);
     }
   }
-  throw new Error("Fetch falló tras reintentos");
+  throw new Error("Error de conexión tras varios intentos.");
 };
 
 interface AlumnoParaGuardar {
   matricula: string;
   nombre: string;
   calificacion_final: number;
+  retroalimentacion: string;
 }
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
-  // Variables para manejo de error global
-  let job_id_ref = null;
-  let calif_id_ref = null;
-  
   const supabaseAdmin = createClient(
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   );
 
   try {
-    // 1. OBTENER TRABAJO (Bloqueo para que sea uno a uno)
-    const { data: jobData, error: jobError } = await supabaseAdmin.rpc('obtener_siguiente_trabajo_evaluacion');
-    if (jobError || !jobData || jobData.length === 0) {
-      return new Response(JSON.stringify({ message: "Sin trabajos" }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    // 1. TOMAR TRABAJO (Bloqueo)
+    const { data: jobData } = await supabaseAdmin.rpc('obtener_siguiente_trabajo_evaluacion');
+    if (!jobData || jobData.length === 0) {
+      return new Response(JSON.stringify({ message: "Cola vacía" }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    
     const jobId = jobData[0].job_id;
-    job_id_ref = jobId;
-    console.log(`>>> PROCESANDO JOB ${jobId} <<<`);
+    console.log(`>>> PROCESANDO TRABAJO ${jobId} <<<`);
 
-    // 2. LEER DATOS COMPLETOS
+    // 2. LEER DATOS
     const { data: item } = await supabaseAdmin
       .from('cola_de_trabajos')
-      .select(`*, calificaciones ( *, actividades ( *, materias (*) ), alumnos (*), grupos (*) )`)
+      .select(`*, calificaciones (id, actividad_id, alumno_id, grupo_id, evidencia_drive_file_id, actividades (id, nombre, unidad, rubrica_sheet_range, rubrica_spreadsheet_id, tipo_entrega, materias (calificaciones_spreadsheet_id)), alumnos (matricula, nombre, apellido), grupos (nombre))`)
       .eq('id', jobId).single();
 
-    if (!item) throw new Error("Datos de trabajo no encontrados");
     const calif = item.calificaciones;
-    calif_id_ref = calif.id;
     const act = calif.actividades;
-    const mat = act.materias;
 
     // 3. OBTENER TEXTO (Apps Script)
-    await supabaseAdmin.from('calificaciones').update({ estado: 'procesando', progreso_evaluacion: '1/4: Leyendo...' }).eq('id', calif.id);
+    await supabaseAdmin.from('calificaciones').update({ estado: 'procesando', progreso_evaluacion: '1/4: Leyendo documento...' }).eq('id', calif.id);
     
-    // PAUSA TÁCTICA: Darle respiro a la API antes de empezar
-    await wait(1000); 
+    await wait(1000); // Pausa de cortesía
 
     const resText = await fetchWithRetry(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get_student_work_text', drive_file_id: calif.evidencia_drive_file_id })
     });
 
-    // LEER UNA SOLA VEZ
-    const rawText = await resText.text();
-    let jsonText;
-    try { jsonText = JSON.parse(rawText); } catch { throw new Error("Error leyendo respuesta de texto de Google."); }
+    const rawText = await resText.text(); // LEER UNA VEZ
+    const jsonText = JSON.parse(rawText);
 
-    // Manejo de "Revisión Manual" sin error fatal
     if (jsonText.requiere_revision_manual) {
-       await supabaseAdmin.from('calificaciones').update({ estado: 'requiere_revision_manual', progreso_evaluacion: 'Formato no soportado' }).eq('id', calif.id);
-       await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado', ultimo_error: 'Manual requerido' }).eq('id', jobId);
-       return new Response(JSON.stringify({ ok: true, manual: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+       await supabaseAdmin.from('calificaciones').update({ estado: 'requiere_revision_manual', progreso_evaluacion: 'Formato no soportado por IA' }).eq('id', calif.id);
+       await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado', ultimo_error: 'Manual' }).eq('id', jobId);
+       return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    if (!jsonText.texto_trabajo) throw new Error("Archivo vacío o sin texto.");
-
-    // 4. OBTENER RÚBRICA
-    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '2/4: Rúbrica...' }).eq('id', calif.id);
+    // 4. RÚBRICA
+    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '2/4: Analizando rúbrica...' }).eq('id', calif.id);
     const resRubrica = await fetchWithRetry(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'get_rubric_text', spreadsheet_id: act.rubrica_spreadsheet_id, rubrica_sheet_range: act.rubrica_sheet_range })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get_rubric_text', spreadsheet_id: act.rubrica_spreadsheet_id, rubrica_sheet_range: act.rubrica_sheet_range })
     });
-    const jsonRubrica = await resRubrica.json(); // Aquí es seguro usar .json() directo si confiamos en que GAS siempre devuelve JSON
+    const jsonRubrica = await resRubrica.json();
 
-    // 5. GEMINI (EVALUACIÓN)
-    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '3/4: IA Analizando...' }).eq('id', calif.id);
-    
-    // PAUSA IMPORTANTE: Throttle para Gemini (2 segundos entre lecturas grandes)
-    await wait(2000);
+    // 5. IA GEMINI (Con espera para evitar 429)
+    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '3/4: IA Evaluando...' }).eq('id', calif.id);
+    await wait(2500); // THROTTLE: Espera 2.5s antes de llamar a Gemini
 
     const prompt = `
-      Eres un profesor experto. Evalúa esto con la rúbrica proporcionada.
       RÚBRICA: ${jsonRubrica.texto_rubrica}
       ALUMNO: "${jsonText.texto_trabajo.substring(0, 15000)}"
-      Salida JSON exacta: { "calificacion_total": number, "justificacion_texto": "string" }
+      Evalúa y responde SOLO JSON: { "calificacion_total": number, "justificacion_texto": "string" }
     `;
 
-    const resGemini = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${Deno.env.get('GEMINI_API_KEY')}`, {
+    const resGemini = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${Deno.env.get('GEMINI_API_KEY')}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
     });
 
     const geminiData = await resGemini.json();
-    const aiText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!aiText) throw new Error("Gemini saturado (respuesta vacía).");
+    const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiResponse) throw new Error("Gemini saturado (respuesta vacía).");
+    const evalJson = JSON.parse(aiResponse.replace(/```json|```/g, '').trim());
 
-    let evalJson;
-    try { evalJson = JSON.parse(aiText.replace(/```json|```/g, '').trim()); } 
-    catch { throw new Error("Error parseando JSON de Gemini."); }
+    // 6. GUARDAR EN SHEETS (Expandir Grupos + Solución Body Consumed)
+    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '4/4: Guardando reporte...' }).eq('id', calif.id);
 
-    // 6. GUARDAR EN SHEETS (KARDEX)
-    await supabaseAdmin.from('calificaciones').update({ progreso_evaluacion: '4/4: Actualizando Kardex...' }).eq('id', calif.id);
-    
-    // Expandir Grupo si aplica
-    let alumnosParaGuardar = [];
+    const alumnosAGuardar: AlumnoParaGuardar[] = [];
+    let idsAActualizar = [calif.id];
 
+    // Lógica de expansión: Si es grupal, buscamos a los compañeros
     if (calif.grupo_id && ['grupal', 'mixta'].includes(act.tipo_entrega)) {
         const { data: miembros } = await supabaseAdmin
             .from('alumnos_grupos')
             .select('alumnos(matricula, nombre, apellido)')
             .eq('grupo_id', calif.grupo_id);
-            
-        if (miembros && miembros.length > 0) {
-            alumnosParaGuardar = miembros.map(m => {
-                const alumno = Array.isArray(m.alumnos) ? m.alumnos[0] : m.alumnos;
-                return {
-                matricula: alumno?.matricula || 'S/M',
-                nombre: alumno ? `${alumno.nombre} ${alumno.apellido}` : 'Desconocido',
-                calificacion_final: evalJson.calificacion_total
-            }});
-        } else {
-            // Fallback
-            alumnosParaGuardar.push({
-                matricula: calif.alumnos?.matricula || "S/M",
-                nombre: `${calif.alumnos?.nombre} ${calif.alumnos?.apellido}`,
-                calificacion_final: evalJson.calificacion_total
+        
+        // También buscamos los IDs de calificaciones de los compañeros para actualizarlos en BD
+        const { data: comps } = await supabaseAdmin.from('calificaciones').select('id')
+            .eq('actividad_id', act.id).eq('grupo_id', calif.grupo_id);
+        if (comps) idsAActualizar = comps.map(x => x.id);
+
+        if (miembros) {
+            miembros.forEach(m => {
+              const alumno = Array.isArray(m.alumnos) ? m.alumnos[0] : m.alumnos;
+              if (alumno) {
+                alumnosAGuardar.push({
+                matricula: alumno.matricula,
+                nombre: `${alumno.nombre} ${alumno.apellido}`,
+                calificacion_final: evalJson.calificacion_total,
+                retroalimentacion: evalJson.justificacion_texto
+                });
+              }
             });
         }
     } else {
         // Individual
-        alumnosParaGuardar.push({
+        alumnosAGuardar.push({
             matricula: calif.alumnos?.matricula || "S/M",
             nombre: `${calif.alumnos?.nombre} ${calif.alumnos?.apellido}`,
-            calificacion_final: evalJson.calificacion_total
+            calificacion_final: evalJson.calificacion_total,
+            retroalimentacion: evalJson.justificacion_texto
         });
     }
 
     const payloadSave = {
-      action: 'update_gradebook', // <--- LLAMADA CORRECTA
-      calificaciones_spreadsheet_id: mat.calificaciones_spreadsheet_id,
-      unidad: act.unidad,
-      nombre_actividad: act.nombre,
-      calificaciones: alumnosParaGuardar
+        action: 'guardar_calificacion_actividad', // Usa la nueva función dual
+        calificaciones_spreadsheet_id: act.materias.calificaciones_spreadsheet_id,
+        unidad: act.unidad,
+        nombre_actividad: act.nombre,
+        calificaciones: alumnosAGuardar
     };
 
     const resSave = await fetchWithRetry(Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payloadSave)
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payloadSave)
     });
 
-    const rawSave = await resSave.text();
-    try { 
+    const rawSave = await resSave.text(); // FIX: Lectura única
+    try {
         const jsonSave = JSON.parse(rawSave);
         if (jsonSave.status === 'error') throw new Error(jsonSave.message);
     } catch (e) { 
-        throw new Error(`Error guardando en Sheets: ${e instanceof Error ? e.message : String(e) || rawSave}`);
+        throw new Error(`Error guardando Sheet: ${e instanceof Error ? e.message : String(e)}`); 
     }
 
-    // 7. ACTUALIZAR DB Y FINALIZAR
-    // Actualizar grupo si aplica
-    let ids = [calif.id];
-    if (calif.grupo_id && ['grupal', 'mixta'].includes(act.tipo_entrega)) {
-        const { data: groupMembers } = await supabaseAdmin.from('calificaciones').select('id')
-            .eq('actividad_id', act.id).eq('grupo_id', calif.grupo_id);
-        if (groupMembers) ids = groupMembers.map(x => x.id);
-    }
-
+    // 7. FINALIZAR
     await supabaseAdmin.from('calificaciones').update({
         calificacion_obtenida: evalJson.calificacion_total,
         estado: 'calificado',
-        progreso_evaluacion: 'Completado',
-        justificacion_sheet_cell: 'Ver Reporte'
-    }).in('id', ids);
+        progreso_evaluacion: 'Completado'
+    }).in('id', idsAActualizar);
 
     await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'completado', updated_at: new Date() }).eq('id', jobId);
 
     return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Error desconocido en el proceso";
-    console.error("Error en proceso:", errorMessage, error);
-    // Marcar como fallido visualmente
-    if (calif_id_ref) await supabaseAdmin.from('calificaciones').update({ estado: 'fallido', progreso_evaluacion: 'Error: Ver detalle' }).eq('id', calif_id_ref);
-    if (job_id_ref) await supabaseAdmin.from('cola_de_trabajos').update({ estado: 'fallido', ultimo_error: errorMessage }).eq('id', job_id_ref);
-    
-    return new Response(JSON.stringify({ error: errorMessage }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-  }
+    const message = error instanceof Error ? error.message : "Error desconocido en el proceso.";
+    console.error(message, error);
+    return new Response(JSON.stringify({ error: message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
 });
