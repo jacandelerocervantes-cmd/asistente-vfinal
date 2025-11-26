@@ -17,6 +17,13 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
     
     const { showNotification } = useNotification();
 
+    // Función auxiliar para generar el nombre de archivo sugerido
+    const generarNombreArchivo = (nombreActividad) => {
+        if (!nombreActividad) return "[Matricula]_NombreActividad.pdf";
+        const limpio = nombreActividad.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+        return `[Matricula]_${limpio}.pdf`;
+    };
+
     // Cargar datos si es edición
     useEffect(() => {
         if (isEditing && actividadToEdit) {
@@ -181,7 +188,14 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
             <form onSubmit={handleSubmit} className="materia-form">
                 <div className="form-group">
                     <label htmlFor="nombre_actividad">Nombre de la Actividad</label>
-                    <input id="nombre_actividad" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
+                    <input id="nombre_actividad" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required placeholder="Ej. Ensayo Revolución"/>
+                    {/* --- NUEVO: Sugerencia de Formato Dinámica --- */}
+                    {nombre && (
+                        <div style={{fontSize: '0.85rem', color: '#6366f1', marginTop: '5px', backgroundColor: '#eef2ff', padding: '8px', borderRadius: '6px'}}>
+                            <span style={{fontWeight:'bold'}}>ℹ️ Formato sugerido para alumnos:</span> <br/>
+                            {generarNombreArchivo(nombre)}
+                        </div>
+                    )}
                 </div>
     
                 <div className="form-group-horizontal">
@@ -213,14 +227,26 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                 {renderNamingInstruction()}
     
                 <div className="form-group">
-                    <label htmlFor="descripcion_actividad">Descripción de la Actividad</label>
+                    <label htmlFor="descripcion_actividad">Descripción e Instrucciones</label>
                     <textarea
                         id="descripcion_actividad"
                         rows="4"
                         value={descripcion}
                         onChange={(e) => setDescripcion(e.target.value)}
-                        placeholder="Describe detalladamente qué deben hacer los alumnos..."
+                        placeholder="Instrucciones para el alumno..."
                     ></textarea>
+                    {/* Botón para insertar la regla de nombrado en la descripción */}
+                    {nombre && (
+                        <button 
+                            type="button" 
+                            onClick={() => setDescripcion(prev => (
+                                prev + `\n\nNOTA IMPORTANTE: Por favor nombra tu archivo así: "${generarNombreArchivo(nombre)}".`
+                            ))}
+                            style={{marginTop: '5px', fontSize: '0.8rem', border:'none', background:'transparent', color:'#4f46e5', cursor:'pointer', textDecoration:'underline'}}
+                        >
+                            + Insertar regla de nombre en instrucciones
+                        </button>
+                    )}
                 </div>
     
                 <div className="rubrica-section">

@@ -378,58 +378,79 @@ function handleEntregaActividad(payload) {
  * OPTIMIZADO: Usa mapa de búsqueda y escritura puntual para evitar Timeouts.
  */
 function handleGuardarCalificacionesActividad(payload) {
-  Logger.log(`Iniciando guardado Actividad: "${payload.nombre_evaluacion}"...`);
-  const { calificaciones_spreadsheet_id, nombre_evaluacion, unidad, calificaciones } = payload;
+  Logger.log(`Guardando actividad: "${payload.nombre_actividad}"`);
+  const { calificaciones_spreadsheet_id, unidad, nombre_actividad, calificaciones } = payload;
 
-  if (!calificaciones_spreadsheet_id || !nombre_evaluacion || !calificaciones) {
-    throw new Error("Faltan datos requeridos.");
-  }
+  if (!calificaciones_spreadsheet_id || !calificaciones) throw new Error("Datos incompletos.");
 
-  const spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
-  const nombreHoja = "Reporte Actividades";
-  let sheet = spreadsheet.getSheetByName(nombreHoja);
+  const ss = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
 
-  // 1. Crear hoja si no existe
-  if (!sheet) {
-    sheet = spreadsheet.insertSheet(nombreHoja);
-    sheet.appendRow(["Matrícula", "Nombre Alumno", "Nombre Actividad", "Unidad", "Calificación", "Retroalimentación"]);
-    sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, 6).setFontWeight("bold");
-  }
-
-  // 2. Mapear filas existentes (Matrícula + Actividad -> Fila)
-  const data = sheet.getDataRange().getValues();
-  const mapFilas = new Map(); // Clave: "MATRICULA|ACTIVIDAD" -> Valor: IndiceFila (Base 0)
+  // --- 1. REPORTE INDIVIDUAL (Hoja Detallada) ---
+  // Nombre corto para evitar error de 31 caracteres de Sheets
+  const nombreHojaInd = `Detalle - ${nombre_actividad}`.substring(0, 30);
+  let sheetInd = ss.getSheetByName(nombreHojaInd);
   
-  // Asumimos columnas fijas por rendimiento: A=0(Mat), C=2(Act)
-  for (let i = 1; i < data.length; i++) {
-    const key = `${String(data[i][0]).trim().toUpperCase()}|${String(data[i][2]).trim()}`;
-    mapFilas.set(key, i + 1); // Guardamos fila base 1 para getRange
+  if (!sheetInd) {
+    sheetInd = ss.insertSheet(nombreHojaInd);
+    sheetInd.appendRow(["Matrícula", "Nombre", "Calificación", "Retroalimentación IA"]);
+    sheetInd.setFrozenRows(1);
+    sheetInd.getRange(1,1,1,4).setFontWeight("bold");
   }
 
-  // 3. Escribir datos
-  calificaciones.forEach(cal => {
-    const key = `${String(cal.matricula).trim().toUpperCase()}|${String(nombre_evaluacion).trim()}`;
-    const fila = mapFilas.get(key);
-    const nota = cal.calificacion_final !== undefined ? cal.calificacion_final : cal.calificacion;
+  const dataInd = sheetInd.getDataRange().getValues();
+  const mapInd = new Map();
+  for(let i=1; i<dataInd.length; i++) mapInd.set(String(dataInd[i][0]).trim(), i+1);
 
-    if (fila) {
-      // ACTUALIZAR (Columna E=5 para Nota, F=6 para Retro)
-      sheet.getRange(fila, 5).setValue(nota);
-      sheet.getRange(fila, 6).setValue(cal.retroalimentacion || "");
+  // --- 2. KARDEX (Resumen Unidad) ---
+  const nombreHojaKardex = `Resumen - Unidad ${unidad}`;
+  let sheetKardex = ss.getSheetByName(nombreHojaKardex);
+  
+  if (!sheetKardex) {
+    sheetKardex = ss.insertSheet(nombreHojaKardex);
+    sheetKardex.appendRow(["Matrícula", "Nombre"]);
+    sheetKardex.setFrozenRows(1);
+    sheetKardex.setFrozenColumns(2);
+  }
+
+  // Buscar columna de actividad en Kardex
+  const headersKardex = sheetKardex.getRange(1, 1, 1, sheetKardex.getLastColumn() || 2).getValues()[0];
+  let colIndex = headersKardex.indexOf(nombre_actividad);
+  
+  if (colIndex === -1) {
+    colIndex = headersKardex.length;
+    sheetKardex.getRange(1, colIndex + 1).setValue(nombre_actividad).setFontWeight("bold");
+  }
+
+  const dataKardex = sheetKardex.getDataRange().getValues();
+  const mapKardex = new Map();
+  for(let i=1; i<dataKardex.length; i++) mapKardex.set(String(dataKardex[i][0]).trim(), i+1);
+
+  // --- ESCRITURA ---
+  calificaciones.forEach(cal => {
+    const mat = String(cal.matricula).trim();
+    const nota = cal.calificacion_final;
+    const retro = cal.retroalimentacion;
+
+    // A. Escribir en Detalle
+    let rowInd = mapInd.get(mat);
+    if (rowInd) {
+        sheetInd.getRange(rowInd, 3).setValue(nota);
+        sheetInd.getRange(rowInd, 4).setValue(retro);
     } else {
-      // INSERTAR
-      sheet.appendRow([
-        cal.matricula,
-        cal.nombre,
-        nombre_evaluacion,
-        unidad,
-        nota,
-        cal.retroalimentacion || ""
-      ]);
+        sheetInd.appendRow([mat, cal.nombre, nota, retro]);
     }
+
+    // B. Escribir en Kardex
+    let rowKardex = mapKardex.get(mat);
+    if (!rowKardex) {
+        sheetKardex.appendRow([mat, cal.nombre]);
+        rowKardex = sheetKardex.getLastRow();
+        mapKardex.set(mat, rowKardex);
+    }
+    // Escribir nota en la intersección
+    sheetKardex.getRange(rowKardex, colIndex + 1).setValue(nota);
   });
 
-  SpreadsheetApp.flush(); // Forzar guardado inmediato
-  return { message: "Guardado exitoso." };
+  SpreadsheetApp.flush();
+  return { message: "Guardado en Detalle y Kardex." };
 }
