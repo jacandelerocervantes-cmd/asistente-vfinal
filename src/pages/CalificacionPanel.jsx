@@ -386,25 +386,34 @@ const CalificacionPanel = () => {
                                             {getStatusBadge(item)}
                                         </div>
 
+                                        {/* 5. Nota (CORREGIDO) */}
                                         <div className="col-center">
-                                            <span className="calificacion-badge">
-                                                {item.calificacion_obtenida != null ? item.calificacion_obtenida : '-'}
-                                            </span>
+                                            {/* Verificamos estrictamente que no sea null ni undefined */}
+                                            {item.calificacion_obtenida !== null && item.calificacion_obtenida !== undefined ? (
+                                                <span className={`calificacion-badge ${item.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
+                                                    {item.calificacion_obtenida}
+                                                </span>
+                                            ) : (
+                                                <span className="calificacion-badge pendiente">-</span>
+                                            )}
                                         </div>
 
+                                        {/* 6. Acciones */}
                                         <div className="col-right actions-group">
-                                            
-                                            <Link 
-                                                to={`/evaluacion/${item.id}/calificar`} 
-                                                className="btn-tertiary btn-small"
-                                                title="Abrir evaluador manual"
-                                            >
-                                                <FaEdit /> Manual
-                                            </Link>
-
+                                            {/* Botón Manual: Siempre disponible para correcciones */}
+                                            {hasFile && (
+                                                <Link 
+                                                    to={`/evaluacion/${item.id}/calificar`} 
+                                                    className="btn-tertiary btn-small"
+                                                    title="Editar calificación manualmente"
+                                                >
+                                                    <FaEdit /> Manual
+                                                </Link>
+                                            )}
+                                            {/* Botón IA: Solo si falló o si quieres forzar (opcional) */}
                                             {item.estado === 'fallido' && (
                                                 <button onClick={() => handleReintentar(item.id)} className="btn-error-retry btn-small">
-                                                    <FaSync /> Reintentar
+                                                    <FaSync /> Reintentar IA
                                                 </button>
                                             )}
                                         </div>

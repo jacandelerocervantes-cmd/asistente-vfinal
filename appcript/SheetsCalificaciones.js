@@ -638,3 +638,74 @@ function handleUpdateGradebook(payload) {
   SpreadsheetApp.flush();
   return { message: "Gradebook actualizado." };
 }
+
+/**
+ * Actualiza el Kardex (Sábana) de la Unidad.
+ * Estructura: Matrícula | Nombre | Actividad 1 | Actividad 2 ...
+ */
+function handleUpdateGradebookInteligente(payload) {
+  const { calificaciones_spreadsheet_id, unidad, nombre_actividad, calificaciones } = payload;
+  
+  if (!calificaciones_spreadsheet_id) throw new Error("Falta ID spreadsheet");
+
+  const ss = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
+  const sheetName = `Resumen Calificaciones - Unidad ${unidad}`;
+  let sheet = ss.getSheetByName(sheetName);
+
+  // 1. Crear hoja si no existe
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(["Matrícula", "Nombre Alumno"]);
+    sheet.setFrozenRows(1);
+    sheet.setFrozenColumns(2);
+    sheet.getRange(1, 1, 1, 2).setFontWeight("bold");
+  }
+
+  // 2. Buscar o Crear Columna de la Actividad
+  // Leemos encabezados y limpiamos espacios para comparar mejor
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn() || 2).getValues()[0].map(h => String(h).trim());
+  const nombreActividadLimpio = String(nombre_actividad).trim();
+  
+  let colIndex = headers.indexOf(nombreActividadLimpio); // Base 0
+
+  if (colIndex === -1) {
+    // Nueva Columna
+    colIndex = headers.length;
+    sheet.getRange(1, colIndex + 1).setValue(nombre_actividad).setFontWeight("bold");
+    sheet.setColumnWidth(colIndex + 1, 100);
+  }
+
+  // 3. Mapear Alumnos (Matrícula -> Fila)
+  const lastRow = sheet.getLastRow();
+  const mapAlumnos = new Map();
+
+  if (lastRow > 1) {
+    const matValues = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for(let i=0; i<matValues.length; i++) {
+      mapAlumnos.set(String(matValues[i][0]).trim().toUpperCase(), i + 2); // i+2 = Fila real
+    }
+  }
+
+  // 4. Escribir Notas
+  // Preparamos escrituras por lotes si es posible, pero individual es más seguro para actualizaciones dispersas
+  calificaciones.forEach(cal => {
+    const mat = String(cal.matricula || "S/M").trim().toUpperCase();
+    const nota = cal.calificacion_final !== undefined ? cal.calificacion_final : cal.calificacion;
+
+    if (!mat || mat === "S/M") return;
+
+    let row = mapAlumnos.get(mat);
+    if (!row) {
+      sheet.appendRow([mat, cal.nombre]);
+      row = sheet.getLastRow();
+      mapAlumnos.set(mat, row);
+    }
+
+    // Escribir nota en la intersección (Fila Alumno, Columna Actividad)
+    // +1 porque colIndex es base 0, getRange usa base 1
+    sheet.getRange(row, colIndex + 1).setValue(nota);
+  });
+
+  SpreadsheetApp.flush();
+  return { message: `Kardex U${unidad} actualizado.` };
+}

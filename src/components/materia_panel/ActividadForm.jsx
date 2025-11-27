@@ -190,10 +190,10 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                     <label htmlFor="nombre_actividad">Nombre de la Actividad</label>
                     <input id="nombre_actividad" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required placeholder="Ej. Ensayo Revolución"/>
                     {/* --- NUEVO: Sugerencia de Formato Dinámica --- */}
-                    {nombre && (
-                        <div style={{fontSize: '0.85rem', color: '#6366f1', marginTop: '5px', backgroundColor: '#eef2ff', padding: '8px', borderRadius: '6px'}}>
-                            <span style={{fontWeight:'bold'}}>ℹ️ Formato sugerido para alumnos:</span> <br/>
-                            {generarNombreArchivo(nombre)}
+                     {nombre && (
+                        <div style={{marginTop:'5px', fontSize:'0.85rem', color:'#4f46e5', background:'#eef2ff', padding:'8px', borderRadius:'4px'}}>
+                            <strong>💡 Formato de archivo sugerido:</strong><br/>
+                            <code>{generarNombreArchivo(nombre)}</code> (o .docx)
                         </div>
                     )}
                 </div>
@@ -239,12 +239,12 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
                     {nombre && (
                         <button 
                             type="button" 
-                            onClick={() => setDescripcion(prev => (
-                                prev + `\n\nNOTA IMPORTANTE: Por favor nombra tu archivo así: "${generarNombreArchivo(nombre)}".`
-                            ))}
-                            style={{marginTop: '5px', fontSize: '0.8rem', border:'none', background:'transparent', color:'#4f46e5', cursor:'pointer', textDecoration:'underline'}}
+                            onClick={() => setDescripcion(prev => 
+                                (prev || '') + `\n\nNOTA: Por favor nombra tu archivo así: "${generarNombreArchivo(nombre)}".`
+                            )}
+                            style={{fontSize:'0.8rem', color:'#4f46e5', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:'0', marginTop:'5px'}}
                         >
-                            + Insertar regla de nombre en instrucciones
+                            + Agregar regla de nombrado a la descripción
                         </button>
                     )}
                 </div>

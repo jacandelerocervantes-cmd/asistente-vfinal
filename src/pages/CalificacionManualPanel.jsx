@@ -17,12 +17,13 @@ const CalificacionManualPanel = () => {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            // Cargar datos de la CALIFICACIÓN (que es el punto de entrada)
+            // --- CORRECCIÓN: Cambiar 'evaluaciones' por 'calificaciones' ---
             const { data: evData, error: evError } = await supabase
-                .from('calificaciones')
+                .from('calificaciones') // <--- ESTA ES LA CLAVE
                 .select(`
-                    id,
-                    actividades (id, nombre, materia_id)
+                    *,
+                    actividades (id, nombre, descripcion, rubrica_sheet_range),
+                    alumnos (id, nombre, apellido, matricula)
                 `)
                 .eq('id', evaluacionId)
                 .single();
@@ -32,8 +33,8 @@ const CalificacionManualPanel = () => {
             // Cargar solo las preguntas abiertas de esta evaluación
             const { data: paData, error: paError } = await supabase
                 .from('preguntas')
-                .select('id, texto_pregunta, puntos') // <-- CORREGIDO
-                .eq('evaluacion_id', evData.actividades.id) // <-- CORREGIDO
+                .select('id, texto_pregunta, puntos')
+                .eq('evaluacion_id', evData.actividades.id)
                 .eq('tipo_pregunta', 'abierta'); // Filtrar por tipo
             if (paError) throw paError;
             setPreguntasAbiertas(paData || []);
@@ -47,7 +48,7 @@ const CalificacionManualPanel = () => {
                     calificacion_final,
                     alumnos ( id, nombre, apellido )
                 `)
-                .eq('evaluacion_id', evData.actividades.id); // <-- CORREGIDO
+                .eq('evaluacion_id', evData.actividades.id);
 
             if (filtroEstado !== 'todos') {
                 queryIntentos = queryIntentos.eq('estado', filtroEstado);
