@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import MateriaForm from '../components/MateriaForm';
 import MateriaCard from '../components/MateriaCard';
+import '../components/materia_panel/forms.css'; // Importar estilos de modal
 import './MateriasDashboard.css';
 
 const MateriasDashboard = ({ session }) => {
@@ -87,12 +88,14 @@ const MateriasDashboard = ({ session }) => {
       </div>
 
       {showForm && (
-        <div className="form-container card">
-          <MateriaForm
-            materiaToEdit={materiaToEdit}
-            onSave={handleSave}
-            onCancel={handleCloseForm}
-          />
+        <div className="modal-overlay" onClick={handleCloseForm}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <MateriaForm
+              materiaToEdit={materiaToEdit}
+              onSave={handleSave}
+              onCancel={handleCloseForm}
+            />
+          </div>
         </div>
       )}
 

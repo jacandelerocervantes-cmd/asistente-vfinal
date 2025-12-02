@@ -167,7 +167,25 @@ function crearListaDeAlumnosSheet(carpetaPadre, alumnos) {
      }
      _actualizarAlumnosEnHoja(sheet, alumnos);
    }
-   return ss;
+
+   // --- NUEVO BLOQUE DE LIMPIEZA ---
+   // Eliminamos la hoja por defecto creada por Google si existe y no es la única
+   const hojasPorDefecto = ["Hoja 1", "Sheet1"];
+   hojasPorDefecto.forEach(nombre => {
+     const sheetDefault = ss.getSheetByName(nombre);
+     // Verificamos que haya más de 1 hoja antes de borrar para no romper el archivo
+     if (sheetDefault && ss.getSheets().length > 1) {
+       try {
+         ss.deleteSheet(sheetDefault);
+         Logger.log(`Hoja por defecto "${nombre}" eliminada.`);
+       } catch (e) {
+         Logger.log(`No se pudo eliminar "${nombre}": ${e.message}`);
+       }
+     }
+   });
+   // --------------------------------
+ 
+    return ss;
  }
  
  function _actualizarAlumnosEnHoja(sheet, alumnos) {
