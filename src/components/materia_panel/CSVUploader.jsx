@@ -123,11 +123,17 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
         // 1. Validar Cabeceras
         const expectedHeaders = ['matricula', 'grupo'];
         const actualHeaders = Object.keys(dataFromCSV[0] || {});
-        
-        // Normalizamos a minúsculas para ser flexibles
-        const normalizedHeaders = actualHeaders.map(h => h.toLowerCase());
-        if (!expectedHeaders.every(h => normalizedHeaders.includes(h))) {
-            throw new Error(`Cabeceras incorrectas. Se esperan: ${expectedHeaders.join(', ')}.`);
+
+        // Hacemos la validación de cabeceras más robusta (igual que en alumnos)
+        const headerMap = {};
+        actualHeaders.forEach(h => {
+            const normalized = h.replace(/^\uFEFF/, '').trim().toLowerCase();
+            headerMap[normalized] = h;
+        });
+
+        const missing = expectedHeaders.filter(h => !headerMap[h]);
+        if (missing.length > 0) {
+            throw new Error(`Faltan columnas obligatorias en el CSV: ${missing.join(', ')}. (Detectadas: ${actualHeaders.join(', ')})`);
         }
 
         // 2. Obtener el usuario actual (Docente)
@@ -135,14 +141,14 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
         if (!user) throw new Error("Usuario no autenticado.");
 
         // 3. Procesar Datos del CSV
-        const filasValidas = dataFromCSV.filter(row => row.matricula && row.grupo);
+        const filasValidas = dataFromCSV.filter(row => row[headerMap['matricula']] && row[headerMap['grupo']]);
         if (filasValidas.length === 0) throw new Error("El CSV no tiene filas válidas con matrícula y grupo.");
 
         console.log(`Procesando ${filasValidas.length} asignaciones de grupo...`);
 
         // 4. Paso A: Asegurar que los GRUPOS existan (Upsert Grupos)
         // Extraemos nombres únicos de grupos del CSV
-        const nombresGruposUnicos = [...new Set(filasValidas.map(r => String(r.grupo).trim()))];
+        const nombresGruposUnicos = [...new Set(filasValidas.map(r => String(r[headerMap['grupo']]).trim()))];
         
         const gruposParaInsertar = nombresGruposUnicos.map(nombre => ({
             materia_id: materiaId,
@@ -163,7 +169,7 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
         gruposGuardados.forEach(g => mapaGrupos[g.nombre] = g.id);
 
         // 5. Paso B: Obtener IDs de ALUMNOS basados en las matrículas del CSV
-        const matriculasEnCSV = [...new Set(filasValidas.map(r => String(r.matricula).trim()))];
+        const matriculasEnCSV = [...new Set(filasValidas.map(r => String(r[headerMap['matricula']]).trim()))];
         
         const { data: alumnosEncontrados, error: errorAlumnos } = await supabase
             .from('alumnos')
@@ -182,8 +188,8 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
         const errores = [];
 
         filasValidas.forEach(row => {
-            const matricula = String(row.matricula).trim();
-            const nombreGrupo = String(row.grupo).trim();
+            const matricula = String(row[headerMap['matricula']]).trim();
+            const nombreGrupo = String(row[headerMap['grupo']]).trim();
             
             const alumnoId = mapaAlumnos[matricula];
             const grupoId = mapaGrupos[nombreGrupo];
