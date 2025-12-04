@@ -36,34 +36,57 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
     };
 
     // Lógica para subir Alumnos
-    const handleUploadAlumnos = async (alumnosFromCSV) => {
-         const expectedHeaders = ['matricula', 'nombre', 'apellido'];
-         const actualHeaders = Object.keys(alumnosFromCSV[0] || {});
-         
-         // --- CORRECCIÓN DE ROBUSTEZ: Mapa de Cabeceras ---
-         // Creamos un mapa: { 'matricula': 'Matrícula', 'nombre': 'NOMBRE', ... }
-         const headerMap = {};
-         actualHeaders.forEach(h => {
-             // Normalizamos: quitamos BOM, espacios y pasamos a minúsculas
-             const normalized = h.replace(/^\uFEFF/, '').trim().toLowerCase();
-             headerMap[normalized] = h;
-         });
- 
-         // Validamos usando las llaves normalizadas
-         const missing = expectedHeaders.filter(h => !headerMap[h]);
-         if (missing.length > 0) {
-             throw new Error(`Faltan columnas obligatorias en el CSV: ${missing.join(', ')}. (Detectadas: ${actualHeaders.join(', ')})`);
-         }
- 
-         // Mapeamos usando las llaves reales encontradas en el archivo
-         const alumnosParaGuardar = alumnosFromCSV.map(a => ({
-             materia_id: materiaId,
-             matricula: String(a[headerMap['matricula']] || '').trim(),
-             nombre: String(a[headerMap['nombre']] || '').trim(),
-             apellido: String(a[headerMap['apellido']] || '').trim(),
-             // Email es opcional, buscamos su llave si existe
-             email: headerMap['email'] ? String(a[headerMap['email']] || '').trim().toLowerCase() : null
-         })).filter(a => a.matricula && a.nombre && a.apellido);
+    const handleUploadAlumnos = async (rawData) => {
+        let alumnosFromCSV = rawData;
+        let actualHeaders = Object.keys(rawData[0] || {});
+
+        // --- DETECCIÓN Y REPARACIÓN DE "FALSO CSV" ---
+        // Si detectamos solo 1 columna y esa columna contiene comas (ej. "matricula,nombre,apellido")
+        if (actualHeaders.length === 1 && actualHeaders[0].includes(',')) {
+            console.warn("Detectado formato de línea completa entrecomillada. Reparando...");
+            const headerString = actualHeaders[0]; // La columna única larga
+            const realHeaders = headerString.split(',').map(h => h.trim()); // Separamos manual
+            
+            // Reconstruimos la data fila por fila
+            alumnosFromCSV = rawData.map(row => {
+                const rowString = row[headerString]; // El valor largo: "A001,Juan,..."
+                if (!rowString) return null;
+                const values = rowString.split(',');
+                
+                const newObj = {};
+                realHeaders.forEach((h, i) => {
+                    newObj[h] = values[i] ? values[i].trim() : '';
+                });
+                return newObj;
+            }).filter(Boolean);
+            
+            actualHeaders = realHeaders; // Actualizamos las cabeceras para la validación siguiente
+        }
+        // ------------------------------------------------
+
+        const expectedHeaders = ['matricula', 'nombre', 'apellido'];
+        
+        // Mapa de Cabeceras (Normalización)
+        const headerMap = {};
+        actualHeaders.forEach(h => {
+            const normalized = h.replace(/^\uFEFF/, '').trim().toLowerCase();
+            headerMap[normalized] = h;
+        });
+
+        const missing = expectedHeaders.filter(h => !headerMap[h]);
+        if (missing.length > 0) {
+            throw new Error(`Faltan columnas obligatorias en el CSV: ${missing.join(', ')}. (Detectadas: ${actualHeaders.join(', ')})`);
+        }
+
+        // Mapeamos usando las llaves reales encontradas en el archivo
+        const alumnosParaGuardar = alumnosFromCSV.map(a => ({
+            materia_id: materiaId,
+            matricula: String(a[headerMap['matricula']] || '').trim(),
+            nombre: String(a[headerMap['nombre']] || '').trim(),
+            apellido: String(a[headerMap['apellido']] || '').trim(),
+            // Email es opcional, buscamos su llave si existe
+            email: headerMap['email'] ? String(a[headerMap['email']] || '').trim().toLowerCase() : null
+        })).filter(a => a.matricula && a.nombre && a.apellido);
         if (alumnosParaGuardar.length === 0) {
             throw new Error('No se encontraron alumnos válidos (con matrícula, nombre y apellido) en el CSV.');
         }
