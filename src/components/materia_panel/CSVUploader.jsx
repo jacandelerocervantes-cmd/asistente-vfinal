@@ -28,6 +28,7 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
             Papa.parse(file, {
                 header: true,
                 skipEmptyLines: true,
+                delimiter: ",", // <--- FORZAMOS LA COMA
                 complete: (result) => resolve(result.data),
                 error: (err) => reject(err),
             });
