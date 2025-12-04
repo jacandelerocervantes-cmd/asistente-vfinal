@@ -92,16 +92,16 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
         }
 
         console.log(`Upserting ${alumnosParaGuardar.length} alumnos...`);
-        const { data: savedAlumnos, error: upsertError } = await supabase
+        const { data: upsertedAlumnos, error: upsertError } = await supabase
             .from('alumnos')
             .upsert(alumnosParaGuardar, { onConflict: 'materia_id, matricula' })
-            .select('id, matricula, email, user_id'); // Necesitamos user_id para no re-crear
+            .select('id, matricula, email, user_id'); // Seleccionamos los datos actualizados
         if (upsertError) throw upsertError;
 
         let accountResults = { message: "Creación de cuentas omitida." };
         if (createAccounts) {
             // Filtrar alumnos que tienen email, matrícula y NO tienen ya un user_id
-            const alumnosParaCrearCuenta = savedAlumnos.filter(a => a.email && a.matricula && !a.user_id);
+            const alumnosParaCrearCuenta = upsertedAlumnos.filter(a => a.email && a.matricula && !a.user_id);
             if (alumnosParaCrearCuenta.length > 0) {
                 console.log(`Intentando crear ${alumnosParaCrearCuenta.length} cuentas de acceso...`);
                 setResults(prev => ({ ...prev, accountMessage: `Creando ${alumnosParaCrearCuenta.length} cuentas...` }));
@@ -135,7 +135,7 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
         }
         
         setResults({
-            message: `${savedAlumnos.length} alumnos procesados.`,
+            message: `${upsertedAlumnos.length} alumnos procesados.`,
             accountMessage: accountResults.message,
             accountErrors: accountResults.errors
         });
