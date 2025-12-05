@@ -9,6 +9,22 @@ import {
     FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt
 } from 'react-icons/fa';
 
+// --- AÑADE ESTA FUNCIÓN AQUÍ ---
+const traducirError = (errorMsg) => {
+    if (!errorMsg) return "Error desconocido";
+    const msg = String(errorMsg).toLowerCase();
+    
+    if (msg.includes("timeout")) return "El proceso tardó demasiado. Intenta de nuevo.";
+    if (msg.includes("network") || msg.includes("fetch")) return "Error de conexión. Verifica tu internet.";
+    if (msg.includes("json")) return "Error inesperado en la respuesta del servidor.";
+    if (msg.includes("gemini") || msg.includes("ia")) return "La IA tuvo un problema temporal.";
+    if (msg.includes("drive") || msg.includes("google")) return "Error de conexión con Google Drive.";
+    if (msg.includes("rate limit") || msg.includes("429")) return "Demasiadas peticiones. Espera unos segundos.";
+    
+    return errorMsg; // Si no coincide, devuelve el mensaje técnico original
+};
+// --------------------------------
+
 const CalificacionPanel = () => {
     const { id: actividadId } = useParams();
     const [actividad, setActividad] = useState(null);

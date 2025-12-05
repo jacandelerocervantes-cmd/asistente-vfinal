@@ -40,6 +40,15 @@ function handleGuardarRubrica(payload) {
   sheet.setColumnWidth(1, 400);
   sheet.setColumnWidth(2, 100);
 
+  // LIMPIEZA: Eliminar la hoja por defecto si existe y no es la única
+  var hojas = ss.getSheets();
+  var hojaDefault = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
+  
+  // Solo borramos si existe y si hay más de una hoja (para no dejar el libro vacío y causar error)
+  if (hojaDefault && hojas.length > 1 && hojaDefault.getName() !== safeName) {
+    ss.deleteSheet(hojaDefault);
+  }
+
   return {
     rubrica_spreadsheet_id: rubricas_spreadsheet_id,
     rubrica_sheet_range: `${safeName}!A1:B${criterios ? criterios.length + 2 : 2}`
