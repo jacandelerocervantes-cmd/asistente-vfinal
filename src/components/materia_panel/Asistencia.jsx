@@ -74,25 +74,48 @@ const Asistencia = () => {
         loadInitialData();
     }, [materia_id]);
 
-    // --- 2. REALTIME ---
+    // --- 2. REALTIME (CORREGIDO: Escuchar Base de Datos directamente) ---
     useEffect(() => {
-        if (!channelRef.current) channelRef.current = supabase.channel(`asistencias-materia-${materia_id}`);
-        const channel = channelRef.current;
+        // Limpiar canal anterior si existe
+        if (channelRef.current) supabase.removeChannel(channelRef.current);
 
-        if (sesionActiva) {
-            channel.on('broadcast', { event: 'asistencia-registrada' }, (message) => {
-                const registro = message.payload;
-                if (registro && String(registro.unidad) === String(unidad) && String(registro.sesion) === String(sesion)) {
-                    setAsistenciasHoy(prev => new Map(prev).set(registro.alumno_id, registro.presente));
+        // Crear nuevo canal
+        channelRef.current = supabase.channel(`asistencias-db-changes-${materia_id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*', // Escuchar INSERT y UPDATE
+                    schema: 'public',
+                    table: 'asistencias',
+                    filter: `materia_id=eq.${materia_id}` // Solo eventos de esta materia
+                },
+                (payload) => {
+                    const registro = payload.new;
+                    // Verificar si el registro pertenece a la unidad y sesión activa
+                    if (registro && 
+                        String(registro.unidad) === String(unidad) && 
+                        String(registro.sesion) === String(sesion)) {
+                        
+                        console.log("¡Cambio en tiempo real recibido!", registro);
+                        // Actualizar el mapa visualmente
+                        setAsistenciasHoy(prev => {
+                            const newMap = new Map(prev);
+                            newMap.set(registro.alumno_id, registro.presente);
+                            return newMap;
+                        });
+                    }
                 }
-            }).subscribe((status) => setRealtimeStatus(status));
-        } else if (channel && channel.state === 'joined') {
-            supabase.removeChannel(channel);
-            channelRef.current = null;
-            setRealtimeStatus('DISCONNECTED');
-        }
-        return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
-    }, [sesionActiva, materia_id, unidad, sesion]);
+            )
+            .subscribe((status) => {
+                console.log("Estado de conexión Realtime:", status);
+                setRealtimeStatus(status);
+            });
+
+        // Cleanup al desmontar
+        return () => {
+            if (channelRef.current) supabase.removeChannel(channelRef.current);
+        };
+    }, [sesionActiva, materia_id, unidad, sesion]); // Dependencias
     
     // --- 3. TIMER ---
     useEffect(() => {

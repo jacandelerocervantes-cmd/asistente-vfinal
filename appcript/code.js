@@ -230,37 +230,48 @@ function handleUploadFile(payload) {
  * @return {object} IDs y URLs de los elementos creados.
  */
 function handleCreateMateriaStruct(payload) {
-  Logger.log("--- Iniciando handleCreateMateriaStruct ---");
-  const startTime = new Date().getTime();
-
-  // Validar payload de entrada
-  if (!payload.docente || !payload.docente.email || !payload.materia) {
-    throw new Error("Payload inválido: faltan 'docente' (con email) o 'materia'.");
+  // 1. Intentar adquirir un "candado" exclusivo por 30 segundos
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) { 
+     // Si está ocupado, rechazamos la segunda petición para proteger el archivo
+     throw new Error("El sistema ya está sincronizando esta materia. Intenta de nuevo en unos segundos.");
   }
-  const { docente, materia } = payload;
-  Logger.log(`Docente: ${docente.email}. Procesando materia ID ${materia.id}: ${materia.nombre}`);
 
-  // Obtener carpeta raíz y carpeta del docente
-  const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
-  const nombreCarpetaDocente = docente.nombre || docente.email;
-  const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
-
-  // Asegurar permisos (por si acaso)
   try {
-    const editores = carpetaDocente.getEditors().map(u => u.getEmail());
-    if (!editores.includes(docente.email)) {
-      carpetaDocente.addEditor(docente.email);
+    Logger.log("--- Iniciando handleCreateMateriaStruct ---");
+    const startTime = new Date().getTime();
+
+    // Validar payload de entrada
+    if (!payload.docente || !payload.docente.email || !payload.materia) {
+      throw new Error("Payload inválido: faltan 'docente' (con email) o 'materia'.");
     }
-  } catch (permError) {
-    Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
+    const { docente, materia } = payload;
+    Logger.log(`Docente: ${docente.email}. Procesando materia ID ${materia.id}: ${materia.nombre}`);
+
+    // Obtener carpeta raíz y carpeta del docente
+    const carpetaRaiz = DriveApp.getFolderById(CARPETA_RAIZ_ID);
+    const nombreCarpetaDocente = docente.nombre || docente.email;
+    const carpetaDocente = getOrCreateFolder(carpetaRaiz, nombreCarpetaDocente);
+
+    // Asegurar permisos (por si acaso)
+    try {
+      const editores = carpetaDocente.getEditors().map(u => u.getEmail());
+      if (!editores.includes(docente.email)) {
+        carpetaDocente.addEditor(docente.email);
+      }
+    } catch (permError) {
+      Logger.log(`Advertencia: No se pudieron añadir/verificar permisos para ${docente.email}: ${permError.message}`);
+    }
+
+    // --- Procesar esta única materia ---
+    const results = _crearEstructuraParaMateria_(carpetaDocente, materia);
+
+    const endTime = new Date().getTime();
+    Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);
+    SpreadsheetApp.flush();
+    return results; // Devolver los IDs de esta materia
+  } finally {
+    // 2. Liberar el candado siempre, pase lo que pase
+    lock.releaseLock();
   }
-
-  // --- Procesar esta única materia ---
-  // MODIFICADO: Llamar a la función privada que ahora devuelve más IDs
-  const results = _crearEstructuraParaMateria_(carpetaDocente, materia);
-
-  const endTime = new Date().getTime();
-  Logger.log(`--- Fin handleCreateMateriaStruct en ${(endTime - startTime) / 1000}s ---`);
-  SpreadsheetApp.flush();
-  return results; // Devolver los IDs de esta materia
 }
