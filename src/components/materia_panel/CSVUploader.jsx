@@ -142,10 +142,29 @@ const CSVUploader = ({ materiaId, onUploadComplete, onCancel }) => {
     };
 
     // Lógica para subir Grupos/Equipos
-    const handleUploadGrupos = async (dataFromCSV) => {
-        // 1. Validar Cabeceras
+    const handleUploadGrupos = async (rawData) => {
+        let dataFromCSV = rawData;
+        let actualHeaders = Object.keys(rawData[0] || {});
+
+        // --- DETECCIÓN Y REPARACIÓN DE "FALSO CSV" (igual que en alumnos) ---
+        if (actualHeaders.length === 1 && actualHeaders[0].includes(',')) {
+            console.warn("Detectado formato de línea completa entrecomillada en CSV de grupos. Reparando...");
+            const headerString = actualHeaders[0];
+            const realHeaders = headerString.split(',').map(h => h.trim());
+            
+            dataFromCSV = rawData.map(row => {
+                const rowString = row[headerString];
+                if (!rowString) return null;
+                const values = rowString.split(',');
+                const newObj = {};
+                realHeaders.forEach((h, i) => { newObj[h] = values[i] ? values[i].trim() : ''; });
+                return newObj;
+            }).filter(Boolean);
+            
+            actualHeaders = realHeaders;
+        }
+
         const expectedHeaders = ['matricula', 'grupo'];
-        const actualHeaders = Object.keys(dataFromCSV[0] || {});
 
         // Hacemos la validación de cabeceras más robusta (igual que en alumnos)
         const headerMap = {};
