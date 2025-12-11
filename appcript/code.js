@@ -52,6 +52,9 @@ function doPost(e) {
         return crearRespuestaExitosa(handleCreateActivityFolder(payload));
       case 'guardar_rubrica':
         return crearRespuestaExitosa(handleGuardarRubrica(payload));
+      case 'renombrar_carpeta':
+        DriveApp.getFolderById(payload.drive_id).setName(payload.nuevo_nombre);
+        return crearRespuestaExitosa({ message: "Renombrado" });
       case 'eliminar_rubrica': // <-- NUEVO CASO
         return crearRespuestaExitosa(handleEliminarRubrica(payload));
       case 'get_or_create_rubric_sheet': // Asegúrate que esta acción aún sea necesaria

@@ -58,8 +58,11 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                     }
                 }
             }
+        } else {
+            // Valores por defecto para nueva actividad
+            if (materia?.initialUnidad) setUnidad(materia.initialUnidad);
         }
-    }, [actividadToEdit]);
+    }, [actividadToEdit, materia]);
 
     // --- GESTIÓN DE CRITERIOS (RÚBRICA) ---
     const handleCriterioChange = (index, field, value) => {
