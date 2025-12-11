@@ -40,29 +40,52 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
 
     // --- CARGAR DATOS SI ESTAMOS EDITANDO ---
     useEffect(() => {
-        if (actividadToEdit) {
-            setNombre(actividadToEdit.nombre || '');
-            setUnidad(actividadToEdit.unidad || 1);
+        if (isEditing && actividadToEdit) {
+            setLoading(true);
+            
+            // 1. Prioridad: Cargar datos que ya tenemos en memoria (es más rápido)
+            setNombre(actividadToEdit.nombre || actividadToEdit.nombre_actividad || '');
+            setUnidad(actividadToEdit.unidad || (materia?.initialUnidad || 1));
             setTipoEntrega(actividadToEdit.tipo_entrega || 'individual');
             setDescripcion(actividadToEdit.descripcion || '');
             
+            // Parseo seguro de Criterios (ESTA ES LA CORRECCIÓN CLAVE)
             if (actividadToEdit.criterios) {
-                if (Array.isArray(actividadToEdit.criterios)) {
-                    setCriterios(actividadToEdit.criterios);
-                } else if (typeof actividadToEdit.criterios === 'string') {
+                let criteriosLimpio = [];
+                if (typeof actividadToEdit.criterios === 'string') {
                     try {
-                        const parsed = JSON.parse(actividadToEdit.criterios);
-                        setCriterios(Array.isArray(parsed) ? parsed : [{ descripcion: '', puntos: '' }]);
+                        criteriosLimpio = JSON.parse(actividadToEdit.criterios);
                     } catch (e) {
-                        setCriterios([{ descripcion: '', puntos: '' }]);
+                        console.error("Error parseando criterios:", e);
+                        criteriosLimpio = [{ descripcion: '', puntos: 50 }, { descripcion: '', puntos: 50 }];
+                    }
+                } else {
+                    criteriosLimpio = actividadToEdit.criterios;
+                }
+                setCriterios(Array.isArray(criteriosLimpio) ? criteriosLimpio : [{ descripcion: '', puntos: '' }]);
+            }
+
+            // 2. Segundo plano: Confirmar detalles frescos del servidor (opcional)
+            supabase.functions.invoke('get-activity-details', {
+                body: { actividad_id: actividadToEdit.id }
+            }).then(({ data, error }) => {
+                if (!error && data) {
+                    // Si el servidor trae datos más nuevos, actualizamos
+                    if (data.descripcion) setDescripcion(data.descripcion);
+                    if (data.criterios) {
+                         // Misma lógica de seguridad aquí
+                         const crit = typeof data.criterios === 'string' ? JSON.parse(data.criterios) : data.criterios;
+                         setCriterios(Array.isArray(crit) ? crit : [{ descripcion: '', puntos: '' }]);
                     }
                 }
-            }
-        } else {
+            }).catch(e => console.log("Usando datos cacheados"));
+            
+            setLoading(false);
+        } else if (!isEditing) {
             // Valores por defecto para nueva actividad
             if (materia?.initialUnidad) setUnidad(materia.initialUnidad);
         }
-    }, [actividadToEdit, materia]);
+    }, [actividadToEdit, isEditing, materia]);
 
     // --- GESTIÓN DE CRITERIOS (RÚBRICA) ---
     const handleCriterioChange = (index, field, value) => {

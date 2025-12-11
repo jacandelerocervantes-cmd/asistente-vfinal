@@ -394,9 +394,26 @@ function handleLeerDatosAsistencia(payload) {
   }
 }
 
+// --- BÚSQUEDA FLEXIBLE (NUEVO) ---
+function buscarArchivoFlexible(folder, nombreParcial) {
+  if (!folder) return null;
+  const files = folder.getFiles();
+  const nombreLimpio = nombreParcial.toLowerCase().trim();
+  
+  while (files.hasNext()) {
+    const file = files.next();
+    const fileName = file.getName().toLowerCase();
+    // Si el nombre del archivo contiene la parte clave Y dice "reporte", es el correcto.
+    if (fileName.includes(nombreLimpio) && fileName.includes("reporte")) {
+      return file;
+    }
+  }
+  return null;
+}
+
 /**
  * Busca el reporte de calificación en Drive y extrae las justificaciones.
- * VERSIÓN MEJORADA: Tolera diferencias de nombre y busca en carpetas viejas/nuevas.
+ * REVISADA: Busca en carpeta vieja y nueva, y tolera nombres inexactos.
  */
 function handleLeerReporteDetallado(payload) {
   Logger.log("Iniciando lectura flexible de reporte...");
@@ -410,92 +427,68 @@ function handleLeerReporteDetallado(payload) {
   
   let carpetaReportes = null;
   try {
-    const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades"); // Usa tu helper
+    const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
     const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
     
-    // INTENTO A: Carpeta Nueva (Estándar actual)
+    // INTENTO A: Carpeta Nueva "Reportes por Actividad"
     if (carpetaUnidad.getFoldersByName("Reportes por Actividad").hasNext()) {
       carpetaReportes = carpetaUnidad.getFoldersByName("Reportes por Actividad").next();
     } 
-    // INTENTO B: Carpeta Vieja (Por compatibilidad)
+    // INTENTO B: Carpeta Vieja "Reportes Detallados" (Fallback)
     else if (carpetaUnidad.getFoldersByName("Reportes Detallados").hasNext()) {
       carpetaReportes = carpetaUnidad.getFoldersByName("Reportes Detallados").next();
     }
   } catch (e) {
     Logger.log("Error navegando carpetas: " + e.message);
-    return { calificaciones: [], message: "Estructura de carpetas no válida." };
+    return { calificaciones: [], message: "Error en estructura de carpetas." };
   }
 
   if (!carpetaReportes) return { calificaciones: [], message: "Carpeta de reportes no encontrada." };
 
   // 2. Búsqueda Flexible del Archivo
-  // Aquí usamos la función inteligente en lugar de getFilesByName()
   const archivoReporte = buscarArchivoFlexible(carpetaReportes, nombre_actividad);
   
   if (!archivoReporte) {
     Logger.log(`No se encontró archivo similar a: ${nombre_actividad}`);
-    return { calificaciones: [], message: `Archivo de reporte no encontrado para "${nombre_actividad}".` };
+    return { calificaciones: [], message: `Archivo no encontrado para "${nombre_actividad}".` };
   }
   
-  Logger.log(`Leyendo archivo encontrado: ${archivoReporte.getName()}`);
+  Logger.log(`Leyendo archivo: ${archivoReporte.getName()}`);
   const ss = SpreadsheetApp.open(archivoReporte);
   
-  // 3. Obtener Hoja (Detalle)
+  // 3. Obtener Hoja (Busca "Detalle" o usa la primera)
   let sheet = ss.getSheetByName("Detalle");
-  if (!sheet) sheet = ss.getSheets()[0]; // Fallback a la primera hoja si no se llama "Detalle"
+  if (!sheet) sheet = ss.getSheets()[0];
   
   // 4. Extracción de Datos
   const data = sheet.getDataRange().getValues();
-  if (data.length < 2) return { calificaciones: [] }; // Solo headers o vacío
+  if (data.length < 2) return { calificaciones: [] }; 
 
   const headers = data[0].map(h => String(h).toUpperCase().trim());
   
   // Índices Dinámicos (Busca columnas por aproximación)
-  // Columna 1: Matrícula
   let idxMatricula = headers.findIndex(h => h.includes("MATR") || h.includes("ID"));
-  if (idxMatricula === -1) idxMatricula = 0; // Fallback columna A
+  if (idxMatricula === -1) idxMatricula = 0; // Si falla, asume Columna A
 
-  // Columna 4: Nota
-  let idxNota = headers.findIndex(h => h.includes("CALIFICACI") || h.includes("NOTA") || h.includes("PUNTOS"));
-  
-  // Columna 5: Retro (Tu creador le pone "Retroalimentacion y observaciones")
-  let idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("OBSERV"));
-  if (idxRetro === -1) idxRetro = headers.length - 1; // Fallback última columna
+  // Busca "RETRO", "JUSTIF", "OBSERV" o "IA". Si falla, usa la ÚLTIMA columna.
+  let idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("OBSERV") || h.includes("IA"));
+  if (idxRetro === -1) idxRetro = headers.length - 1; 
 
   const resultados = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const matricula = String(row[idxMatricula]).trim();
     
-    // Validar que no sea una fila vacía o basura
-    if (matricula && matricula.length > 1 && matricula !== "MATRÍCULA") {
+    // Ignorar filas vacías o basura
+    if (matricula && matricula.length > 1 && !matricula.includes("MATRICULA")) {
       resultados.push({
         matricula: matricula,
-        calificacion: idxNota > -1 ? row[idxNota] : null,
+        // No sobrescribimos la nota numérica (null), solo traemos el texto
         retroalimentacion: idxRetro > -1 ? String(row[idxRetro]) : ""
       });
     }
   }
   
-  Logger.log(`Extraídos ${resultados.length} registros válidos.`);
+  Logger.log(`Encontrados ${resultados.length} registros.`);
   return { calificaciones: resultados };
-}
-
-// --- FUNCIÓN AUXILIAR DE BÚSQUEDA FLEXIBLE ---
-function buscarArchivoFlexible(folder, nombreParcial) {
-  if (!folder) return null;
-  const files = folder.getFiles();
-  // Limpiamos el nombre para comparar sin mayúsculas ni espacios extra
-  const nombreLimpio = nombreParcial.toLowerCase().trim();
-  
-  while (files.hasNext()) {
-    const file = files.next();
-    const fileName = file.getName().toLowerCase();
-    // ESTRATEGIA: Si el nombre del archivo contiene la parte clave, es un match.
-    // Ej: "Reporte - Ensayo Final.xlsx" contiene "ensayo final"
-    if (fileName.includes(nombreLimpio) && fileName.includes("reporte")) {
-      return file;
-    }
-  }
-  return null;
 }
