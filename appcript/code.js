@@ -22,8 +22,7 @@ const NOMBRE_SHEET_PLAGIO = "Reportes de Plagio";
  * @return {ContentService.TextOutput} Respuesta de texto.
  */
 function doGet(e) {
-  Logger.log("Petición GET recibida.");
-  return ContentService.createTextOutput("Script activo. Use POST.").setMimeType(ContentService.MimeType.TEXT);
+  return ContentService.createTextOutput("Script activo.").setMimeType(ContentService.MimeType.TEXT);
 }
 
 /**
@@ -85,9 +84,19 @@ function doPost(e) {
         return crearRespuestaExitosa(handleGetJustificationText(payload));
       case 'guardar_calificacion_detallada': // Para calificaciones de actividades
         return crearRespuestaExitosa(handleGuardarCalificacionDetallada(payload));
+
+      // --- AGREGA ESTE BLOQUE EXACTAMENTE AQUÍ ---
+      case 'update_gradebook_inteligente': 
+        // Esta acción recibe la orden de Supabase y la redirige a tu función
+        // 'handleGuardarCalificacionesActividad' que ya programamos en SheetsActividades.js
+        // para guardar TANTO el reporte detallado (Justificaciones) COMO el resumen (Notas).
+        return crearRespuestaExitosa(handleGuardarCalificacionesActividad(payload)); 
+      // -------------------------------------------
+
       case 'guardar_calificacion_actividad':
         return crearRespuestaExitosa(handleGuardarCalificacionesActividad(payload));
-      case 'update_gradebook':
+
+      case 'update_gradebook': // (Este es el viejo, déjalo por compatibilidad si quieres)
         return crearRespuestaExitosa(handleUpdateGradebook(payload));
       case 'eliminar_recurso_drive': // <-- AÑADE ESTE CASO
         return crearRespuestaExitosa(handleEliminarRecurso(payload));

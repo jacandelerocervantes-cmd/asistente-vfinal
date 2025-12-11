@@ -54,7 +54,7 @@ serve(async (req: Request) => {
     // 2. LEER DATOS
     const { data: item } = await supabaseAdmin
       .from('cola_de_trabajos')
-      .select(`*, calificaciones (id, actividad_id, alumno_id, grupo_id, evidencia_drive_file_id, actividades (id, nombre, unidad, rubrica_sheet_range, rubrica_spreadsheet_id, tipo_entrega, materias (calificaciones_spreadsheet_id)), alumnos (matricula, nombre, apellido), grupos (nombre))`)
+      .select(`*, calificaciones (id, actividad_id, alumno_id, grupo_id, evidencia_drive_file_id, actividades (id, nombre, unidad, rubrica_sheet_range, rubrica_spreadsheet_id, tipo_entrega, materias (calificaciones_spreadsheet_id, drive_url)), alumnos (matricula, nombre, apellido), grupos (nombre))`)
       .eq('id', jobId).single();
 
     const calif = item.calificaciones;
@@ -198,6 +198,7 @@ serve(async (req: Request) => {
     const payloadSave = {
         action: 'update_gradebook_inteligente', // Usa la nueva función inteligente (Kardex + Detalle)
         calificaciones_spreadsheet_id: act.materias.calificaciones_spreadsheet_id,
+        drive_url_materia: act.materias.drive_url, // <--- NUEVO CAMPO
         unidad: act.unidad,
         nombre_actividad: act.nombre,
         calificaciones: alumnosAGuardar

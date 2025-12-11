@@ -7,21 +7,33 @@
 // ============================================================================
 
 /**
- * Obtiene los criterios. Soporta Rangos Nombrados y A1.
+ * Obtiene los criterios de una rúbrica específica.
+ * Soporta tanto Rangos Nombrados (Nuevo) como notación A1 (Viejo).
+ * @param {object} payload Datos {spreadsheet_id, rubrica_sheet_range}.
+ * @return {object} Objeto con la clave 'criterios'.
  */
 function handleGetRubricData(payload) {
+  Logger.log(`Iniciando handleGetRubricData...`);
   const { spreadsheet_id, rubrica_sheet_range } = payload;
-  if (!spreadsheet_id || !rubrica_sheet_range) throw new Error("Faltan datos.");
+  
+  if (!spreadsheet_id || !rubrica_sheet_range) {
+    throw new Error("Faltan datos requeridos: 'spreadsheet_id' o 'rubrica_sheet_range'.");
+  }
 
+  // 1. Abrir el LIBRO (Spreadsheet), no una hoja específica.
   const ss = SpreadsheetApp.openById(spreadsheet_id);
   let range;
 
-  // 1. Intentar por Rango Nombrado primero (Nuevo sistema)
+  // 2. Intentar obtener el rango por NOMBRE (Sistema Nuevo)
+  // getNamedRange existe solo en objetos Spreadsheet (ss)
   const namedRange = ss.getNamedRange(rubrica_sheet_range);
+  
   if (namedRange) {
     range = namedRange.getRange();
+    Logger.log(`Rango nombrado '${rubrica_sheet_range}' encontrado.`);
   } else {
-    // 2. Intentar como notación A1 antigua (Sistema anterior)
+    // 3. Fallback: Intentar como dirección A1 (Sistema Viejo)
+    Logger.log(`Rango nombrado no encontrado. Intentando como notación A1: ${rubrica_sheet_range}`);
     try {
       // Si tiene '!', asumimos que es 'Hoja!A1:B5'
       if (rubrica_sheet_range.includes('!')) {
@@ -32,68 +44,79 @@ function handleGetRubricData(payload) {
          range = ss.getRange(rubrica_sheet_range); 
       }
     } catch(e) {
-      Logger.log("No se pudo encontrar el rango: " + e.message);
+      Logger.log("No se pudo encontrar el rango ni por nombre ni por dirección A1.");
       return { criterios: [] };
     }
   }
 
   const values = range.getValues();
-  // El formato nuevo tiene 2 filas de encabezado (Título actividad, Títulos tabla)
-  // El formato viejo tenía 1.
-  // Detectamos buscando donde empieza "Criterio..."
+  const criterios = [];
   
-  let startIndex = -1;
-  for(let i=0; i<values.length; i++) {
-    if (String(values[i][0]).includes("Criterio")) {
-      startIndex = i + 1; // Los datos empiezan después de esta fila
-      break;
+  // Barrido inteligente para encontrar donde empiezan los datos
+  let reading = false;
+  for (let i = 0; i < values.length; i++) {
+    const row = values[i];
+    const col0 = String(row[0]);
+    const col1 = row[1];
+
+    // Detenerse si llegamos al total
+    if (col0.toUpperCase() === "TOTAL") break;
+
+    // Si ya estamos leyendo y hay datos, añadir criterio
+    if (reading && col0 && (col1 !== "" && col1 !== null)) {
+       criterios.push({ 
+         descripcion: col0.trim(), 
+         puntos: Number(col1) || 0 
+       });
+    }
+
+    // Activar lectura cuando encontramos la cabecera
+    if (col0.includes("Criterio")) {
+      reading = true;
     }
   }
 
-  if (startIndex === -1) startIndex = 1; // Fallback al viejo estilo
-
-  const criterios = [];
-  for (let i = startIndex; i < values.length; i++) {
-    const desc = values[i][0];
-    const pts = values[i][1];
-    
-    // Detenerse si llegamos al "TOTAL" o fila vacía
-    if (String(desc).toUpperCase() === "TOTAL" || (!desc && !pts)) break;
-    
-    criterios.push({ descripcion: desc, puntos: pts });
-  }
-
+  Logger.log(`Encontrados ${criterios.length} criterios.`);
   return { criterios: criterios };
 }
 
 /**
- * Obtiene texto formateado. Soporta Rangos Nombrados.
+ * Obtiene el texto formateado de una rúbrica.
+ * Soporta Rangos Nombrados.
+ * @param {object} payload Datos {spreadsheet_id, rubrica_sheet_range}.
+ * @return {object} Objeto con la clave 'texto_rubrica'.
  */
 function handleGetRubricText(payload) {
+  Logger.log(`Iniciando handleGetRubricText...`);
   const { spreadsheet_id, rubrica_sheet_range } = payload;
-  // ... lógica de obtención de range idéntica a handleGetRubricData ...
+  if (!spreadsheet_id || !rubrica_sheet_range) throw new Error("Faltan datos.");
+
   const ss = SpreadsheetApp.openById(spreadsheet_id);
   let range;
+  
   const namedRange = ss.getNamedRange(rubrica_sheet_range);
   if (namedRange) {
     range = namedRange.getRange();
   } else {
-    try { range = ss.getRange(rubrica_sheet_range); } catch(e) { return { texto_rubrica: "" }; }
+    try { range = ss.getRange(rubrica_sheet_range); } 
+    catch(e) { return { texto_rubrica: "" }; }
   }
 
   const values = range.getValues();
   let texto = "RÚBRICA:\n";
-  
-  // Barrido inteligente
   let reading = false;
-  for (let i=0; i<values.length; i++) {
+
+  for (let i = 0; i < values.length; i++) {
     const row = values[i];
-    if (String(row[0]).includes("Criterio")) { reading = true; continue; } // Empezar a leer después de cabecera
-    if (String(row[0]) === "TOTAL") break; // Parar en total
+    const col0 = String(row[0]);
     
-    if (reading && row[0]) {
+    if (col0.toUpperCase() === "TOTAL") break;
+    
+    if (reading && col0) {
       texto += `- ${row[0]} (${row[1]} pts)\n`;
     }
+    
+    if (col0.includes("Criterio")) reading = true;
   }
   
   return { texto_rubrica: texto };
@@ -101,11 +124,6 @@ function handleGetRubricText(payload) {
 
 /**
  * Extrae el texto de un archivo de Google Drive.
- * LÓGICA BLINDADA:
- * 1. Detecta Google Docs y lee directo.
- * 2. Detecta Texto plano y lee blob.
- * 3. Para PDFs/Word/Imágenes: Intenta OCR primero. Si falla (error de API), intenta conversión simple.
- * 4. Si todo falla, devuelve flag de revisión manual.
  */
 function handleGetStudentWorkText(payload) {
   Logger.log(`Iniciando handleGetStudentWorkText para file ID ${payload.drive_file_id}...`);
@@ -189,8 +207,6 @@ function handleGetStudentWorkText(payload) {
 
 /**
  * Obtiene el texto de justificación desde una celda específica en Google Sheets.
- * @param {object} payload Datos {spreadsheet_id, justificacion_sheet_cell}.
- * @return {object} Objeto con la clave 'justificacion_texto'.
  */
 function handleGetJustificationText(payload) {
   Logger.log(`Iniciando handleGetJustificationText para celda ${payload.justificacion_sheet_cell}...`);
@@ -206,13 +222,8 @@ function handleGetJustificationText(payload) {
      throw new Error(`No se pudo abrir Spreadsheet con ID ${spreadsheet_id}: ${e.message}`);
   }
 
-  let cleanRange = justificacion_sheet_cell;
-
   // Si la referencia viene con comillas (ej. "'Detalle'!E5"), las quitamos.
-  if (cleanRange && cleanRange.startsWith("'") && cleanRange.includes("'!")) {
-    cleanRange = cleanRange.replace(/'/g, ""); // Quita todas las comillas
-    Logger.log(`Referencia de celda con comillas detectada. Limpiando a: ${cleanRange}`);
-  }
+  const cleanRange = justificacion_sheet_cell.replace(/'/g, "");
 
   let range;
   try {
@@ -230,8 +241,6 @@ function handleGetJustificationText(payload) {
 
 /**
  * Obtiene el contenido de texto de múltiples archivos de Drive.
- * @param {object} payload Datos {drive_file_ids: string[]}.
- * @return {object} Objeto con la clave 'contenidos' (array de {fileId, texto, error?}).
  */
 function handleGetMultipleFileContents(payload) {
   Logger.log("Iniciando handleGetMultipleFileContents...");
@@ -261,8 +270,6 @@ function handleGetMultipleFileContents(payload) {
 
 /**
  * Lista los archivos dentro de una carpeta de Google Drive.
- * @param {object} payload Datos {drive_folder_id}.
- * @return {object} Objeto con claves 'folders' y 'files' (arrays de {id, name, webViewLink, iconLink}).
  */
 function handleGetFolderContents(payload) {
   Logger.log(`Iniciando handleGetFolderContents para folder ID ${payload.drive_folder_id}...`);
@@ -295,6 +302,7 @@ function handleGetFolderContents(payload) {
     const file = files.next();
     let fileDetails = {};
     try {
+      // Usar la API Avanzada de Drive para obtener más detalles eficientemente
       fileDetails = Drive.Files.get(file.getId(), { fields: 'webViewLink, iconLink, mimeType' });
     } catch (e) {
       Logger.log(`No se pudo obtener metadatos extra para ${file.getName()}: ${e.message}`);
@@ -316,8 +324,6 @@ function handleGetFolderContents(payload) {
 
 /**
  * Lee todos los datos de asistencia de la hoja de cálculo de una materia.
- * @param {object} payload Datos { calificaciones_spreadsheet_id }.
- * @return {object} Objeto con la clave 'asistencias' (array de objetos).
  */
 function handleLeerDatosAsistencia(payload) {
   Logger.log("Iniciando handleLeerDatosAsistencia...");
@@ -328,59 +334,58 @@ function handleLeerDatosAsistencia(payload) {
 
   try {
     const spreadsheet = SpreadsheetApp.openById(calificaciones_spreadsheet_id);
-    const sheet = spreadsheet.getSheetByName("Reporte de Asistencia"); // Nombre hardcoded según constantes
-    if (!sheet) {
-      throw new Error(`No se encontró la hoja "Reporte de Asistencia".`);
-    }
-
-    const allData = sheet.getDataRange().getValues();
-    
-    const headers = allData[0];
-    const matriculaIndex = headers.indexOf("Matrícula");
-    
-    if (matriculaIndex === -1) {
-      throw new Error("No se encontró la columna 'Matrícula' en la hoja de asistencia.");
-    }
-
+    const sheets = spreadsheet.getSheets();
     const asistencias = [];
-    for (let i = 1; i < allData.length; i++) {
-      const row = allData[i];
-      const matricula = row[matriculaIndex];
-      if (!matricula) continue;
+    const year = new Date().getFullYear(); // Asumimos año actual para reconstruir fechas
 
-      for (let j = matriculaIndex + 1; j < headers.length; j++) {
-        const header = headers[j]; 
-        // Buscamos columnas con formato de sesión ej. "DD/MM-S#"
-        // La lógica anterior usaba "U1-S1", ajusta si tu formato es diferente
-        if (typeof header === 'string' && header.includes('-')) {
-             // Lógica flexible para detectar Unidad/Sesión o Fecha/Sesión
-             // Si el header es DD/MM-S1
-             const parts = header.split('-');
-             if (parts.length === 2) {
-                 const sesionPart = parts[1]; // "S1" o "1"
-                 let sesion = parseInt(sesionPart.replace('S',''), 10);
-                 if (isNaN(sesion)) sesion = 1; // Default
-                 
-                 // Para la unidad, asumimos que viene en el payload o la hoja tiene nombre de unidad
-                 // O simplemente devolvemos la fecha y sesión
-                 
-                 const val = row[j]; 
-                 // Asumiendo que 1=Presente, 0=Ausente
-                 if (val === 1 || val === 0 || val === true || val === false) {
-                   asistencias.push({
-                     matricula: String(matricula),
-                     // Si no podemos deducir la unidad del header, la dejamos pendiente o 
-                     // el llamador debe filtrar. Aquí devolvemos crudo.
-                     header_original: header, 
-                     presente: (val == 1 || val === true)
-                   });
-                 }
-             }
-        }
+    sheets.forEach(sheet => {
+      const sheetName = sheet.getName();
+      // Procesar solo hojas que parezcan de Unidades
+      if (sheetName.toLowerCase().startsWith("unidad ")) {
+        const unidad = parseInt(sheetName.replace(/unidad /i, ""), 10);
+        if (isNaN(unidad)) return;
+
+        const data = sheet.getDataRange().getValues();
+        if (data.length < 2) return; // Hoja vacía o solo cabeceras
+
+        const headers = data[0];
+        const matriculaIndex = headers.findIndex(h => String(h).toLowerCase() === 'matrícula');
+        if (matriculaIndex === -1) return;
+
+        // Buscar columnas de sesión (formato DD/MM-S# o DD/MM-#)
+        headers.forEach((h, colIndex) => {
+          if (typeof h === 'string' && h.includes('/') && h.includes('-')) {
+            const [fechaPart, sesionPart] = h.split('-');
+            const [day, month] = fechaPart.split('/');
+            const sesion = parseInt(sesionPart.replace(/\D/g,''), 10); // Limpiar 'S'
+
+            if (!isNaN(sesion) && day && month) {
+              const fechaISO = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+              // Leer las filas para esta columna de sesión
+              for (let r = 1; r < data.length; r++) {
+                const matricula = String(data[r][matriculaIndex]).trim().toUpperCase();
+                if (!matricula) continue;
+
+                const val = data[r][colIndex];
+                // Solo procesar celdas con 1 o 0 (o booleano)
+                if (val === 1 || val === 0 || val === true || val === false) {
+                  asistencias.push({
+                    matricula,
+                    fecha: fechaISO,
+                    unidad,
+                    sesion,
+                    presente: (val == 1 || val === true)
+                  });
+                }
+              }
+            }
+          }
+        });
       }
-    }
+    });
 
-    Logger.log(`Procesadas ${asistencias.length} registros de asistencia.`);
+    Logger.log(`Leídos ${asistencias.length} registros de asistencia de todas las unidades.`);
     return { asistencias };
 
   } catch (e) {

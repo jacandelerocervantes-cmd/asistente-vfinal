@@ -3,11 +3,12 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom'; 
 import { supabase } from '../supabaseClient';
 import { useNotification } from '../context/NotificationContext';
+import JustificacionModal from '../components/materia_panel/JustificacionModal'; // <-- 1. IMPORTAR MODAL
 import './CalificacionPanel.css';
 import { 
     FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle,
     FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt,
-    FaExclamationTriangle
+    FaExclamationTriangle, FaEye // <-- 2. AÑADIR FaEye
 } from 'react-icons/fa';
 
 // --- AÑADE ESTA FUNCIÓN AQUÍ ---
@@ -36,6 +37,7 @@ const CalificacionPanel = () => {
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [isStartingBulk, setIsStartingBulk] = useState(false);
     const [isCheckingPlagio, setIsCheckingPlagio] = useState(false);
+    const [selectedJustificacion, setSelectedJustificacion] = useState(null); // <-- 3. ESTADO PARA MODAL
     // const [isRetrying, setIsRetrying] = useState(false); // No se usa si el reintento es masivo
 
     const { showNotification } = useNotification();
@@ -328,6 +330,16 @@ const CalificacionPanel = () => {
                 </div>
             )}
 
+            {/* 4. RENDERIZAR EL MODAL SI HAY SELECCIÓN */}
+            {selectedJustificacion && (
+                <JustificacionModal 
+                    calificacion={selectedJustificacion}
+                    entregable={selectedJustificacion} // Pasamos el objeto completo como entregable
+                    onClose={() => setSelectedJustificacion(null)}
+                    loading={false}
+                />
+            )}
+
             <div className="alumnos-list-container">
                 <div className="list-header tabla-grid-layout">
                     <div className="col-center">
@@ -417,6 +429,17 @@ const CalificacionPanel = () => {
 
                                         {/* 6. Acciones */}
                                         <div className="col-right actions-group">
+                                            {/* Botón Ver Retroalimentación (Solo si ya está calificado) */}
+                                            {isFinished && (
+                                                <button 
+                                                    onClick={() => setSelectedJustificacion(item)}
+                                                    className="btn-secondary btn-small icon-button"
+                                                    title="Ver Justificación de la IA"
+                                                >
+                                                    <FaEye /> Ver Retro
+                                                </button>
+                                            )}
+
                                             {/* Botón Manual: Siempre disponible para correcciones */}
                                             {hasFile && (
                                                 <Link 
