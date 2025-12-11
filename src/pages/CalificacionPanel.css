@@ -1,26 +1,75 @@
 /* src/pages/CalificacionPanel.css */
 
 .calificacion-panel-container {
-    padding: 20px;
+    padding: 24px;
     max-width: 1200px;
     margin: 0 auto;
 }
 
-/* --- HEADER SUPERIOR --- */
-.calificacion-header {
+/* --- HEADER --- */
+.panel-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
-    border-bottom: 2px solid #e2e8f0;
-    padding-bottom: 15px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e2e8f0; /* slate-200 */
 }
 
-.calificacion-header h2 {
-    margin: 0;
-    color: #1e3a8a; /* Azul oscuro */
-    font-size: 1.8rem;
+.panel-header .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
 }
+
+.panel-header .back-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #475569;
+    text-decoration: none;
+    font-weight: 500;
+}
+.panel-header .back-button:hover {
+    color: #1e293b;
+}
+
+.panel-header h1 {
+    margin: 0;
+    font-size: 1.75rem;
+    color: #1e293b; /* slate-800 */
+    line-height: 1.2;
+}
+
+.panel-header .subtitle {
+    color: #64748b; /* slate-500 */
+    font-size: 0.9rem;
+    margin-top: 4px;
+}
+
+.panel-header .header-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-secondary {
+    background-color: #f1f5f9; /* slate-100 */
+    color: #334155; /* slate-700 */
+    border: 1px solid #cbd5e1; /* slate-300 */
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background-color 0.2s;
+}
+
+.btn-secondary:hover {
+    background-color: #e2e8f0; /* slate-200 */
+}
+
 
 /* --- BARRA DE ACCIONES MASIVAS --- */
 .bulk-actions-bar {
@@ -36,19 +85,20 @@
 }
 
 /* --- TABLA MAESTRA (GRID SYSTEM) --- */
-/* Esta clase controla la alineación de TODO. No la toques. */
-.tabla-grid-layout {
+.table-header-grid,
+.alumno-row .tabla-grid-layout {
     display: grid;
     /* Checkbox | Icono | Alumno (Expande) | Estado | Nota | Acciones */
-    grid-template-columns: 50px 50px 1fr 140px 100px 120px;
-    gap: 10px;
+    grid-template-columns: 1fr 140px 120px 100px; /* Alumno | Estado | Calificación | Acciones */
+    gap: 16px;
     align-items: center;
     padding: 12px 16px;
 }
 
 /* Estilos del Encabezado */
-.list-header {
-    background-color: #f1f5f9;
+.table-header-grid {
+    background-color: #f8fafc; /* slate-50 */
+    border-bottom: 1px solid #e2e8f0; /* slate-200 */
     font-weight: 800;
     color: #475569;
     text-transform: uppercase;
@@ -61,7 +111,8 @@
 .alumnos-list-container {
     background: white;
     border-radius: 8px;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);    
+    border: 1px solid #e2e8f0;
 }
 
 .alumnos-list {
@@ -74,20 +125,28 @@
     border-radius: 0 0 8px 8px;
 }
 
-.alumnos-list li {
+.alumno-row {
     border-bottom: 1px solid #f1f5f9;
 }
-.alumnos-list li:last-child { border-bottom: none; }
-.alumnos-list li:hover { background-color: #f8fafc; }
+.alumno-row:last-child { border-bottom: none; }
+.alumno-row:hover { background-color: #f8fafc; }
 .alumnos-list li.selected-bg { background-color: #eff6ff; }
 
 /* --- CELDAS --- */
 .col-center { display: flex; justify-content: center; }
 .col-right { display: flex; justify-content: flex-end; }
 
-.alumno-info { display: flex; flex-direction: column; }
-.entregable-nombre { font-weight: 600; color: #0f172a; }
-.matricula-text { font-size: 0.8rem; color: #64748b; }
+.col-alumno .alumno-info strong { font-weight: 600; color: #0f172a; }
+.col-alumno .alumno-info small { font-size: 0.8rem; color: #64748b; }
+
+.center-text { text-align: center; }
+.right-text { text-align: right; }
+
+.col-acciones {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
 
 /* Pills de Estado */
 .status-pill {
@@ -114,6 +173,21 @@
 
 /* Status Badges */
 .status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 99px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+}
+.status-badge.pendiente { background: #f1f5f9; color: #94a3b8; }
+.status-badge.entregado { background: #dbeafe; color: #1e40af; }
+.status-badge.calificado { background: #dcfce7; color: #15803d; }
+.status-badge.procesando { background: #fef9c3; color: #a16207; }
+.status-badge.requiere_revision_manual,
+.status-badge.fallido { background: #fee2e2; color: #b91c1c; }
+
+.status-badge {
     display: flex;
     align-items: center;
     gap: 6px;
@@ -124,12 +198,6 @@
     width: fit-content;
     white-space: nowrap;
 }
-
-.status-badge.success { background-color: #dcfce7; color: #16a34a; }
-.status-badge.info { background-color: #dbeafe; color: #2563eb; }
-.status-badge.warning { background-color: #fef9c3; color: #ca8a04; }
-.status-badge.danger { background-color: #fee2e2; color: #dc2626; }
-.status-badge.error { background-color: #fee2e2; color: #b91c1c; cursor: help; } /* Cursor de ayuda para el tooltip */
 
 .pulsate {
     animation: pulse 1.5s infinite;
@@ -217,4 +285,49 @@
 /* CalificacionPanel.css */
 .row-finished {
     background-color: #f0fdf4; /* Un verde muy suave */
+}
+
+/* --- NEW BADGES & BUTTONS --- */
+.cal-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 99px;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+.cal-badge.pass { background-color: #dcfce7; color: #16a34a; } /* green */
+.cal-badge.fail { background-color: #fee2e2; color: #b91c1c; } /* red */
+
+.btn-icon {
+    background: transparent;
+    border: none;
+    color: #64748b; /* slate-500 */
+    padding: 8px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.btn-icon:hover {
+    background-color: #e2e8f0; /* slate-200 */
+    color: #1e293b; /* slate-800 */
+}
+
+/* --- MISC --- */
+.loading-state {
+    padding: 48px;
+    text-align: center;
+    color: #64748b; /* slate-500 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 1.1rem;
+}
+
+.spin {
+    animation: spin 1s linear infinite;
 }

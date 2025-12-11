@@ -12,26 +12,34 @@ serve(async (req: Request) => {
     const { actividad_id } = await req.json();
     if (!actividad_id) throw new Error("El 'actividad_id' es requerido.");
     
+    // Configuración de clientes Supabase
     const authHeader = req.headers.get('Authorization');
-    const supabaseClient = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, { global: { headers: { Authorization: authHeader! } } });
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL')!, 
+      Deno.env.get('SUPABASE_ANON_KEY')!, 
+      { global: { headers: { Authorization: authHeader! } } }
+    );
     const { data: { user } } = await supabaseClient.auth.getUser();
     if (!user) throw new Error("Usuario inválido");
 
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
 
-    // 1. Datos Actividad
-    const { data: act } = await admin.from('actividades').select('drive_folder_entregas_id, materia_id, tipo_entrega').eq('id', actividad_id).single();
-    if (!act?.drive_folder_entregas_id) throw new Error("Sin carpeta Drive");
+    // 1. Obtener datos de la actividad
+    const { data: act } = await admin.from('actividades')
+      .select('drive_folder_entregas_id, materia_id, tipo_entrega')
+      .eq('id', actividad_id).single();
+      
+    if (!act?.drive_folder_entregas_id) throw new Error("Sin carpeta Drive vinculada");
 
-    // 2. PREPARACIÓN DE MAPAS (Alumnos y Grupos)
+    // 2. Preparar mapas de Alumnos y Grupos (Igual que antes)
     const { data: alumnos } = await admin.from('alumnos').select('id, matricula').eq('materia_id', act.materia_id);
     const mapaAlumnos = new Map();
     alumnos?.forEach(a => { if(a.matricula) mapaAlumnos.set(a.matricula.toUpperCase().trim(), a.id); });
 
-    // Mapa Grupos... (Mismo código que tenías)
     const mapaGruposPorNombre = new Map(); 
     const mapaGruposPorId = new Map();
     const { data: gruposDeMateria } = await admin.from('grupos').select('id, nombre').eq('materia_id', act.materia_id);
+    
     if (gruposDeMateria && gruposDeMateria.length > 0) {
         const grupoIds = gruposDeMateria.map(g => g.id);
         const { data: rels } = await admin.from('alumnos_grupos').select('alumno_id, grupo_id').in('grupo_id', grupoIds);
@@ -46,11 +54,10 @@ serve(async (req: Request) => {
             const datosGrupo = { id: g.id, nombre: g.nombre, miembros: miembrosPorGrupo.get(g.id) || [] };
             mapaGruposPorNombre.set(nombreNormalizado, datosGrupo);
             mapaGruposPorNombre.set(nombreNormalizado.replace(/\s+/g, '_'), datosGrupo);
-            mapaGruposPorNombre.set(nombreNormalizado.replace(/\s+/g, ''), datosGrupo);
         });
     }
 
-    // 3. Conectar a Google (Mismo código de reintento)
+    // 3. Obtener archivos de Google Drive
     let archivos = [];
     let intentos = 0;
     while(intentos < 3) {
@@ -63,30 +70,27 @@ serve(async (req: Request) => {
                     mime_types: ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']
                 })
             });
-            if (res.status === 429) { await wait(3000 * (intentos + 1)); intentos++; continue; }
-            if (!res.ok) throw new Error("Google Error " + res.status);
+            if (res.status === 429) { await wait(3000); intentos++; continue; }
+            if (!res.ok) throw new Error("Google Error");
             const json = await res.json();
             archivos = json.archivos?.files || json.files || [];
             break;
-        } catch(e) {
-            intentos++; if(intentos >= 3) throw e; await wait(1000);
-        }
+        } catch(_e) { intentos++; await wait(1000); }
     }
 
-    // 4. PROCESAR ARCHIVOS (AQUÍ ESTÁ LA CORRECCIÓN)
+    // 4. PROCESAR Y ACTUALIZAR (AQUÍ ESTÁ LA LÓGICA DE PROTECCIÓN)
     let updates = 0;
     const activityType = act.tipo_entrega;
 
     for (const file of archivos) {
         const fileNameUpper = file.name.toUpperCase();
-        const fileNameNormalized = fileNameUpper.replace(/\s+/g, '_');
         const targets = new Map(); 
+        
+        // Lógica de Matching (Nombre vs Matricula/Grupo)
         let assignedAsGroup = false;
-
-        // Lógica de asignación (Grupal/Mixta/Individual) - IGUAL QUE ANTES
         if (['grupal', 'mixta'].includes(activityType)) {
             for (const [nombreGrupoKey, datosGrupo] of mapaGruposPorNombre) {
-                if (fileNameNormalized.includes(nombreGrupoKey)) {
+                if (fileNameUpper.replace(/\s+/g, '_').includes(nombreGrupoKey)) {
                     datosGrupo.miembros.forEach((mid: number) => targets.set(mid, { id: mid, gid: datosGrupo.id }));
                     assignedAsGroup = true;
                 }
@@ -96,40 +100,36 @@ serve(async (req: Request) => {
             for (const [mat, id] of mapaAlumnos) { 
                 if (fileNameUpper.includes(mat)) { 
                     const infoGrupo = mapaGruposPorId.get(id);
-                    if (activityType === 'grupal' && infoGrupo) {
-                        const datosGrupo = Array.from(mapaGruposPorNombre.values()).find(g => g.id === infoGrupo.grupo_id);
-                        if (datosGrupo) datosGrupo.miembros.forEach((mid: number) => targets.set(mid, { id: mid, gid: infoGrupo.grupo_id }));
-                    } else {
-                        targets.set(id, { id: id, gid: null });
-                    }
+                    // Si es grupal pero subió individual, intentamos ligar al grupo
+                    const gid = (activityType === 'grupal' && infoGrupo) ? infoGrupo.grupo_id : null;
+                    targets.set(id, { id: id, gid: gid });
                 } 
             }
         }
 
-        // C. GUARDAR EN BD CON CHEQUEO DE ESTADO
+        // GUARDADO EN BD
         if (targets.size > 0) {
             for (const t of targets.values()) {
-                // 1. Consultar estado actual
-                const { data: existing } = await admin.from('calificaciones')
+                // PASO CRÍTICO: Verificar estado actual antes de tocar nada
+                const { data: currentState } = await admin.from('calificaciones')
                     .select('estado')
                     .eq('actividad_id', actividad_id)
                     .eq('alumno_id', t.id)
-                    .single();
+                    .maybeSingle();
 
-                // 2. Decidir el nuevo estado
-                // Si ya está calificado, NO LO TOCAMOS. Si no existe o está en otro estado, lo ponemos como 'entregado'.
-                const nuevoEstado = (existing && existing.estado === 'calificado') ? 'calificado' : 'entregado';
+                // LÓGICA DE PROTECCIÓN:
+                // Si ya está 'calificado', lo forzamos a seguir siendo 'calificado'.
+                // Si no, pasa a 'entregado'.
+                const estadoFinal = (currentState?.estado === 'calificado') ? 'calificado' : 'entregado';
 
-                // 3. Upsert (Actualizamos ID de archivo pero respetamos el estado 'calificado')
                 const { error } = await admin.from('calificaciones').upsert({
                     actividad_id, 
                     alumno_id: t.id, 
                     grupo_id: t.gid,
-                    estado: nuevoEstado, // <--- USO DEL ESTADO CONDICIONAL
+                    estado: estadoFinal, // <--- Aquí protegemos el estado
                     evidencia_drive_file_id: file.id, 
-                    user_id: user.id,
                     drive_url_entrega: file.webViewLink,
-                    // Aseguramos que la fecha de entrega se actualice si es una nueva entrega
+                    user_id: user.id,
                     fecha_entrega: new Date().toISOString()
                 }, { onConflict: 'actividad_id, alumno_id' });
                 
@@ -141,7 +141,7 @@ serve(async (req: Request) => {
     return new Response(JSON.stringify({ message: "Sincronizado", nuevos: updates }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Error desconocido";
+    const message = error instanceof Error ? error.message : String(error);
     return new Response(JSON.stringify({ message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
   }
 });
