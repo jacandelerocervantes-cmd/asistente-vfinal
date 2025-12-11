@@ -220,6 +220,7 @@ serve(async (req: Request) => {
     // 7. FINALIZAR
     await supabaseAdmin.from('calificaciones').update({
         calificacion_obtenida: evalJson.calificacion_total,
+        retroalimentacion: evalJson.justificacion_texto,
         estado: 'calificado',
         progreso_evaluacion: 'Completado'
     }).in('id', idsAActualizar);

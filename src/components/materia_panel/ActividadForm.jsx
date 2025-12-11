@@ -1,9 +1,8 @@
-// src/components/materia_panel/ActividadForm.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useNotification } from '../../context/NotificationContext';
 import './ActividadForm.css';
-import { FaMagic, FaSave, FaTimes, FaSpinner } from 'react-icons/fa';
+import { FaMagic, FaSave, FaTimes, FaSpinner, FaPlus, FaTrash } from 'react-icons/fa';
 
 const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit }) => {
     const { showNotification } = useNotification();
@@ -14,13 +13,14 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
     const [unidad, setUnidad] = useState(1);
     const [tipoEntrega, setTipoEntrega] = useState('individual');
     const [descripcion, setDescripcion] = useState('');
-    // Criterios es un array de objetos { descripcion, puntos }
+    
+    // Estado de criterios (siempre array)
     const [criterios, setCriterios] = useState([{ descripcion: '', puntos: '' }]);
     
     const [loading, setLoading] = useState(false);
     const [generatingIA, setGeneratingIA] = useState(false);
 
-    // Cargar datos si es edición
+    // --- CARGAR DATOS PARA EDICIÓN ---
     useEffect(() => {
         if (actividadToEdit) {
             setNombre(actividadToEdit.nombre || '');
@@ -28,14 +28,23 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
             setTipoEntrega(actividadToEdit.tipo_entrega || 'individual');
             setDescripcion(actividadToEdit.descripcion || '');
             
-            // Si hay criterios guardados (jsonb), los cargamos
-            if (actividadToEdit.criterios && Array.isArray(actividadToEdit.criterios)) {
-                setCriterios(actividadToEdit.criterios);
+            // Lógica robusta para cargar criterios (pueden venir como JSON o String)
+            if (actividadToEdit.criterios) {
+                if (Array.isArray(actividadToEdit.criterios)) {
+                    setCriterios(actividadToEdit.criterios);
+                } else if (typeof actividadToEdit.criterios === 'string') {
+                    try {
+                        setCriterios(JSON.parse(actividadToEdit.criterios));
+                    } catch (e) {
+                        console.error("Error parseando criterios:", e);
+                        setCriterios([{ descripcion: '', puntos: '' }]);
+                    }
+                }
             }
         }
     }, [actividadToEdit]);
 
-    // Manejo de Criterios Dinámicos
+    // --- MANEJO DE CRITERIOS ---
     const handleCriterioChange = (index, field, value) => {
         const newCriterios = [...criterios];
         newCriterios[index][field] = value;
@@ -51,13 +60,13 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
         setCriterios(newCriterios);
     };
 
-    // Calcular total de puntos en tiempo real
+    // Calcular total en tiempo real
     const totalPuntos = criterios.reduce((sum, item) => sum + (parseInt(item.puntos) || 0), 0);
 
-    // --- FUNCIÓN: GENERAR RÚBRICA CON IA ---
+    // --- IA: SUGERIR RÚBRICA ---
     const handleSuggestRubric = async () => {
-        if (!descripcion || descripcion.length < 10) {
-            showNotification('Escribe una descripción detallada primero.', 'warning');
+        if (!descripcion || descripcion.length < 5) {
+            showNotification('Escribe una descripción de la actividad primero.', 'warning');
             return;
         }
 
@@ -72,61 +81,55 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
 
             if (error) throw error;
 
-            if (data.criterios) {
+            if (data.criterios && Array.isArray(data.criterios)) {
                 setCriterios(data.criterios);
-                showNotification('Rúbrica generada por IA exitosamente.', 'success');
+                showNotification('¡Rúbrica generada por IA!', 'success');
+            } else {
+                showNotification('La IA no devolvió criterios válidos.', 'warning');
             }
         } catch (error) {
-            console.error(error);
-            showNotification('Error al generar con IA: ' + error.message, 'error');
+            console.error('Error IA:', error);
+            showNotification('Error al generar rúbrica: ' + error.message, 'error');
         } finally {
             setGeneratingIA(false);
         }
     };
 
-    // --- FUNCIÓN: GUARDAR (CREAR O EDITAR) ---
+    // --- GUARDAR (CREAR O ACTUALIZAR) ---
     const handleSubmit = async (e) => {
         e.preventDefault();
 
         if (totalPuntos !== 100) {
-            showNotification(`Los puntos deben sumar 100. Actual: ${totalPuntos}`, 'error');
+            showNotification(`Los criterios deben sumar 100 puntos. Actual: ${totalPuntos}`, 'error');
             return;
         }
 
         setLoading(true);
         try {
-            // Construimos el Payload Base
             const payload = {
                 materia_id: materia.id,
                 drive_url_materia: materia.drive_url,
-                nombre: nombre, // El backend espera 'nombre', no 'nombre_actividad'
+                nombre: nombre, 
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
                 descripcion: descripcion,
-                rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id // Necesario para crear/actualizar sheet
+                rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id 
             };
 
-            let endpoint = 'crear-actividad'; // Por defecto crear
+            let endpoint = 'crear-actividad';
 
             if (isEditing) {
                 endpoint = 'actualizar-actividad';
-                // *** CORRECCIÓN CRÍTICA PARA EDICIÓN ***
-                payload.id = actividadToEdit.id;
+                payload.id = actividadToEdit.id; // ¡Importante para editar!
             }
 
-            const { data, error } = await supabase.functions.invoke(endpoint, {
-                body: payload
-            });
+            const { error } = await supabase.functions.invoke(endpoint, { body: payload });
 
-            if (error) {
-                // Parseamos el error si viene del backend
-                const errorMsg = error.message || 'Error desconocido';
-                throw new Error(errorMsg);
-            }
+            if (error) throw error;
 
-            showNotification(isEditing ? 'Actividad actualizada' : 'Actividad creada correctamente', 'success');
-            onActivityCreated(); // Recargar lista en el padre
+            showNotification(isEditing ? 'Actividad actualizada correctamente' : 'Actividad creada correctamente', 'success');
+            onActivityCreated(); // Refrescar lista
             onClose(); // Cerrar modal
 
         } catch (error) {
@@ -142,13 +145,16 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
             <div className="modal-content actividad-form-modal">
                 <div className="modal-header">
                     <h2>{isEditing ? 'Editar Actividad' : 'Nueva Actividad'}</h2>
-                    <button onClick={onClose} className="close-btn"><FaTimes /></button>
+                    {/* Botón Cerrar (X) con type="button" */}
+                    <button type="button" onClick={onClose} className="close-btn">
+                        <FaTimes />
+                    </button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="form-body">
-                    {/* Campos Superiores */}
+                    {/* Fila 1: Nombre y Unidad */}
                     <div className="form-row">
-                        <div className="form-group">
+                        <div className="form-group flex-grow">
                             <label>Nombre de la Actividad</label>
                             <input 
                                 type="text" 
@@ -170,32 +176,37 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                         </div>
                     </div>
 
+                    {/* Fila 2: Tipo de Entrega */}
                     <div className="form-group">
                         <label>Tipo de Entrega</label>
                         <select value={tipoEntrega} onChange={(e) => setTipoEntrega(e.target.value)}>
-                            <option value="individual">Individual (Cada alumno sube archivo)</option>
+                            <option value="individual">Individual (Cada alumno sube su archivo)</option>
                             <option value="grupal">Grupal (Un archivo por equipo)</option>
                             <option value="mixta">Mixta (Individual + Grupal)</option>
                         </select>
                     </div>
 
+                    {/* Descripción y Botón IA */}
                     <div className="form-group">
-                        <label>Descripción / Instrucciones</label>
+                        <div className="label-with-action">
+                            <label>Descripción / Instrucciones</label>
+                            <button 
+                                type="button" // IMPORTANTE: type="button" para no enviar form
+                                className="btn-ia-suggest"
+                                onClick={handleSuggestRubric}
+                                disabled={generatingIA}
+                                title="Generar criterios de evaluación basados en la descripción"
+                            >
+                                {generatingIA ? <FaSpinner className="spin" /> : <FaMagic />} 
+                                {generatingIA ? ' Generando...' : ' IA Sugerir Rúbrica'}
+                            </button>
+                        </div>
                         <textarea 
                             value={descripcion} 
                             onChange={(e) => setDescripcion(e.target.value)} 
-                            placeholder="Describe qué deben hacer los alumnos..."
-                            rows="3"
+                            placeholder="Describe detalladamente qué deben hacer los alumnos. La IA usará esto para crear la rúbrica."
+                            rows="4"
                         />
-                        <button 
-                            type="button" 
-                            className="btn-ia-suggest"
-                            onClick={handleSuggestRubric}
-                            disabled={generatingIA}
-                        >
-                            {generatingIA ? <FaSpinner className="spin" /> : <FaMagic />} 
-                            {generatingIA ? ' Generando...' : ' IA Sugerir Rúbrica'}
-                        </button>
                     </div>
 
                     {/* Editor de Rúbrica */}
@@ -216,6 +227,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                         value={item.descripcion}
                                         onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
                                         className="input-desc"
+                                        required
                                     />
                                     <input 
                                         type="number" 
@@ -223,18 +235,31 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                         value={item.puntos}
                                         onChange={(e) => handleCriterioChange(index, 'puntos', e.target.value)}
                                         className="input-pts"
+                                        required
                                     />
                                     {criterios.length > 1 && (
-                                        <button type="button" onClick={() => removeCriterio(index)} className="btn-remove">×</button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => removeCriterio(index)} 
+                                            className="btn-remove"
+                                            title="Eliminar criterio"
+                                        >
+                                            <FaTrash />
+                                        </button>
                                     )}
                                 </div>
                             ))}
                         </div>
-                        <button type="button" onClick={addCriterio} className="btn-add-criterio">+ Agregar Criterio</button>
+                        <button type="button" onClick={addCriterio} className="btn-add-criterio">
+                            <FaPlus /> Agregar Criterio
+                        </button>
                     </div>
 
+                    {/* Botones Finales */}
                     <div className="form-actions">
-                        <button type="button" onClick={onClose} className="btn-cancel">Cancelar</button>
+                        <button type="button" onClick={onClose} className="btn-cancel">
+                            Cancelar
+                        </button>
                         <button type="submit" className="btn-save" disabled={loading || totalPuntos !== 100}>
                             {loading ? <FaSpinner className="spin" /> : <FaSave />}
                             {loading ? ' Guardando...' : ' Guardar Actividad'}
