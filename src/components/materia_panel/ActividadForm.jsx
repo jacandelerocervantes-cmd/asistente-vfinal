@@ -30,62 +30,33 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
     };
 
     // --- SAFE HANDLERS ---
-    const handleClose = () => {
-        if (typeof onClose === 'function') onClose();
-    };
+    const handleClose = () => { if (typeof onClose === 'function') onClose(); };
+    const handleSuccess = () => { if (typeof onActivityCreated === 'function') onActivityCreated(); };
 
-    const handleSuccessCallback = () => {
-        if (typeof onActivityCreated === 'function') onActivityCreated();
-    };
-
-    // --- CARGAR DATOS SI ESTAMOS EDITANDO ---
+    // --- CARGAR DATOS (CORRECCIÓN CRÍTICA) ---
     useEffect(() => {
-        if (isEditing && actividadToEdit) {
-            setLoading(true);
-            
-            // 1. Prioridad: Cargar datos que ya tenemos en memoria (es más rápido)
+        if (actividadToEdit) {
             setNombre(actividadToEdit.nombre || actividadToEdit.nombre_actividad || '');
-            setUnidad(actividadToEdit.unidad || (materia?.initialUnidad || 1));
+            setUnidad(actividadToEdit.unidad || 1);
             setTipoEntrega(actividadToEdit.tipo_entrega || 'individual');
             setDescripcion(actividadToEdit.descripcion || '');
             
             // Parseo seguro de Criterios (ESTA ES LA CORRECCIÓN CLAVE)
             if (actividadToEdit.criterios) {
-                let criteriosLimpio = [];
-                if (typeof actividadToEdit.criterios === 'string') {
+                if (Array.isArray(actividadToEdit.criterios)) {
+                    setCriterios(actividadToEdit.criterios);
+                } else if (typeof actividadToEdit.criterios === 'string') {
                     try {
-                        criteriosLimpio = JSON.parse(actividadToEdit.criterios);
+                        const parsed = JSON.parse(actividadToEdit.criterios);
+                        setCriterios(Array.isArray(parsed) ? parsed : [{ descripcion: '', puntos: '' }]);
                     } catch (e) {
                         console.error("Error parseando criterios:", e);
-                        criteriosLimpio = [{ descripcion: '', puntos: 50 }, { descripcion: '', puntos: 50 }];
+                        setCriterios([{ descripcion: '', puntos: '' }]);
                     }
-                } else {
-                    criteriosLimpio = actividadToEdit.criterios;
                 }
-                setCriterios(Array.isArray(criteriosLimpio) ? criteriosLimpio : [{ descripcion: '', puntos: '' }]);
             }
-
-            // 2. Segundo plano: Confirmar detalles frescos del servidor (opcional)
-            supabase.functions.invoke('get-activity-details', {
-                body: { actividad_id: actividadToEdit.id }
-            }).then(({ data, error }) => {
-                if (!error && data) {
-                    // Si el servidor trae datos más nuevos, actualizamos
-                    if (data.descripcion) setDescripcion(data.descripcion);
-                    if (data.criterios) {
-                         // Misma lógica de seguridad aquí
-                         const crit = typeof data.criterios === 'string' ? JSON.parse(data.criterios) : data.criterios;
-                         setCriterios(Array.isArray(crit) ? crit : [{ descripcion: '', puntos: '' }]);
-                    }
-                }
-            }).catch(e => console.log("Usando datos cacheados"));
-            
-            setLoading(false);
-        } else if (!isEditing) {
-            // Valores por defecto para nueva actividad
-            if (materia?.initialUnidad) setUnidad(materia.initialUnidad);
         }
-    }, [actividadToEdit, isEditing, materia]);
+    }, [actividadToEdit]);
 
     // --- GESTIÓN DE CRITERIOS (RÚBRICA) ---
     const handleCriterioChange = (index, field, value) => {
@@ -134,31 +105,20 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
         }
     };
 
-    // --- ENVIAR FORMULARIO (CREAR O ACTUALIZAR) ---
+    // --- GUARDAR ---
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        // 1. Validaciones
-        if (!materia || !materia.id || !materia.drive_url) {
-            showNotification("Error crítico: No se ha cargado la información de la materia.", 'error');
-            console.error("Materia faltante:", materia);
-            return;
-        }
-        if (totalPuntos !== 100) {
-            showNotification(`Los criterios deben sumar 100. Actual: ${totalPuntos}`, 'error');
-            return;
-        }
+        
+        if (!materia?.id) return showNotification("Error: Falta información de la materia.", 'error');
+        if (totalPuntos !== 100) return showNotification(`Suma actual: ${totalPuntos}/100`, 'error');
 
         setLoading(true);
         try {
-            // 2. Construcción del Payload (CORREGIDO)
             const payload = {
                 materia_id: materia.id,
                 drive_url_materia: materia.drive_url,
-                // Backend 'crear-actividad' pide 'nombre_actividad'
-                nombre_actividad: nombre, 
-                // Backend 'actualizar-actividad' a veces pide 'nombre'
-                nombre: nombre,
+                nombre_actividad: nombre, // Backend lo pide así
+                nombre: nombre,           // Doble check por si acaso
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
@@ -167,23 +127,19 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
             };
 
             let endpoint = 'crear-actividad';
-
             if (isEditing) {
                 endpoint = 'actualizar-actividad';
-                payload.id = actividadToEdit.id; 
+                payload.id = actividadToEdit.id;
             }
 
-            // 3. Llamada al Backend
             const { error } = await supabase.functions.invoke(endpoint, { body: payload });
+            if (error) throw error;
 
-            if (error) throw new Error(error.message || 'Error desconocido');
-
-            showNotification(isEditing ? 'Actividad actualizada.' : 'Actividad creada.', 'success');
-            handleSuccessCallback();
+            showNotification(isEditing ? 'Actualizado.' : 'Creado.', 'success');
+            handleSuccess();
             handleClose();
 
         } catch (error) {
-            console.error('Error:', error);
             showNotification(`Error: ${error.message}`, 'error');
         } finally {
             setLoading(false);

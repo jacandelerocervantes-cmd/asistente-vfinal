@@ -394,7 +394,11 @@ function handleLeerDatosAsistencia(payload) {
   }
 }
 
-// --- BÚSQUEDA FLEXIBLE (NUEVO) ---
+// ============================================================================
+// DATA EXTRACTION: BÚSQUEDA FLEXIBLE
+// ============================================================================
+
+// Función de búsqueda flexible (ignorando mayúsculas y espacios exactos)
 function buscarArchivoFlexible(folder, nombreParcial) {
   if (!folder) return null;
   const files = folder.getFiles();
@@ -403,7 +407,7 @@ function buscarArchivoFlexible(folder, nombreParcial) {
   while (files.hasNext()) {
     const file = files.next();
     const fileName = file.getName().toLowerCase();
-    // Si el nombre del archivo contiene la parte clave Y dice "reporte", es el correcto.
+    // Coincidencia: contiene el nombre Y la palabra reporte
     if (fileName.includes(nombreLimpio) && fileName.includes("reporte")) {
       return file;
     }
@@ -412,16 +416,14 @@ function buscarArchivoFlexible(folder, nombreParcial) {
 }
 
 /**
- * Busca el reporte de calificación en Drive y extrae las justificaciones.
- * REVISADA: Busca en carpeta vieja y nueva, y tolera nombres inexactos.
+ * Busca el reporte en Drive y extrae las justificaciones.
  */
 function handleLeerReporteDetallado(payload) {
-  Logger.log("Iniciando lectura flexible de reporte...");
+  Logger.log("Iniciando lectura flexible...");
   const { drive_url_materia, unidad, nombre_actividad } = payload;
   
-  if (!drive_url_materia || !nombre_actividad) throw new Error("Faltan datos para leer reporte.");
+  if (!drive_url_materia || !nombre_actividad) throw new Error("Faltan datos.");
 
-  // 1. Navegación Segura
   const materiaId = extractDriveIdFromUrl(drive_url_materia);
   const carpetaMateria = DriveApp.getFolderById(materiaId);
   
@@ -430,47 +432,40 @@ function handleLeerReporteDetallado(payload) {
     const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
     const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
     
-    // INTENTO A: Carpeta Nueva "Reportes por Actividad"
+    // Buscar en carpeta NUEVA y VIEJA
     if (carpetaUnidad.getFoldersByName("Reportes por Actividad").hasNext()) {
       carpetaReportes = carpetaUnidad.getFoldersByName("Reportes por Actividad").next();
-    } 
-    // INTENTO B: Carpeta Vieja "Reportes Detallados" (Fallback)
-    else if (carpetaUnidad.getFoldersByName("Reportes Detallados").hasNext()) {
+    } else if (carpetaUnidad.getFoldersByName("Reportes Detallados").hasNext()) {
       carpetaReportes = carpetaUnidad.getFoldersByName("Reportes Detallados").next();
     }
   } catch (e) {
-    Logger.log("Error navegando carpetas: " + e.message);
-    return { calificaciones: [], message: "Error en estructura de carpetas." };
+    return { calificaciones: [], message: "Estructura de carpetas no válida." };
   }
 
   if (!carpetaReportes) return { calificaciones: [], message: "Carpeta de reportes no encontrada." };
 
-  // 2. Búsqueda Flexible del Archivo
+  // BUSCAR ARCHIVO (FLEXIBLE)
   const archivoReporte = buscarArchivoFlexible(carpetaReportes, nombre_actividad);
   
   if (!archivoReporte) {
-    Logger.log(`No se encontró archivo similar a: ${nombre_actividad}`);
+    Logger.log(`No encontrado: ${nombre_actividad}`);
     return { calificaciones: [], message: `Archivo no encontrado para "${nombre_actividad}".` };
   }
   
-  Logger.log(`Leyendo archivo: ${archivoReporte.getName()}`);
   const ss = SpreadsheetApp.open(archivoReporte);
-  
-  // 3. Obtener Hoja (Busca "Detalle" o usa la primera)
   let sheet = ss.getSheetByName("Detalle");
   if (!sheet) sheet = ss.getSheets()[0];
   
-  // 4. Extracción de Datos
   const data = sheet.getDataRange().getValues();
   if (data.length < 2) return { calificaciones: [] }; 
 
   const headers = data[0].map(h => String(h).toUpperCase().trim());
   
-  // Índices Dinámicos (Busca columnas por aproximación)
+  // Índices Dinámicos
   let idxMatricula = headers.findIndex(h => h.includes("MATR") || h.includes("ID"));
-  if (idxMatricula === -1) idxMatricula = 0; // Si falla, asume Columna A
+  if (idxMatricula === -1) idxMatricula = 0;
 
-  // Busca "RETRO", "JUSTIF", "OBSERV" o "IA". Si falla, usa la ÚLTIMA columna.
+  let idxNota = headers.findIndex(h => h.includes("CALIFICACI") || h.includes("NOTA"));
   let idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("OBSERV") || h.includes("IA"));
   if (idxRetro === -1) idxRetro = headers.length - 1; 
 
@@ -478,17 +473,14 @@ function handleLeerReporteDetallado(payload) {
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const matricula = String(row[idxMatricula]).trim();
-    
-    // Ignorar filas vacías o basura
     if (matricula && matricula.length > 1 && !matricula.includes("MATRICULA")) {
       resultados.push({
         matricula: matricula,
-        // No sobrescribimos la nota numérica (null), solo traemos el texto
+        calificacion: idxNota > -1 ? row[idxNota] : null,
         retroalimentacion: idxRetro > -1 ? String(row[idxRetro]) : ""
       });
     }
   }
   
-  Logger.log(`Encontrados ${resultados.length} registros.`);
   return { calificaciones: resultados };
 }
