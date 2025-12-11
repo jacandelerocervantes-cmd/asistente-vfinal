@@ -1,123 +1,136 @@
-// src/components/materia_panel/Actividades.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
+import { useNotification } from '../../context/NotificationContext';
 import ActividadForm from './ActividadForm';
-import ActividadCard from './ActividadCard';
+import ActividadCard from './ActividadCard'; // Asegúrate de que este componente exista
 import { FaPlus, FaTasks, FaSpinner, FaFilter } from 'react-icons/fa';
 import './Actividades.css';
 
 const Actividades = () => {
     const { id: materia_id } = useParams();
+    const { showNotification } = useNotification();
+    
+    // Estados de Datos
     const [actividades, setActividades] = useState([]);
     const [materia, setMateria] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('list'); // 'list' | 'form'
-    const [actividadToEdit, setActividadToEdit] = useState(null);
     
-    // Estado para el filtro de unidad (por defecto Unidad 1)
+    // Estados de UI
+    const [showModal, setShowModal] = useState(false);
+    const [actividadToEdit, setActividadToEdit] = useState(null);
     const [selectedUnidad, setSelectedUnidad] = useState(1);
 
-    useEffect(() => {
-        fetchInitialData();
-    }, [materia_id]);
-
-    const fetchInitialData = async () => {
+    // --- CARGA DE DATOS ---
+    const fetchInitialData = useCallback(async () => {
+        if (!materia_id) return;
         setLoading(true);
         try {
-            // Cargar Materia
+            // 1. Cargar Materia (necesitamos URLs y config)
             const { data: materiaData, error: materiaError } = await supabase
                 .from('materias')
-                .select('id, unidades, drive_url')
+                .select('id, nombre, unidades, drive_url, rubricas_spreadsheet_id')
                 .eq('id', materia_id)
                 .single();
+            
             if (materiaError) throw materiaError;
             setMateria(materiaData);
 
-            // Cargar Actividades
+            // 2. Cargar Actividades
             const { data: actividadesData, error: actividadesError } = await supabase
                 .from('actividades')
                 .select('*')
                 .eq('materia_id', materia_id)
-                .order('created_at', { ascending: false });
+                .order('created_at', { ascending: false }); // Las más nuevas primero
+            
             if (actividadesError) throw actividadesError;
             setActividades(actividadesData || []);
 
         } catch (error) {
-            console.error("Error:", error);
+            console.error("Error cargando actividades:", error);
+            showNotification("Error al cargar las actividades", "error");
         } finally {
             setLoading(false);
         }
-    };
+    }, [materia_id, showNotification]);
 
-    // Filtrar actividades por la unidad seleccionada
+    useEffect(() => {
+        fetchInitialData();
+    }, [fetchInitialData]);
+
+    // --- FILTRADO ---
     const actividadesFiltradas = useMemo(() => {
+        // Filtramos por unidad seleccionada
         return actividades.filter(act => parseInt(act.unidad) === parseInt(selectedUnidad));
     }, [actividades, selectedUnidad]);
 
+    // --- HANDLERS ---
+    
+    // Abrir modal para CREAR
     const handleCreate = () => {
-        setActividadToEdit(null);
-        setView('form');
+        setActividadToEdit(null); // Limpiamos edición
+        setShowModal(true);
     };
 
+    // Abrir modal para EDITAR
     const handleEdit = (actividad) => {
         setActividadToEdit(actividad);
-        setView('form');
+        setShowModal(true);
     };
 
+    // Cerrar modal
+    const handleCloseModal = () => {
+        setShowModal(false);
+        setActividadToEdit(null);
+    };
+
+    // Callback de éxito del formulario
+    const handleActivityCreated = () => {
+        fetchInitialData(); // Recargamos la lista completa
+        setShowModal(false); // Cerramos el modal
+    };
+
+    // Eliminar Actividad
     const handleDelete = async (actividad) => {
-        if (!window.confirm(`¿Eliminar "${actividad.nombre}"? Se borrará de Drive y BD.`)) return;
+        if (!window.confirm(`¿Estás seguro de eliminar "${actividad.nombre}"?\nEsta acción borrará la carpeta de Drive y todos los datos asociados.`)) {
+            return;
+        }
+
         try {
             const { error } = await supabase.functions.invoke('eliminar-recurso', {
                 body: { recurso_id: actividad.id, tipo_recurso: 'actividad' }
             });
+
             if (error) throw error;
+
+            showNotification('Actividad eliminada correctamente', 'success');
+            // Actualización optimista local
             setActividades(prev => prev.filter(a => a.id !== actividad.id));
+            
         } catch (err) {
-            alert("Error al eliminar: " + err.message);
+            console.error('Error eliminando:', err);
+            showNotification("No se pudo eliminar la actividad: " + err.message, 'error');
         }
     };
 
-    const handleFormSave = (actividadGuardada) => {
-        setActividades(prev => {
-            const exists = prev.find(a => a.id === actividadGuardada.id);
-            if (exists) return prev.map(a => a.id === actividadGuardada.id ? actividadGuardada : a);
-            return [actividadGuardada, ...prev];
-        });
-        // Si guardamos una actividad, cambiamos el filtro para verla si es necesario
-        if (actividadGuardada.unidad) {
-            setSelectedUnidad(parseInt(actividadGuardada.unidad));
-        }
-        setView('list');
-    };
-
-    if (loading) return <div style={{padding:'2rem', textAlign:'center'}}><FaSpinner className="spinner"/> Cargando...</div>;
-
-    // Renderizado Condicional de Vistas
-    if (view === 'form') {
-        return (
-            <div className="actividades-container fade-in">
-                <ActividadForm
-                    materia={materia}
-                    actividadToEdit={actividadToEdit}
-                    initialUnidad={selectedUnidad} // Pasamos la unidad actual como default
-                    onSave={handleFormSave}
-                    onCancel={() => setView('list')}
-                />
-            </div>
-        );
+    if (loading && !materia) {
+        return <div className="loading-container"><FaSpinner className="spin" /> Cargando panel...</div>;
     }
 
     return (
         <div className="actividades-container fade-in">
-            {/* Cabecera Armonizada con Filtro */}
+            {/* --- CABECERA --- */}
             <div className="section-header-actions">
-                <h3 className="section-title">
-                    <FaTasks style={{marginRight:'10px'}}/> 
-                    Actividades
-                </h3>
+                <div className="title-group">
+                    <h3 className="section-title">
+                        <FaTasks style={{ marginRight: '10px', color: '#475569' }}/> 
+                        Actividades
+                    </h3>
+                    <span className="counter-badge">{actividadesFiltradas.length} en Unidad {selectedUnidad}</span>
+                </div>
                 
                 <div className="header-controls">
+                    {/* Selector de Unidad */}
                     <div className="unidad-selector-wrapper">
                         <FaFilter className="filter-icon" />
                         <select 
@@ -125,23 +138,40 @@ const Actividades = () => {
                             onChange={(e) => setSelectedUnidad(Number(e.target.value))}
                             className="unidad-select"
                         >
-                            {materia && Array.from({ length: materia.unidades }, (_, i) => i + 1).map(num => (
+                            {materia && Array.from({ length: materia.unidades || 5 }, (_, i) => i + 1).map(num => (
                                 <option key={num} value={num}>Unidad {num}</option>
                             ))}
                         </select>
                     </div>
 
+                    {/* Botón Crear */}
                     <button onClick={handleCreate} className="btn-primary icon-button">
                         <FaPlus /> Nueva Actividad
                     </button>
                 </div>
             </div>
 
-            {/* Grid de Tarjetas Filtradas */}
+            {/* --- RENDERIZADO DEL MODAL (FORMULARIO) --- */}
+            {/* Se renderiza condicionalmente sobre la lista */}
+            {showModal && (
+                <ActividadForm
+                    materia={materia}
+                    actividadToEdit={actividadToEdit}
+                    onClose={handleCloseModal}           // Prop correcta: onClose
+                    onActivityCreated={handleActivityCreated} // Prop correcta: onActivityCreated
+                />
+            )}
+
+            {/* --- GRID DE ACTIVIDADES --- */}
             {actividadesFiltradas.length === 0 ? (
                 <div className="empty-state-activities">
+                    <div className="empty-icon-circle">
+                        <FaTasks />
+                    </div>
                     <p>No hay actividades registradas en la <strong>Unidad {selectedUnidad}</strong>.</p>
-                    <button onClick={handleCreate} className="btn-secondary">Crear actividad en esta unidad</button>
+                    <button onClick={handleCreate} className="btn-secondary">
+                        Crear la primera actividad
+                    </button>
                 </div>
             ) : (
                 <div className="actividades-grid">
