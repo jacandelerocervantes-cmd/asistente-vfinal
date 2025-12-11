@@ -29,6 +29,7 @@ serve(async (req: Request) => {
     );
 
     let driveId: string | null = null;
+    let rubricInfo: { id: string; range: string } | null = null; // Para guardar info de la rúbrica
     let tableName: string = "";
 
     // 1. Obtener el ID de Drive desde Supabase
@@ -37,13 +38,25 @@ serve(async (req: Request) => {
       const { data, error } = await supabaseAdmin.from(tableName).select('drive_url').eq('id', recurso_id).single();
       if (error || !data) throw new Error(`Materia ${recurso_id} no encontrada.`);
       driveId = extractDriveIdFromUrl(data.drive_url || "");
-      
+
     } else if (tipo_recurso === 'actividad') {
       tableName = 'actividades';
-      const { data, error } = await supabaseAdmin.from(tableName).select('drive_folder_id').eq('id', recurso_id).single();
+      const { data, error } = await supabaseAdmin
+        .from(tableName)
+        // CAMBIO: Pedimos también los datos de la rúbrica
+        .select('drive_folder_id, rubrica_spreadsheet_id, rubrica_sheet_range')
+        .eq('id', recurso_id)
+        .single();
+
       if (error || !data) throw new Error(`Actividad ${recurso_id} no encontrada.`);
       driveId = data.drive_folder_id; // Este es un ID directo
-    
+      // Guardamos info para borrar rúbrica
+      if (data.rubrica_spreadsheet_id && data.rubrica_sheet_range) {
+        rubricInfo = {
+          id: data.rubrica_spreadsheet_id,
+          range: data.rubrica_sheet_range
+        };
+      }
     } else {
       throw new Error(`Tipo de recurso '${tipo_recurso}' no soportado.`);
     }
@@ -52,19 +65,40 @@ serve(async (req: Request) => {
     if (driveId) {
       const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
       if (!appsScriptUrl) throw new Error("URL de Apps Script no configurada.");
-      
+
       const response = await fetch(appsScriptUrl, {
         method: 'POST',
         body: JSON.stringify({ action: 'eliminar_recurso_drive', drive_id: driveId }),
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (!response.ok) throw new Error(`Error en Apps Script: ${await response.text()}`);
+      if (!response.ok) {
+        // CORRECCIÓN: Si Drive falla, lanzamos un error y detenemos el proceso.
+        // De esta forma, no se intentará borrar el registro de la base de datos.
+        throw new Error(`Error al eliminar de Google Drive: ${await response.text()}. No se borró el recurso de la base de datos.`);
+      }
       const gasResult = await response.json();
-      if (gasResult.status !== 'success') throw new Error(`Apps Script reportó un error: ${gasResult.message}`);
+      if (gasResult.status !== 'success') {
+        throw new Error(`Apps Script reportó un error: ${gasResult.message}. No se borró el recurso de la base de datos.`);
+      }
       console.log(`Drive: ${gasResult.message}`);
     } else {
       console.log(`No se encontró Drive ID para ${tipo_recurso} ${recurso_id}. Saltando borrado de Drive.`);
+    }
+
+    // 2. NUEVO: Borrar Rúbrica de Sheets
+    if (rubricInfo) {
+      console.log("Eliminando rúbrica asociada...");
+      const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
+      await fetch(appsScriptUrl!, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'eliminar_rubrica', // Llamamos a la nueva función
+          rubricas_spreadsheet_id: rubricInfo.id,
+          rubrica_sheet_range: rubricInfo.range
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      }).catch(e => console.error("Error no bloqueante borrando rúbrica:", e.message));
     }
 
     // 3. Borrar de Supabase (Paso final)
@@ -73,7 +107,13 @@ serve(async (req: Request) => {
       .delete()
       .eq('id', recurso_id);
 
-    if (deleteError) throw new Error(`Error al borrar de Supabase: ${deleteError.message}`);
+    if (deleteError) {
+      // Este es un caso problemático: se borró de Drive pero no de Supabase.
+      // Se loggea para revisión manual y se lanza un error claro.
+      const criticalError = `CRÍTICO: El recurso fue eliminado de Drive pero falló la eliminación de Supabase (ID: ${recurso_id}). Error: ${deleteError.message}. Se requiere intervención manual.`;
+      console.error(criticalError);
+      throw new Error(criticalError);
+    }
 
     return new Response(JSON.stringify({ message: `${tipo_recurso} eliminado exitosamente de Supabase y Drive.` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

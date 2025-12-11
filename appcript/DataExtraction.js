@@ -7,61 +7,96 @@
 // ============================================================================
 
 /**
- * Obtiene los criterios de una rúbrica específica.
- * @param {object} payload Datos {spreadsheet_id, rubrica_sheet_range}.
- * @return {object} Objeto con la clave 'criterios'.
+ * Obtiene los criterios. Soporta Rangos Nombrados y A1.
  */
 function handleGetRubricData(payload) {
-  Logger.log(`Iniciando handleGetRubricData para rango ${payload.rubrica_sheet_range}...`);
   const { spreadsheet_id, rubrica_sheet_range } = payload;
-  if (!spreadsheet_id || !rubrica_sheet_range) {
-    throw new Error("Faltan datos requeridos: 'spreadsheet_id' o 'rubrica_sheet_range'.");
-  }
+  if (!spreadsheet_id || !rubrica_sheet_range) throw new Error("Faltan datos.");
 
-  const spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
+  const ss = SpreadsheetApp.openById(spreadsheet_id);
   let range;
-  try {
-     range = spreadsheet.getRange(rubrica_sheet_range);
-  } catch(e) {
-      throw new Error(`Rango inválido: "${rubrica_sheet_range}". Error: ${e.message}`);
+
+  // 1. Intentar por Rango Nombrado primero (Nuevo sistema)
+  const namedRange = ss.getNamedRange(rubrica_sheet_range);
+  if (namedRange) {
+    range = namedRange.getRange();
+  } else {
+    // 2. Intentar como notación A1 antigua (Sistema anterior)
+    try {
+      // Si tiene '!', asumimos que es 'Hoja!A1:B5'
+      if (rubrica_sheet_range.includes('!')) {
+         range = ss.getRange(rubrica_sheet_range);
+      } else {
+         // Si no tiene '!' y no es named range, probablemente es un error o formato antiguo roto
+         // Intentamos buscar en la hoja activa por si acaso
+         range = ss.getRange(rubrica_sheet_range); 
+      }
+    } catch(e) {
+      Logger.log("No se pudo encontrar el rango: " + e.message);
+      return { criterios: [] };
+    }
   }
 
   const values = range.getValues();
-  const criterios = values.slice(1)
-      .map(row => ({
-        descripcion: String(row[0] || '').trim(),
-        puntos: Number(row[1]) || 0
-      }))
-      .filter(c => c.descripcion);
+  // El formato nuevo tiene 2 filas de encabezado (Título actividad, Títulos tabla)
+  // El formato viejo tenía 1.
+  // Detectamos buscando donde empieza "Criterio..."
+  
+  let startIndex = -1;
+  for(let i=0; i<values.length; i++) {
+    if (String(values[i][0]).includes("Criterio")) {
+      startIndex = i + 1; // Los datos empiezan después de esta fila
+      break;
+    }
+  }
 
-  Logger.log(`Encontrados ${criterios.length} criterios válidos.`);
+  if (startIndex === -1) startIndex = 1; // Fallback al viejo estilo
+
+  const criterios = [];
+  for (let i = startIndex; i < values.length; i++) {
+    const desc = values[i][0];
+    const pts = values[i][1];
+    
+    // Detenerse si llegamos al "TOTAL" o fila vacía
+    if (String(desc).toUpperCase() === "TOTAL" || (!desc && !pts)) break;
+    
+    criterios.push({ descripcion: desc, puntos: pts });
+  }
+
   return { criterios: criterios };
 }
 
 /**
- * Obtiene el texto formateado de una rúbrica.
- * @param {object} payload Datos {spreadsheet_id, rubrica_sheet_range}.
- * @return {object} Objeto con la clave 'texto_rubrica'.
+ * Obtiene texto formateado. Soporta Rangos Nombrados.
  */
 function handleGetRubricText(payload) {
-  Logger.log(`Iniciando handleGetRubricText para rango ${payload.rubrica_sheet_range}...`);
   const { spreadsheet_id, rubrica_sheet_range } = payload;
-  if (!spreadsheet_id || !rubrica_sheet_range) throw new Error("Faltan 'spreadsheet_id' o 'rubrica_sheet_range'.");
-
-  const spreadsheet = SpreadsheetApp.openById(spreadsheet_id);
+  // ... lógica de obtención de range idéntica a handleGetRubricData ...
+  const ss = SpreadsheetApp.openById(spreadsheet_id);
   let range;
-  try { range = spreadsheet.getRange(rubrica_sheet_range); }
-  catch(e) { throw new Error(`Rango inválido: "${rubrica_sheet_range}". Error: ${e.message}`); }
+  const namedRange = ss.getNamedRange(rubrica_sheet_range);
+  if (namedRange) {
+    range = namedRange.getRange();
+  } else {
+    try { range = ss.getRange(rubrica_sheet_range); } catch(e) { return { texto_rubrica: "" }; }
+  }
 
   const values = range.getValues();
-  let textoRubrica = "RÚBRICA DE EVALUACIÓN:\n";
-  values.slice(1).forEach(row => {
-    if(row[0] && (row[1] !== undefined && row[1] !== null && row[1] !== '')) {
-      textoRubrica += `- Criterio: "${String(row[0]).trim()}", Puntos Máximos: ${Number(row[1]) || 0}\n`;
+  let texto = "RÚBRICA:\n";
+  
+  // Barrido inteligente
+  let reading = false;
+  for (let i=0; i<values.length; i++) {
+    const row = values[i];
+    if (String(row[0]).includes("Criterio")) { reading = true; continue; } // Empezar a leer después de cabecera
+    if (String(row[0]) === "TOTAL") break; // Parar en total
+    
+    if (reading && row[0]) {
+      texto += `- ${row[0]} (${row[1]} pts)\n`;
     }
-  });
-  Logger.log("Texto de rúbrica generado.");
-  return { texto_rubrica: textoRubrica };
+  }
+  
+  return { texto_rubrica: texto };
 }
 
 /**

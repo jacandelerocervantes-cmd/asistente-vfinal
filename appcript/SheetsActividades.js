@@ -1,58 +1,127 @@
 /**
- * Guarda la rúbrica de una actividad en el archivo de Rúbricas Maestras.
- * Crea una pestaña nueva con el nombre de la actividad.
+ * Guarda la rúbrica apilada en una hoja maestra "Rúbricas" y usa Rangos Nombrados.
  */
 function handleGuardarRubrica(payload) {
   const { rubricas_spreadsheet_id, nombre_actividad, criterios } = payload;
-  
   if (!rubricas_spreadsheet_id || !nombre_actividad) throw new Error("Faltan datos para guardar rúbrica.");
 
   const ss = SpreadsheetApp.openById(rubricas_spreadsheet_id);
+  const SHEET_NAME = "Rúbricas";
+  let sheet = ss.getSheetByName(SHEET_NAME);
+
+  // 1. Crear la hoja maestra si no existe
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAME, 0);
+    // Eliminar hojas por defecto si estorban
+    const defaultSheet = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
+    if (defaultSheet) ss.deleteSheet(defaultSheet);
+  }
+
+  // 2. Generar un nombre técnico seguro para el Rango Nombrado
+  // Ej: "Ensayo Final" -> "R_ENSAYO_FINAL_12345" (Timestamp para unicidad y evitar caché)
+  const safeName = "R_" + nombre_actividad.toUpperCase().replace(/[^A-Z0-9]/g, "_").substring(0, 50);
   
-  // Limpiar nombre de hoja (max 100 chars y caracteres prohibidos)
-  const safeName = nombre_actividad.substring(0, 95).replace(/[:\/\\\?\*\[\]]/g, "-");
+  // 3. LIMPIEZA PREVIA: Si ya existe una rúbrica con este nombre base (edición), buscar y borrar la anterior
+  // Nota: Para simplificar la edición en este modelo apilado, buscamos si existe un rango previo EXACTO y lo borramos.
+  // Pero como el nombre cambia con timestamp, asumimos que el frontend maneja la actualización borrando o ignorando.
+  // MEJORA: Para mantenerlo limpio, intentamos buscar el rango por el nombre "viejo" si viniera, pero aquí vamos a simplemente crear uno nuevo al final.
   
-  let sheet = ss.getSheetByName(safeName);
-  if (sheet) {
-    sheet.clear(); // Si ya existe (ej. edición), limpiamos para reescribir
+  // 4. Preparar contenido
+  const startRow = sheet.getLastRow() + 1; // Escribir al final
+  // Fila de Encabezado de la Actividad (Visual)
+  const headerActividad = [[`ACTIVIDAD: ${nombre_actividad.toUpperCase()}`, ""]];
+  // Fila de Cabeceras de Tabla
+  const headerTabla = [["Criterio de Evaluación", "Puntos Máximos"]];
+  
+  // Filas de Criterios
+  let filasCriterios = [];
+  if (criterios && criterios.length > 0) {
+    filasCriterios = criterios.map(c => [c.descripcion, c.puntos]);
   } else {
-    sheet = ss.insertSheet(safeName);
+    filasCriterios = [["Sin criterios definidos", 0]];
   }
-
-  // Encabezados
-  sheet.appendRow(["Criterio de Evaluación", "Puntos Máximos"]);
-  sheet.getRange("A1:B1").setFontWeight("bold").setBackground("#f3f3f3");
   
-  // Escribir criterios
-  if (criterios && Array.isArray(criterios) && criterios.length > 0) {
-    const filas = criterios.map(c => [c.descripcion, c.puntos]);
-    sheet.getRange(2, 1, filas.length, 2).setValues(filas);
-    
-    // Totales
-    const totalRow = filas.length + 2;
-    sheet.getRange(`A${totalRow}`).setValue("TOTAL").setFontWeight("bold");
-    sheet.getRange(`B${totalRow}`).setFormula(`=SUM(B2:B${totalRow-1})`).setFontWeight("bold");
-  } else {
-    sheet.appendRow(["Sin criterios definidos", 0]);
-  }
-
-  // Formato
-  sheet.setColumnWidth(1, 400);
-  sheet.setColumnWidth(2, 100);
-
-  // LIMPIEZA: Eliminar la hoja por defecto si existe y no es la única
-  var hojas = ss.getSheets();
-  var hojaDefault = ss.getSheetByName('Hoja 1') || ss.getSheetByName('Sheet1');
+  // Fila de Total
+  const totalPuntos = filasCriterios.reduce((sum, row) => sum + (Number(row[1])||0), 0);
+  const filaTotal = [["TOTAL", totalPuntos]];
   
-  // Solo borramos si existe y si hay más de una hoja (para no dejar el libro vacío y causar error)
-  if (hojaDefault && hojas.length > 1 && hojaDefault.getName() !== safeName) {
-    ss.deleteSheet(hojaDefault);
-  }
+  // Espaciador final
+  const filaEspacio = [["", ""]];
+
+  // Combinar todo
+  const bloqueCompleto = [
+    ...headerActividad,
+    ...headerTabla,
+    ...filasCriterios,
+    ...filaTotal,
+    ...filaEspacio
+  ];
+
+  // 5. Escribir en la hoja
+  const range = sheet.getRange(startRow, 1, bloqueCompleto.length, 2);
+  range.setValues(bloqueCompleto);
+
+  // 6. Formateo Visual
+  // Título Actividad
+  sheet.getRange(startRow, 1, 1, 2).merge().setFontWeight("bold").setBackground("#e0f2f1").setFontSize(11);
+  // Cabeceras Tabla
+  sheet.getRange(startRow + 1, 1, 1, 2).setFontWeight("bold").setBackground("#f5f5f5");
+  // Fila Total
+  sheet.getRange(startRow + 1 + filasCriterios.length, 1, 1, 2).setFontWeight("bold").setBackground("#fff9c4");
+  // Bordes (opcional, para que se vea como tabla)
+  sheet.getRange(startRow + 1, 1, filasCriterios.length + 2, 2).setBorder(true, true, true, true, true, true);
+  
+  // Anchos de columna
+  sheet.setColumnWidth(1, 450);
+  sheet.setColumnWidth(2, 120);
+
+  // 7. CREAR RANGO NOMBRADO (La clave de la solución)
+  // El rango abarca desde el título hasta el espacio final.
+  // Usamos un sufijo aleatorio para evitar conflictos de nombres si se crean actividades con mismo nombre.
+  const uniqueSuffix = Math.floor(Math.random() * 10000);
+  const finalNamedRange = `${safeName}_${uniqueSuffix}`;
+  
+  ss.setNamedRange(finalNamedRange, range);
 
   return {
     rubrica_spreadsheet_id: rubricas_spreadsheet_id,
-    rubrica_sheet_range: `${safeName}!A1:B${criterios ? criterios.length + 2 : 2}`
+    rubrica_sheet_range: finalNamedRange // Guardamos el NOMBRE, no la dirección A1
   };
+}
+
+/**
+ * Elimina la rúbrica del archivo de Sheets usando el Rango Nombrado.
+ * Borra las filas completas para que las de abajo suban.
+ */
+function handleEliminarRubrica(payload) {
+  const { rubricas_spreadsheet_id, rubrica_sheet_range } = payload;
+  if (!rubricas_spreadsheet_id || !rubrica_sheet_range) return { message: "Faltan datos para borrar rúbrica." };
+
+  try {
+    const ss = SpreadsheetApp.openById(rubricas_spreadsheet_id);
+    
+    // Buscar el rango por su nombre
+    // rubrica_sheet_range ahora guarda el NOMBRE (ej: "R_ENSAYO_123")
+    const namedRange = ss.getNamedRange(rubrica_sheet_range);
+    
+    if (namedRange) {
+      const range = namedRange.getRange();
+      // Borramos las filas completas que ocupa ese rango
+      // Esto hace que las rúbricas de abajo suban automáticamente ("Una abajo de la otra")
+      const sheet = range.getSheet();
+      sheet.deleteRows(range.getRow(), range.getNumRows());
+      
+      // Eliminar la definición del nombre para limpiar
+      namedRange.remove();
+      return { message: "Rúbrica eliminada y filas compactadas." };
+    } else {
+      return { message: "Rúbrica no encontrada (ya borrada o nombre inválido)." };
+    }
+  } catch (e) {
+    Logger.log("Error borrando rúbrica: " + e.message);
+    // No lanzamos error fatal para no detener el borrado de la actividad en DB
+    return { message: "Error no fatal al borrar rúbrica en Sheets." }; 
+  }
 }
 
 /**

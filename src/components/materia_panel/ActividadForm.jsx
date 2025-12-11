@@ -109,7 +109,8 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
             const payload = {
                 materia_id: materia.id,
                 drive_url_materia: materia.drive_url,
-                nombre_actividad: nombre,
+                nombre_actividad: nombre, // Campo para 'crear-actividad'
+                nombre: nombre,           // 'actualizar-actividad' espera este campo
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
@@ -117,7 +118,8 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
             };
 
             if (isEditing) {
-                payload.actividad_id = actividadToEdit.id;
+                // La función 'actualizar-actividad' espera el id principal del recurso
+                payload.id = actividadToEdit.id;
             }
 
             const { data, error } = await supabase.functions.invoke(functionName, {
