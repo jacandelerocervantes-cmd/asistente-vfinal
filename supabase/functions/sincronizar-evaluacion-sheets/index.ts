@@ -26,6 +26,8 @@ serve(async (req: Request) => {
 
     // 2. Llamar a Apps Script
     const appsScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!;
+    
+    console.log(`Buscando reporte para actividad: "${actividad.nombre}" en unidad ${actividad.unidad}`);
     console.log("Contactando a Google Apps Script para leer reporte..."); // LOG 3
     
     const response = await fetch(appsScriptUrl, {

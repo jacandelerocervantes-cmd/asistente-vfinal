@@ -129,7 +129,10 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
             const payload = {
                 materia_id: materia.id,
                 drive_url_materia: materia.drive_url,
-                nombre_actividad: nombre, // <--- AQUÍ ESTABA EL ERROR (antes 'nombre')
+                // Backend 'crear-actividad' pide 'nombre_actividad'
+                nombre_actividad: nombre, 
+                // Backend 'actualizar-actividad' a veces pide 'nombre'
+                nombre: nombre,
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
@@ -142,9 +145,6 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
             if (isEditing) {
                 endpoint = 'actualizar-actividad';
                 payload.id = actividadToEdit.id; 
-                // Para actualizar, a veces el backend pide 'nombre' o 'nombre_actividad'.
-                // Enviamos ambos para asegurar compatibilidad.
-                payload.nombre = nombre; 
             }
 
             // 3. Llamada al Backend
@@ -152,12 +152,12 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
 
             if (error) throw new Error(error.message || 'Error desconocido');
 
-            showNotification(isEditing ? 'Actualizado correctamente.' : 'Creado correctamente.', 'success');
+            showNotification(isEditing ? 'Actividad actualizada.' : 'Actividad creada.', 'success');
             handleSuccessCallback();
             handleClose();
 
         } catch (error) {
-            console.error('Error submit:', error);
+            console.error('Error:', error);
             showNotification(`Error: ${error.message}`, 'error');
         } finally {
             setLoading(false);
@@ -192,7 +192,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                 <div className="file-name-hint">
                                     <FaInfoCircle className="hint-icon"/>
                                     <span>
-                                        Formato sugerido para alumnos: <br/>
+                                        Sugerencia para alumnos: <br/>
                                         <code className="code-hint">{generarNombreSugerido(nombre)}</code>
                                     </span>
                                 </div>
@@ -223,7 +223,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                     {/* Descripción y Botón IA */}
                     <div className="form-group">
                         <div className="label-with-action">
-                            <label>Descripción / Instrucciones</label>
+                            <label>Instrucciones</label>
                             <button 
                                 type="button" 
                                 className="btn-ia-suggest"
@@ -231,14 +231,13 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                 disabled={generatingIA}
                                 title="Generar criterios de evaluación basados en la descripción"
                             >
-                                {generatingIA ? <FaSpinner className="spin" /> : <FaMagic />} 
-                                {generatingIA ? ' Generando...' : ' IA Sugerir Rúbrica'}
+                                {generatingIA ? <FaSpinner className="spin"/> : <FaMagic />} IA Sugerir Rúbrica
                             </button>
                         </div>
                         <textarea 
                             value={descripcion} 
                             onChange={(e) => setDescripcion(e.target.value)} 
-                            placeholder="Describe detalladamente la actividad..."
+                            placeholder="Describe la actividad..."
                             rows="4"
                         />
                     </div>
@@ -246,10 +245,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                     {/* Editor de Rúbrica */}
                     <div className="rubrica-section">
                         <div className="rubrica-header">
-                            <h4>Rúbrica</h4>
-                            <span className={`puntos-counter ${totalPuntos === 100 ? 'ok' : 'error'}`}>
-                                Total: {totalPuntos} / 100
-                            </span>
+                            <h4>Rúbrica ({totalPuntos}/100)</h4>
                         </div>
                         
                         <div className="criterios-list">
@@ -257,7 +253,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                 <div key={index} className="criterio-row">
                                     <input 
                                         type="text" 
-                                        placeholder="Descripción"
+                                        placeholder="Criterio"
                                         value={item.descripcion}
                                         onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
                                         className="input-desc"
@@ -284,8 +280,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                     <div className="form-actions">
                         <button type="button" onClick={handleClose} className="btn-cancel">Cancelar</button>
                         <button type="submit" className="btn-save" disabled={loading || totalPuntos !== 100}>
-                            {loading ? <FaSpinner className="spin" /> : <FaSave />}
-                            {loading ? ' Guardando...' : ' Guardar'}
+                            {loading ? <FaSpinner className="spin"/> : <FaSave />} Guardar
                         </button>
                     </div>
                 </form>

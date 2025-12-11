@@ -396,35 +396,48 @@ function handleLeerDatosAsistencia(payload) {
 
 /**
  * Busca el archivo de reporte de la actividad y extrae datos.
+ * VERSIÓN ROBUSTA: Búsqueda flexible de archivos y columnas.
  */
 function handleLeerReporteDetallado(payload) {
-  Logger.log("Iniciando lectura de reporte detallado...");
+  Logger.log("Iniciando lectura ROBUSTA de reporte...");
   const { drive_url_materia, unidad, nombre_actividad } = payload;
   
   if (!drive_url_materia || !nombre_actividad) throw new Error("Faltan datos para leer reporte.");
 
-  // 1. Navegar a la carpeta
+  // 1. Navegar a la estructura de carpetas
   const materiaId = extractDriveIdFromUrl(drive_url_materia);
   const carpetaMateria = DriveApp.getFolderById(materiaId);
   const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
   const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
-  const carpetaReportes = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
   
-  // 2. Buscar el archivo "Reporte - [Nombre]"
-  const nombreArchivo = `Reporte - ${nombre_actividad}`;
-  const files = carpetaReportes.getFilesByName(nombreArchivo);
-  
-  if (!files.hasNext()) {
-    Logger.log(`Archivo no encontrado: ${nombreArchivo}`);
-    return { calificaciones: [], message: "Archivo de reporte no encontrado." };
+  // INTENTO 1: Buscar en "Reportes por Actividad" (Nuevo estándar)
+  let carpetaReportes = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+  let archivoReporte = buscarArchivoFlexible(carpetaReportes, nombre_actividad);
+
+  // INTENTO 2: Si no está, buscar en "Reportes Detallados" (Versión vieja, por compatibilidad)
+  if (!archivoReporte) {
+     try {
+       const carpetaVieja = carpetaUnidad.getFoldersByName("Reportes Detallados").next();
+       archivoReporte = buscarArchivoFlexible(carpetaVieja, nombre_actividad);
+     } catch(e) { 
+       Logger.log("No existe carpeta Reportes Detallados antigua."); 
+     }
   }
   
-  const ss = SpreadsheetApp.open(files.next());
-  const sheet = ss.getSheetByName("Detalle"); // Buscamos la hoja "Detalle" creada por SheetsActividades
+  if (!archivoReporte) {
+    Logger.log(`CRÍTICO: No se encontró ningún archivo que contenga "${nombre_actividad}" en las carpetas de reportes.`);
+    // Devuelve array vacío pero con mensaje de debug para Supabase
+    return { calificaciones: [], message: "Archivo no encontrado (Check logs GAS)." };
+  }
   
+  Logger.log(`Archivo encontrado: ${archivoReporte.getName()}`);
+  const ss = SpreadsheetApp.open(archivoReporte);
+  
+  // Buscar hoja "Detalle" o usar la primera si no existe
+  let sheet = ss.getSheetByName("Detalle");
   if (!sheet) {
-     Logger.log("Hoja 'Detalle' no encontrada en el reporte.");
-     return { calificaciones: [], message: "Hoja 'Detalle' no existe." };
+     sheet = ss.getSheets()[0];
+     Logger.log(`Hoja 'Detalle' no hallada, usando la primera: ${sheet.getName()}`);
   }
   
   // 3. Leer datos dinámicamente
@@ -432,33 +445,53 @@ function handleLeerReporteDetallado(payload) {
   if (data.length < 2) return { calificaciones: [] }; // Solo headers o vacío
 
   const headers = data[0].map(h => String(h).toUpperCase().trim());
-  Logger.log("Headers encontrados: " + headers.join(", "));
-
-  // Buscamos índices flexibles
-  const idxMatricula = headers.findIndex(h => h.includes("MATR")); // Matrícula
-  const idxNota = headers.findIndex(h => h.includes("CALIFICACI") || h.includes("NOTA"));
-  // Buscamos Retroalimentación, Justificación, o Observaciones
-  const idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("OBSERVACION"));
   
-  if (idxMatricula === -1) {
-     Logger.log("No se encontró columna Matrícula.");
-     return { calificaciones: [], error: "Formato de reporte inválido (Falta Matrícula)" };
-  }
+  // Índices Flexibles (con Fallbacks)
+  // Matrícula: Busca "MATR", si no, usa col 0 (A)
+  let idxMatricula = headers.findIndex(h => h.includes("MATR") || h.includes("ID"));
+  if (idxMatricula === -1) idxMatricula = 0; 
+
+  // Nota: Busca "CALIF" o "NOTA", si no, usa col 2 (C)
+  let idxNota = headers.findIndex(h => h.includes("CALIF") || h.includes("NOTA"));
+  if (idxNota === -1) idxNota = 2;
+
+  // Retro: Busca "RETRO", "OBSERV", "JUSTIF", "IA", si no, usa la ÚLTIMA columna
+  let idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("IA"));
+  if (idxRetro === -1) idxRetro = headers.length - 1; // Fallback a la última columna (donde suele estar la retro)
+
+  Logger.log(`Índices usados -> Matr: ${idxMatricula}, Nota: ${idxNota}, Retro: ${idxRetro}`);
   
   const resultados = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     const matricula = String(row[idxMatricula]).trim();
     
-    if (matricula && matricula !== "#N/A") {
+    // Validar que parezca una matrícula (no vacía, no headers repetidos)
+    if (matricula && matricula.length > 2 && matricula !== "MATRÍCULA") {
       resultados.push({
         matricula: matricula,
-        calificacion: idxNota > -1 ? row[idxNota] : null,
-        retroalimentacion: idxRetro > -1 ? String(row[idxRetro]) : ""
+        calificacion: row[idxNota],
+        retroalimentacion: row[idxRetro] ? String(row[idxRetro]) : "Sin texto."
       });
     }
   }
   
-  Logger.log(`Leídas ${resultados.length} filas del reporte.`);
   return { calificaciones: resultados };
+}
+
+// Función auxiliar para buscar "parecidos"
+function buscarArchivoFlexible(folder, nombreParcial) {
+  if (!folder) return null;
+  const files = folder.getFiles();
+  const nombreLimpio = nombreParcial.toLowerCase().trim();
+  
+  while (files.hasNext()) {
+    const file = files.next();
+    const fileName = file.getName().toLowerCase();
+    // Si el nombre del archivo contiene el nombre de la actividad, es match
+    if (fileName.includes(nombreLimpio) && fileName.includes("reporte")) {
+      return file;
+    }
+  }
+  return null;
 }
