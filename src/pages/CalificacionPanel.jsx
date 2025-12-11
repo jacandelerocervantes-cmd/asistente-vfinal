@@ -6,7 +6,8 @@ import { useNotification } from '../context/NotificationContext';
 import './CalificacionPanel.css';
 import { 
     FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle,
-    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt
+    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt,
+    FaExclamationTriangle
 } from 'react-icons/fa';
 
 // --- AÑADE ESTA FUNCIÓN AQUÍ ---

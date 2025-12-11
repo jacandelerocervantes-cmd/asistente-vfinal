@@ -118,7 +118,7 @@ const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnid
             };
 
             if (isEditing) {
-                // La función 'actualizar-actividad' espera el id principal del recurso
+                // CORRECCIÓN: Usar 'id' como espera el backend
                 payload.id = actividadToEdit.id;
             }
 
