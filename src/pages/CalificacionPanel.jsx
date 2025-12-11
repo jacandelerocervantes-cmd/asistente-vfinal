@@ -1,28 +1,22 @@
 // src/pages/CalificacionPanel.jsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useNotification } from '../context/NotificationContext';
-import JustificacionModal from '../components/materia_panel/JustificacionModal'; // 1. IMPORTAR MODAL
+import JustificacionModal from '../components/materia_panel/JustificacionModal';
 import './CalificacionPanel.css';
 import { 
     FaSync, FaArrowLeft, FaCheckCircle, FaClock, FaExclamationCircle,
-    FaRobot, FaSearch, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt,
-    FaExclamationTriangle, FaEye // 2. IMPORTAR ICONO OJO
+    FaRobot, FaSpinner, FaUsers, FaUser, FaEdit, FaFileAlt, FaExternalLinkAlt,
+    FaExclamationTriangle, FaEye
 } from 'react-icons/fa';
 
-// Función auxiliar para mensajes amigables
 const traducirError = (errorMsg) => {
     if (!errorMsg) return "Error desconocido";
     const msg = String(errorMsg).toLowerCase();
-    
     if (msg.includes("timeout")) return "El proceso tardó demasiado. Intenta de nuevo.";
-    if (msg.includes("network") || msg.includes("fetch")) return "Error de conexión. Verifica tu internet.";
-    if (msg.includes("json")) return "Error inesperado en la respuesta del servidor.";
-    if (msg.includes("gemini") || msg.includes("ia")) return "La IA tuvo un problema temporal.";
-    if (msg.includes("drive") || msg.includes("google")) return "Error de conexión con Google Drive.";
-    if (msg.includes("rate limit") || msg.includes("429")) return "Demasiadas peticiones. Espera unos segundos.";
-    
+    if (msg.includes("network") || msg.includes("fetch")) return "Error de conexión.";
+    if (msg.includes("rate limit") || msg.includes("429")) return "Demasiadas peticiones.";
     return errorMsg; 
 };
 
@@ -33,24 +27,21 @@ const CalificacionPanel = () => {
     // Estados de Datos
     const [actividad, setActividad] = useState(null);
     const [calificaciones, setCalificaciones] = useState([]);
-    
-    // Estados de UI/Carga
     const [loadingData, setLoadingData] = useState(true);
     const [isSyncing, setIsSyncing] = useState(false);
     const [isStartingBulk, setIsStartingBulk] = useState(false);
-    const [isCheckingPlagio, setIsCheckingPlagio] = useState(false); // Por si decides usarlo luego
-    
-    // Estados de Selección y Modal
     const [selectedIds, setSelectedIds] = useState(new Set());
-    const [selectedJustificacion, setSelectedJustificacion] = useState(null); // 3. ESTADO DEL MODAL
+    const [selectedJustificacion, setSelectedJustificacion] = useState(null);
 
-    // Memo para saber si hay algún proceso masivo corriendo
+    // Ref para evitar bucles infinitos de auto-sync
+    const hasAutoSynced = useRef(false);
+
     const isGlobalProcessing = useMemo(() => {
-        return calificaciones.some(c => c.estado === 'procesando') || isStartingBulk || isCheckingPlagio;
-    }, [calificaciones, isStartingBulk, isCheckingPlagio]);
+        return calificaciones.some(c => c.estado === 'procesando') || isStartingBulk;
+    }, [calificaciones, isStartingBulk]);
 
     // -------------------------------------------------------------------------
-    // 1. CARGA DE DATOS
+    // 1. CARGA DE DATOS + AUTO-REPARACIÓN (Auto-Sync)
     // -------------------------------------------------------------------------
     const fetchLocalData = useCallback(async () => {
         if (!actividadId) return;
@@ -64,16 +55,29 @@ const CalificacionPanel = () => {
             // B. Calificaciones (Incluye retroalimentación implícitamente en *)
             const { data: calData, error: calError } = await supabase
                 .from('calificaciones')
-                .select(`
-                    *, 
-                    alumnos(id, nombre, apellido, matricula),
-                    grupos(id, nombre) 
-                `)
+                .select(`*, alumnos(id, nombre, apellido, matricula), grupos(id, nombre)`)
                 .eq('actividad_id', actividadId)
                 .order('created_at', { ascending: false });
 
             if (calError) throw calError;
-            setCalificaciones(calData || []);
+            const data = calData || [];
+            setCalificaciones(data);
+
+            // --- LÓGICA DE AUTO-RECUPERACIÓN ---
+            // Detectar si hay calificaciones "huérfanas" (Calificado pero sin texto)
+            const faltanJustificaciones = data.some(c => 
+                c.estado === 'calificado' && 
+                (!c.retroalimentacion || c.retroalimentacion.trim() === "")
+            );
+
+            // Solo ejecutamos auto-sync una vez por montaje para no saturar
+            if (faltanJustificaciones && !hasAutoSynced.current) {
+                console.log("Detectadas calificaciones sin justificación. Iniciando auto-reparación...");
+                hasAutoSynced.current = true; // Marcar como ejecutado
+                
+                // Ejecutar en segundo plano sin bloquear la UI
+                handleAutoSyncSheets(); 
+            }
 
         } catch (error) {
             console.error("Error fetch:", error);
@@ -84,7 +88,39 @@ const CalificacionPanel = () => {
     }, [actividadId, showNotification]);
 
     // -------------------------------------------------------------------------
-    // 2. SINCRONIZACIÓN CON DRIVE
+    // 2. FUNCIÓN DE SINCRONIZACIÓN AUTOMÁTICA (Sheets -> DB)
+    // -------------------------------------------------------------------------
+    const handleAutoSyncSheets = async () => {
+        try {
+            // No ponemos loading global para no interrumpir al usuario, 
+            // pero mostramos una notificación discreta
+            // showNotification('Sincronizando textos desde Excel...', 'info'); 
+
+            const { data, error } = await supabase.functions.invoke('sincronizar-evaluacion-sheets', {
+                body: { actividad_id: actividadId }
+            });
+
+            if (error) throw error;
+
+            console.log("Auto-sync completado:", data.message);
+            
+            // Recargamos los datos silenciosamente para mostrar los textos recuperados
+            const { data: newData } = await supabase
+                .from('calificaciones')
+                .select(`*, alumnos(id, nombre, apellido, matricula), grupos(id, nombre)`)
+                .eq('actividad_id', actividadId)
+                .order('created_at', { ascending: false });
+            
+            if (newData) setCalificaciones(newData);
+
+        } catch (error) {
+            console.error("Error en auto-sync:", error);
+            // No mostramos error al usuario para no alarmar, se reintentará en la próxima carga
+        }
+    };
+
+    // -------------------------------------------------------------------------
+    // 3. SINCRONIZACIÓN CON DRIVE (Archivos)
     // -------------------------------------------------------------------------
     const syncWithDrive = useCallback(async (silent = false) => {
         if (!actividadId) return;
@@ -106,8 +142,8 @@ const CalificacionPanel = () => {
             }
 
         } catch (error) {
-            console.error("Error de sincronización:", error);
-            if (!silent) showNotification('No se pudo conectar con Drive: ' + error.message, 'error');
+            console.error("Error sync drive:", error);
+            if (!silent) showNotification('Error conectando con Drive.', 'error');
         } finally {
             setIsSyncing(false);
         }
@@ -124,25 +160,18 @@ const CalificacionPanel = () => {
     useEffect(() => {
         if (!actividadId) return;
         const channel = supabase
-            .channel(`calificaciones-actividad-${actividadId}`)
-            .on(
-                'postgres_changes',
-                { event: 'UPDATE', schema: 'public', table: 'calificaciones', filter: `actividad_id=eq.${actividadId}` },
-                (payload) => {
-                    setCalificaciones(current => 
-                        current.map(cal => 
-                            cal.id === payload.new.id ? { ...cal, ...payload.new } : cal
-                        )
-                    );
-                }
-            )
+            .channel(`calificaciones-${actividadId}`)
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calificaciones', filter: `actividad_id=eq.${actividadId}` }, 
+            (payload) => {
+                setCalificaciones(current => current.map(c => c.id === payload.new.id ? { ...c, ...payload.new } : c));
+            })
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
     }, [actividadId]);
 
     // -------------------------------------------------------------------------
-    // 3. LÓGICA DE VISUALIZACIÓN (Agrupación)
+    // 4. LÓGICA DE VISUALIZACIÓN
     // -------------------------------------------------------------------------
     const itemsToDisplay = useMemo(() => {
         const groups = {};
@@ -171,86 +200,52 @@ const CalificacionPanel = () => {
                 });
             }
         });
-
-        return [...Object.values(groups), ...individuals].sort((a, b) => {
-            if (a.isGroup && !b.isGroup) return -1;
-            if (!a.isGroup && b.isGroup) return 1;
-            return 0;
-        });
+        return [...Object.values(groups), ...individuals].sort((a, b) => (a.isGroup === b.isGroup ? 0 : a.isGroup ? -1 : 1));
     }, [calificaciones]);
-
-    // -------------------------------------------------------------------------
-    // 4. HANDLERS DE ACCIÓN
-    // -------------------------------------------------------------------------
-    const handleSelectOne = (item) => {
-        const id = item.id;
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            const validIds = itemsToDisplay
-                .filter(item => ['entregado', 'calificado', 'requiere_revision_manual', 'fallido'].includes(item.estado))
-                .map(item => item.id);
+            const validIds = itemsToDisplay.filter(i => ['entregado', 'calificado', 'fallido'].includes(i.estado)).map(i => i.id);
             setSelectedIds(new Set(validIds));
         } else {
             setSelectedIds(new Set());
         }
     };
 
+    const handleSelectOne = (item) => {
+        setSelectedIds(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; });
+    };
+
     const handleEvaluacionMasiva = async () => {
-        const idsArray = Array.from(selectedIds);
-        if (idsArray.length === 0) return;
-        
+        const ids = Array.from(selectedIds);
+        if (ids.length === 0) return;
         setIsStartingBulk(true);
         try {
-            const { error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', {
-                body: { calificaciones_ids: idsArray }
-            });
+            const { error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', { body: { calificaciones_ids: ids } });
             if (error) throw error;
-            
-            showNotification(`Evaluación iniciada. El estado se actualizará automáticamente.`, 'success');
+            showNotification(`Evaluación iniciada.`, 'success');
             setSelectedIds(new Set());
-            
-        } catch (error) {
-            console.error("Error evaluación masiva:", error);
-            showNotification("Error: " + error.message, 'error');
-        } finally {
+        } catch (e) { showNotification("Error: " + e.message, 'error'); } 
+        finally {
             setIsStartingBulk(false);
         }
     };
 
-    const handleReintentar = async (calificacionId) => {
-        if (!calificacionId) return;
+    const handleReintentar = async (id) => {
         try {
-            const { error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', {
-                body: { calificaciones_ids: [calificacionId] }
-            });
+            const { error } = await supabase.functions.invoke('iniciar-evaluacion-masiva', { body: { calificaciones_ids: [id] } });
             if (error) throw error;
-            showNotification(`Reintento iniciado.`, 'info');
-        } catch (error) {
-            showNotification("No se pudo reintentar: " + error.message, 'error');
-        }
+            showNotification(`Reintentando...`, 'info');
+        } catch (e) { showNotification("Error: " + e.message, 'error'); }
     };
 
     // Helper para badges
     const getStatusBadge = (item) => {
         switch (item.estado) {
-            case 'calificado': 
-                return <div className="status-badge success" title="Evaluación completada"><FaCheckCircle /> <span>Calificado</span></div>;
-            case 'entregado': 
-                return <div className="status-badge info" title="Listo para evaluar"><FaClock /> <span>Entregado</span></div>;
-            case 'procesando': 
-                return <div className="status-badge warning pulsate"><FaSpinner className="spin" /> <span>Procesando...</span></div>;
-            case 'requiere_revision_manual':
-                return <div className="status-badge danger"><FaExclamationCircle /> <span>Revisión Manual</span></div>;
-            case 'fallido':
-                return <div className="status-badge error" title={traducirError(item.ultimo_error)}><FaExclamationTriangle /> <span>Falló</span></div>;
+            case 'calificado': return <div className="status-badge success"><FaCheckCircle /> <span>Calificado</span></div>;
+            case 'entregado': return <div className="status-badge info"><FaClock /> <span>Entregado</span></div>;
+            case 'procesando': return <div className="status-badge warning pulsate"><FaSpinner className="spin"/> <span>Procesando...</span></div>;
+            case 'fallido': return <div className="status-badge error" title={traducirError(item.ultimo_error)}><FaExclamationTriangle /> <span>Falló</span></div>;
             default: 
                 return <span className="status-pill pendiente">Pendiente</span>;
         }
@@ -268,7 +263,7 @@ const CalificacionPanel = () => {
                         <FaArrowLeft /> Volver a Actividades
                     </Link>
                     <h2>{actividad ? actividad.nombre : 'Cargando...'}</h2>
-                    <p className="subtitle">Panel de Evaluación {actividad?.tipo_entrega === 'grupal' ? '(Vista Grupal)' : ''}</p>
+                    <p className="subtitle">Panel de Evaluación</p>
                 </div>
                 <div>
                     <button 
@@ -282,7 +277,7 @@ const CalificacionPanel = () => {
                 </div>
             </div>
 
-            {/* Barra de Acciones Masivas */}
+            {/* Bulk Actions */}
             {selectedIds.size > 0 && (
                 <div className="bulk-actions-bar">
                     <span style={{fontWeight:'bold'}}>{selectedIds.size} seleccionados</span>
@@ -293,65 +288,39 @@ const CalificacionPanel = () => {
                 </div>
             )}
 
-            {/* 4. MODAL DE JUSTIFICACIÓN (Se muestra condicionalmente) */}
+            {/* Modal */}
             {selectedJustificacion && (
                 <JustificacionModal 
                     calificacion={selectedJustificacion}
                     entregable={selectedJustificacion} 
                     onClose={() => setSelectedJustificacion(null)}
-                    loading={false}
                 />
             )}
 
-            {/* Tabla de Alumnos */}
+            {/* Table */}
             <div className="alumnos-list-container">
                 <div className="list-header tabla-grid-layout">
-                    <div className="col-center">
-                        <input 
-                            type="checkbox" 
-                            onChange={handleSelectAll} 
-                            disabled={itemsToDisplay.length === 0 || isGlobalProcessing}
-                        />
-                    </div>
-                    <div></div> 
-                    <div>Alumno / Equipo</div>
-                    <div>Estado</div>
-                    <div className="col-center">Nota</div>
-                    <div className="col-right">Acciones</div>
+                    <div className="col-center"><input type="checkbox" onChange={handleSelectAll} disabled={isGlobalProcessing}/></div>
+                    <div></div><div>Alumno</div><div>Estado</div><div className="col-center">Nota</div><div className="col-right">Acciones</div>
                 </div>
 
-                {loadingData ? (
-                    <div className="loading-state"><FaSpinner className="spin" /> Cargando datos...</div>
-                ) : (
+                {loadingData ? <div className="loading-state"><FaSpinner className="spin"/> Cargando...</div> : (
                     <ul className="alumnos-list">
-                        {itemsToDisplay.length > 0 ? itemsToDisplay.map(item => {
-                            const isSelected = selectedIds.has(item.id);
-                            const hasFile = !!item.evidencia_drive_file_id;
-                            const isLocked = item.estado === 'procesando' || isStartingBulk;
+                        {itemsToDisplay.map(item => {
+                            const isSel = selectedIds.has(item.id);
                             const isFinished = item.estado === 'calificado';
+                            const isLocked = item.estado === 'procesando' || isStartingBulk;
+                            const hasFile = !!item.evidencia_drive_file_id;
 
                             return (
-                                <li key={item.id} className={`${isSelected ? 'selected-bg' : ''} ${isLocked ? 'row-processing' : ''} ${isFinished ? 'row-finished' : ''}`}>
+                                <li key={item.id} className={`${isSel ? 'selected-bg' : ''} ${isLocked ? 'row-processing' : ''} ${isFinished ? 'row-finished' : ''}`}>
                                     <div className="tabla-grid-layout">
-                                        
-                                        {/* Checkbox */}
                                         <div className="col-center">
                                             {hasFile && (
-                                                <input 
-                                                    type="checkbox" 
-                                                    checked={isSelected} 
-                                                    onChange={() => handleSelectOne(item)}
-                                                    disabled={isLocked || isFinished} 
-                                                />
+                                                <input type="checkbox" checked={isSel} onChange={() => handleSelectOne(item)} disabled={isLocked || isFinished} />
                                             )}
                                         </div>
-
-                                        {/* Icono Tipo */}
-                                        <div className="col-center">
-                                            {item.isGroup ? <FaUsers style={{color:'#6366f1'}}/> : <FaUser style={{color:'#94a3b8'}}/>}
-                                        </div>
-                                        
-                                        {/* Nombre y Enlace */}
+                                        <div className="col-center">{item.isGroup ? <FaUsers color="#6366f1"/> : <FaUser color="#94a3b8"/>}</div>
                                         <div className="alumno-info">
                                             {item.drive_url_entrega ? (
                                                 <a href={item.drive_url_entrega} target="_blank" rel="noreferrer" className="alumno-link-archivo">
@@ -361,60 +330,34 @@ const CalificacionPanel = () => {
                                             ) : (
                                                 <span className="entregable-nombre">{item.displayName}</span>
                                             )}
-                                            <span className="matricula-text">
-                                                {item.isGroup ? `${item.displayCount} Integrantes` : item.displayMatricula}
-                                            </span>
+                                            <span className="matricula-text">{item.isGroup ? 'Equipo' : item.displayMatricula}</span>
                                         </div>
-
-                                        {/* Estado */}
                                         <div>{getStatusBadge(item)}</div>
-
-                                        {/* Nota */}
                                         <div className="col-center">
                                             {item.calificacion_obtenida != null ? (
                                                 <span className={`calificacion-badge ${item.calificacion_obtenida >= 70 ? 'aprobado' : 'reprobado'}`}>
                                                     {item.calificacion_obtenida}
                                                 </span>
-                                            ) : <span className="calificacion-badge pendiente">-</span>}
+                                            ) : '-'}
                                         </div>
-
-                                        {/* ACCIONES */}
                                         <div className="col-right actions-group">
-                                            {/* BOTÓN OJO: Ver Retro (Solo si calificado) */}
                                             {isFinished && (
-                                                <button 
-                                                    onClick={() => setSelectedJustificacion(item)}
-                                                    className="btn-secondary btn-small icon-button"
-                                                    title="Ver Justificación de la IA"
-                                                >
+                                                <button onClick={() => setSelectedJustificacion(item)} className="btn-secondary btn-small icon-button" title="Ver Retro">
                                                     <FaEye /> Ver Retro
                                                 </button>
                                             )}
-
-                                            {/* Botón Manual */}
-                                            {hasFile && (
-                                                <Link 
-                                                    to={`/evaluacion/${item.id}/calificar`} 
-                                                    className="btn-tertiary btn-small"
-                                                    title="Editar manualmente"
-                                                >
-                                                    <FaEdit />
-                                                </Link>
-                                            )}
-                                            
-                                            {/* Botón Reintentar */}
                                             {item.estado === 'fallido' && (
-                                                <button onClick={() => handleReintentar(item.id)} className="btn-error-retry btn-small">
-                                                    <FaSync /> Reintentar
-                                                </button>
+                                                <button onClick={() => handleReintentar(item.id)} className="btn-error-retry btn-small"><FaSync /> Reintentar</button>
+                                            )}
+                                            {hasFile && (
+                                                <Link to={`/evaluacion/${item.id}/calificar`} className="btn-tertiary btn-small"><FaEdit/></Link>
                                             )}
                                         </div>
                                     </div>
                                 </li>
                             );
-                        }) : (
-                            <li className="empty-state">No se encontraron entregas.</li>
-                        )}
+                        })}
+                        {itemsToDisplay.length === 0 && <li className="empty-state">No hay entregas aún.</li>}
                     </ul>
                 )}
             </div>

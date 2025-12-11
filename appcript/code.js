@@ -102,6 +102,8 @@ function doPost(e) {
         return crearRespuestaExitosa(handleEliminarRecurso(payload));
       case 'leer_datos_asistencia': // <-- AÑADE ESTE CASO
         return crearRespuestaExitosa(handleLeerDatosAsistencia(payload));
+      case 'leer_reporte_detallado': // <--- NUEVO CASO
+        return crearRespuestaExitosa(handleLeerReporteDetallado(payload));
       
       // --- INICIO FASE 2: CALIFICACIONES DE UNIDAD ---
       case 'get_component_counts_for_unit':

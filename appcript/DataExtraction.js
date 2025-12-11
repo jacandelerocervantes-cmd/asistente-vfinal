@@ -393,3 +393,56 @@ function handleLeerDatosAsistencia(payload) {
     throw new Error(`No se pudieron leer los datos de asistencia. ${e.message}`);
   }
 }
+
+/**
+ * Busca el archivo de reporte de la actividad y extrae las calificaciones y retroalimentación.
+ */
+function handleLeerReporteDetallado(payload) {
+  const { drive_url_materia, unidad, nombre_actividad } = payload;
+  
+  // 1. Navegar a la carpeta
+  const materiaId = extractDriveIdFromUrl(drive_url_materia);
+  const carpetaMateria = DriveApp.getFolderById(materiaId);
+  const carpetaActividades = getOrCreateFolder(carpetaMateria, "Actividades");
+  const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
+  const carpetaReportes = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
+  
+  // 2. Buscar el archivo
+  const nombreArchivo = `Reporte - ${nombre_actividad}`;
+  const files = carpetaReportes.getFilesByName(nombreArchivo);
+  
+  if (!files.hasNext()) {
+    return { error: "No se encontró el archivo de reporte en Drive: " + nombreArchivo };
+  }
+  
+  const ss = SpreadsheetApp.open(files.next());
+  const sheet = ss.getSheetByName("Detalle");
+  
+  if (!sheet) return { error: "El archivo existe pero no tiene la hoja 'Detalle'." };
+  
+  // 3. Leer datos (Asumiendo columnas: Matricula, Nombre, Calificacion, Retro)
+  const data = sheet.getDataRange().getValues();
+  // Headers fila 0. Datos desde fila 1.
+  // Buscamos índices dinámicamente
+  const headers = data[0].map(h => String(h).toUpperCase());
+  const idxMatricula = headers.findIndex(h => h.includes("MATR"));
+  const idxNota = headers.indexOf("CALIFICACIÓN") > -1 ? headers.indexOf("CALIFICACIÓN") : 2;
+  const idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("IA"));
+  
+  if (idxMatricula === -1) return { error: "No se encontró columna de Matrícula" };
+  
+  const resultados = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const matricula = String(row[idxMatricula]).trim().toUpperCase();
+    if (matricula) {
+      resultados.push({
+        matricula: matricula,
+        calificacion: row[idxNota],
+        retroalimentacion: row[idxRetro] || "Sin justificación en el reporte."
+      });
+    }
+  }
+  
+  return { calificaciones: resultados };
+}

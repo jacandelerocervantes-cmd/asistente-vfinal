@@ -1,174 +1,83 @@
-// supabase/functions/sincronizar-evaluacion-sheets/index.ts
 import { serve } from "std/http/server.ts";
 import { createClient } from "@supabase/supabase-js";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', // Ajusta en producción
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-interface RequestPayload {
-    evaluacion_id: number;
-}
+import { corsHeaders } from '../_shared/cors.ts';
 
 serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    // Autenticación del docente
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("Se requiere cabecera de autorización.");
-
+    const { actividad_id } = await req.json();
+    
     const supabaseClient = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_ANON_KEY")!,
-        { global: { headers: { Authorization: authHeader } } }
-    );
-    const { data: { user } } = await supabaseClient.auth.getUser();
-    if (!user) throw new Error("Usuario no autenticado.");
-
-    const { evaluacion_id }: RequestPayload = await req.json();
-    if (!evaluacion_id) {
-      throw new Error("Falta el parámetro 'evaluacion_id'.");
-    }
-
-    console.log(`Iniciando sincronización para evaluación ID: ${evaluacion_id} por usuario ${user.id}`);
-
-    // Usar cliente Admin para asegurar acceso a todos los datos necesarios
-    const supabaseAdmin = createClient(
-        Deno.env.get('SUPABASE_URL')!,
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
-    // 1. Obtener datos de la evaluación y materia (incluyendo el ID de Sheets)
-    const { data: evaluacionData, error: evalError } = await supabaseAdmin
-        .from('evaluaciones')
-        .select(`
-            id,
-            titulo,
-            unidad,
-            materias (
-                id,
-                calificaciones_spreadsheet_id
-            )
-        `)
-        .eq('id', evaluacion_id)
-        .eq('user_id', user.id) // Asegurar que el docente sea el dueño
-        .single();
+    // 1. Obtener info de la actividad
+    const { data: actividad, error: actError } = await supabaseClient
+      .from('actividades')
+      .select('materia_id, nombre, unidad, materias(drive_url)')
+      .eq('id', actividad_id)
+      .single();
 
-    if (evalError) throw new Error(`Error al obtener evaluación: ${evalError.message}`);
-    if (!evaluacionData) throw new Error("Evaluación no encontrada o no pertenece al usuario.");
+    if (actError || !actividad) throw new Error("Actividad no encontrada");
 
-    // Supabase puede devolver la relación como un array, tomamos el primer elemento.
-    const materia = (Array.isArray(evaluacionData.materias) ? evaluacionData.materias[0] : evaluacionData.materias) as { id: number; calificaciones_spreadsheet_id: string | null; } | null;
+    // 2. Llamar a Apps Script para leer el Excel
+    const appsScriptUrl = Deno.env.get('GOOGLE_SCRIPT_CREATE_MATERIA_URL')!;
+    // @ts-ignore: Supabase types
+    const driveUrl = Array.isArray(actividad.materias) ? actividad.materias[0]?.drive_url : actividad.materias?.drive_url;
 
-    if (!materia || !materia.calificaciones_spreadsheet_id) {
-        throw new Error("La materia asociada a esta evaluación no tiene configurado un ID de Google Sheet para reportes.");
-    }
-
-    const spreadsheetId = materia.calificaciones_spreadsheet_id;
-    const nombreEvaluacion = evaluacionData.titulo;
-    const unidadEvaluacion = evaluacionData.unidad;
-
-    // 2. Obtener todos los intentos en estado 'calificado' para esta evaluación
-    const { data: intentosCalificados, error: intentosError } = await supabaseAdmin
-        .from('intentos_evaluacion')
-        .select(`
-            id,
-            calificacion_final,
-            alumnos (
-                id,
-                matricula,
-                nombre,
-                apellido
-            )
-        `)
-        .eq('evaluacion_id', evaluacion_id)
-        .eq('estado', 'calificado') // Solo los ya calificados
-        .not('calificacion_final', 'is', null); // Asegurarse que tengan calificación
-
-    if (intentosError) throw new Error(`Error al obtener intentos calificados: ${intentosError.message}`);
-
-    if (!intentosCalificados || intentosCalificados.length === 0) {
-        console.log(`No hay intentos calificados para sincronizar para evaluación ID: ${evaluacion_id}`);
-        return new Response(JSON.stringify({ message: "No hay calificaciones finales para sincronizar." }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        });
-    }
-
-    console.log(`Encontrados ${intentosCalificados.length} intentos calificados para enviar a Sheets.`);
-
-    // 3. Preparar el payload para Apps Script
-    const calificacionesParaSheets = intentosCalificados.map(intento => {
-        // Supabase puede devolver la relación como un array, tomamos el primer elemento.
-        const alumno = (Array.isArray(intento.alumnos) ? intento.alumnos[0] : intento.alumnos) as { id: number; matricula: string; nombre: string; apellido: string; } | null;
-        return {
-            matricula: alumno ? alumno.matricula : 'N/A',
-            nombre: alumno ? `${alumno.nombre || ''} ${alumno.apellido || ''}`.trim() : 'Alumno Desconocido',
-            calificacion_final: intento.calificacion_final
-        };
-    }).filter(cal => cal.matricula !== 'N/A'); // Filtrar por si acaso
-
-     if (calificacionesParaSheets.length === 0) {
-        console.log(`Después del filtrado, no quedaron calificaciones válidas para enviar.`);
-        return new Response(JSON.stringify({ message: "No se encontraron datos de alumnos válidos en los intentos calificados." }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200, // No es un error fatal, simplemente no hay nada que enviar
-        });
-    }
-
-
-    const payloadSheets = {
-        action: 'guardar_calificaciones_evaluacion',
-        calificaciones_spreadsheet_id: spreadsheetId,
-        nombre_evaluacion: nombreEvaluacion,
-        unidad: unidadEvaluacion,
-        calificaciones: calificacionesParaSheets
-    };
-
-    // 4. Llamar a Google Apps Script
-    const appsScriptUrl = Deno.env.get("GOOGLE_SCRIPT_CREATE_MATERIA_URL");
-    if (!appsScriptUrl) throw new Error("La URL de Apps Script no está configurada.");
-
-    console.log("Enviando datos a Google Apps Script...");
-    const scriptResponse = await fetch(appsScriptUrl, {
+    const response = await fetch(appsScriptUrl, {
       method: 'POST',
-      body: JSON.stringify(payloadSheets),
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'leer_reporte_detallado',
+        drive_url_materia: driveUrl,
+        unidad: actividad.unidad,
+        nombre_actividad: actividad.nombre
+      })
     });
 
-    const responseText = await scriptResponse.text(); // Leer como texto primero
-    console.log(`Respuesta de Apps Script (status ${scriptResponse.status}): ${responseText}`);
-    if (!scriptResponse.ok) {
-        throw new Error(`Google Apps Script devolvió un error (${scriptResponse.status}): ${responseText}`);
+    const gasData = await response.json();
+    if (gasData.status !== 'success') {
+        throw new Error("Error leyendo Excel: " + (gasData.message || 'Desconocido'));
+    }
+    
+    const resultadosExcel = gasData.calificaciones; // Array [{matricula, retroalimentacion, ...}]
+    if (!resultadosExcel || resultadosExcel.length === 0) {
+        return new Response(JSON.stringify({ message: "El reporte en Excel está vacío." }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    let scriptResult;
-    try {
-        scriptResult = JSON.parse(responseText); // Intentar parsear como JSON
-    } catch (_e) {
-        throw new Error(`La respuesta de Apps Script no es un JSON válido: ${responseText}`);
+    // 3. Actualizar Supabase
+    let actualizados = 0;
+    
+    // Obtenemos IDs de alumnos por matrícula para hacer el match
+    const { data: alumnos } = await supabaseClient.from('alumnos').select('id, matricula').eq('materia_id', actividad.materia_id);
+    const mapAlumnos = new Map(alumnos?.map(a => [a.matricula.toUpperCase().trim(), a.id]));
+
+    for (const item of resultadosExcel) {
+        const alumnoId = mapAlumnos.get(item.matricula);
+        if (alumnoId) {
+            const { error: upError } = await supabaseClient
+                .from('calificaciones')
+                .update({ 
+                    retroalimentacion: item.retroalimentacion,
+                    // Opcional: sincronizar nota también si quieres
+                    // calificacion_obtenida: item.calificacion 
+                })
+                .eq('actividad_id', actividad_id)
+                .eq('alumno_id', alumnoId);
+            
+            if (!upError) actualizados++;
+        }
     }
 
-    if (scriptResult.status !== 'success') {
-      throw new Error(`Google Apps Script reportó un error: ${scriptResult.message}`);
-    }
+    return new Response(JSON.stringify({ 
+        message: `Sincronización completada. ${actualizados} registros actualizados desde el Excel.` 
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
-    console.log(`Sincronización completada para evaluación ID: ${evaluacion_id}`);
-    return new Response(JSON.stringify({ message: scriptResult.message || "Sincronización con Google Sheets completada." }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
-    });
-
-  } catch (error) {
-    console.error("Error en sincronizar-evaluacion-sheets:", error);
-    const message = error instanceof Error ? error.message : "Error desconocido durante la sincronización.";
-    return new Response(JSON.stringify({ message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500,
-    });
+  } catch (e) {
+    const error = e instanceof Error ? e : new Error(String(e));
+    return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 });
   }
 });
