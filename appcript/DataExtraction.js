@@ -395,11 +395,14 @@ function handleLeerDatosAsistencia(payload) {
 }
 
 /**
- * Busca el archivo de reporte de la actividad y extrae las calificaciones y retroalimentación.
+ * Busca el archivo de reporte de la actividad y extrae datos.
  */
 function handleLeerReporteDetallado(payload) {
+  Logger.log("Iniciando lectura de reporte detallado...");
   const { drive_url_materia, unidad, nombre_actividad } = payload;
   
+  if (!drive_url_materia || !nombre_actividad) throw new Error("Faltan datos para leer reporte.");
+
   // 1. Navegar a la carpeta
   const materiaId = extractDriveIdFromUrl(drive_url_materia);
   const carpetaMateria = DriveApp.getFolderById(materiaId);
@@ -407,42 +410,55 @@ function handleLeerReporteDetallado(payload) {
   const carpetaUnidad = getOrCreateFolder(carpetaActividades, `Unidad ${unidad}`);
   const carpetaReportes = getOrCreateFolder(carpetaUnidad, "Reportes por Actividad");
   
-  // 2. Buscar el archivo
+  // 2. Buscar el archivo "Reporte - [Nombre]"
   const nombreArchivo = `Reporte - ${nombre_actividad}`;
   const files = carpetaReportes.getFilesByName(nombreArchivo);
   
   if (!files.hasNext()) {
-    return { error: "No se encontró el archivo de reporte en Drive: " + nombreArchivo };
+    Logger.log(`Archivo no encontrado: ${nombreArchivo}`);
+    return { calificaciones: [], message: "Archivo de reporte no encontrado." };
   }
   
   const ss = SpreadsheetApp.open(files.next());
-  const sheet = ss.getSheetByName("Detalle");
+  const sheet = ss.getSheetByName("Detalle"); // Buscamos la hoja "Detalle" creada por SheetsActividades
   
-  if (!sheet) return { error: "El archivo existe pero no tiene la hoja 'Detalle'." };
+  if (!sheet) {
+     Logger.log("Hoja 'Detalle' no encontrada en el reporte.");
+     return { calificaciones: [], message: "Hoja 'Detalle' no existe." };
+  }
   
-  // 3. Leer datos (Asumiendo columnas: Matricula, Nombre, Calificacion, Retro)
+  // 3. Leer datos dinámicamente
   const data = sheet.getDataRange().getValues();
-  // Headers fila 0. Datos desde fila 1.
-  // Buscamos índices dinámicamente
-  const headers = data[0].map(h => String(h).toUpperCase());
-  const idxMatricula = headers.findIndex(h => h.includes("MATR"));
-  const idxNota = headers.indexOf("CALIFICACIÓN") > -1 ? headers.indexOf("CALIFICACIÓN") : 2;
-  const idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("IA"));
+  if (data.length < 2) return { calificaciones: [] }; // Solo headers o vacío
+
+  const headers = data[0].map(h => String(h).toUpperCase().trim());
+  Logger.log("Headers encontrados: " + headers.join(", "));
+
+  // Buscamos índices flexibles
+  const idxMatricula = headers.findIndex(h => h.includes("MATR")); // Matrícula
+  const idxNota = headers.findIndex(h => h.includes("CALIFICACI") || h.includes("NOTA"));
+  // Buscamos Retroalimentación, Justificación, o Observaciones
+  const idxRetro = headers.findIndex(h => h.includes("RETRO") || h.includes("JUSTIF") || h.includes("OBSERVACION"));
   
-  if (idxMatricula === -1) return { error: "No se encontró columna de Matrícula" };
+  if (idxMatricula === -1) {
+     Logger.log("No se encontró columna Matrícula.");
+     return { calificaciones: [], error: "Formato de reporte inválido (Falta Matrícula)" };
+  }
   
   const resultados = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const matricula = String(row[idxMatricula]).trim().toUpperCase();
-    if (matricula) {
+    const matricula = String(row[idxMatricula]).trim();
+    
+    if (matricula && matricula !== "#N/A") {
       resultados.push({
         matricula: matricula,
-        calificacion: row[idxNota],
-        retroalimentacion: row[idxRetro] || "Sin justificación en el reporte."
+        calificacion: idxNota > -1 ? row[idxNota] : null,
+        retroalimentacion: idxRetro > -1 ? String(row[idxRetro]) : ""
       });
     }
   }
   
+  Logger.log(`Leídas ${resultados.length} filas del reporte.`);
   return { calificaciones: resultados };
 }

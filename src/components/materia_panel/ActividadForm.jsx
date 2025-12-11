@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useNotification } from '../../context/NotificationContext';
 import './ActividadForm.css';
-import { FaMagic, FaSave, FaTimes, FaSpinner, FaPlus, FaTrash } from 'react-icons/fa';
+import { FaMagic, FaSave, FaTimes, FaSpinner, FaPlus, FaTrash, FaInfoCircle } from 'react-icons/fa';
 
 const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit }) => {
     const { showNotification } = useNotification();
@@ -21,19 +21,21 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
     const [loading, setLoading] = useState(false);
     const [generatingIA, setGeneratingIA] = useState(false);
 
-    // --- SAFE HANDLERS (Evitan el error "r is not a function") ---
+    // --- HELPER: GENERAR NOMBRE DE ARCHIVO SUGERIDO ---
+    const generarNombreSugerido = (nombreAct) => {
+        if (!nombreAct) return "[Matricula]_NombreActividad.pdf";
+        // Limpia espacios y caracteres especiales
+        const limpio = nombreAct.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+        return `[Matricula]_${limpio}.pdf`;
+    };
+
+    // --- SAFE HANDLERS ---
     const handleClose = () => {
-        if (typeof onClose === 'function') {
-            onClose();
-        } else {
-            console.warn('onClose prop missing in ActividadForm');
-        }
+        if (typeof onClose === 'function') onClose();
     };
 
     const handleSuccessCallback = () => {
-        if (typeof onActivityCreated === 'function') {
-            onActivityCreated();
-        }
+        if (typeof onActivityCreated === 'function') onActivityCreated();
     };
 
     // --- CARGAR DATOS SI ESTAMOS EDITANDO ---
@@ -44,20 +46,14 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
             setTipoEntrega(actividadToEdit.tipo_entrega || 'individual');
             setDescripcion(actividadToEdit.descripcion || '');
             
-            // Lógica robusta para cargar criterios (pueden venir como JSON Object o JSON String)
             if (actividadToEdit.criterios) {
                 if (Array.isArray(actividadToEdit.criterios)) {
                     setCriterios(actividadToEdit.criterios);
                 } else if (typeof actividadToEdit.criterios === 'string') {
                     try {
                         const parsed = JSON.parse(actividadToEdit.criterios);
-                        if (Array.isArray(parsed)) {
-                            setCriterios(parsed);
-                        } else {
-                            setCriterios([{ descripcion: '', puntos: '' }]);
-                        }
+                        setCriterios(Array.isArray(parsed) ? parsed : [{ descripcion: '', puntos: '' }]);
                     } catch (e) {
-                        console.error("Error parseando criterios:", e);
                         setCriterios([{ descripcion: '', puntos: '' }]);
                     }
                 }
@@ -81,13 +77,12 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
         setCriterios(newCriterios);
     };
 
-    // Calcular suma total de puntos en tiempo real
     const totalPuntos = criterios.reduce((sum, item) => sum + (parseInt(item.puntos) || 0), 0);
 
     // --- IA: SUGERIR RÚBRICA ---
     const handleSuggestRubric = async () => {
         if (!descripcion || descripcion.length < 5) {
-            showNotification('Escribe una descripción de la actividad primero para que la IA tenga contexto.', 'warning');
+            showNotification('Escribe una descripción primero.', 'warning');
             return;
         }
 
@@ -104,13 +99,10 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
 
             if (data.criterios && Array.isArray(data.criterios)) {
                 setCriterios(data.criterios);
-                showNotification('¡Rúbrica generada por IA!', 'success');
-            } else {
-                showNotification('La IA respondió, pero no devolvió criterios válidos.', 'warning');
+                showNotification('Rúbrica generada por IA.', 'success');
             }
         } catch (error) {
-            console.error('Error IA:', error);
-            showNotification('Error al conectar con la IA: ' + (error.message || 'Desconocido'), 'error');
+            showNotification('Error IA: ' + (error.message || 'Desconocido'), 'error');
         } finally {
             setGeneratingIA(false);
         }
@@ -120,51 +112,53 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Validación de puntos
+        // 1. Validaciones
+        if (!materia || !materia.id || !materia.drive_url) {
+            showNotification("Error crítico: No se ha cargado la información de la materia.", 'error');
+            console.error("Materia faltante:", materia);
+            return;
+        }
         if (totalPuntos !== 100) {
-            showNotification(`Los criterios deben sumar exactamente 100 puntos. Suma actual: ${totalPuntos}`, 'error');
+            showNotification(`Los criterios deben sumar 100. Actual: ${totalPuntos}`, 'error');
             return;
         }
 
         setLoading(true);
         try {
-            // Construcción del Payload
+            // 2. Construcción del Payload (CORREGIDO)
             const payload = {
-                materia_id: materia?.id,
-                drive_url_materia: materia?.drive_url,
-                nombre: nombre, 
+                materia_id: materia.id,
+                drive_url_materia: materia.drive_url,
+                nombre_actividad: nombre, // <--- AQUÍ ESTABA EL ERROR (antes 'nombre')
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
                 descripcion: descripcion,
-                rubricas_spreadsheet_id: materia?.rubricas_spreadsheet_id 
+                rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id 
             };
 
-            let endpoint = 'crear-actividad'; // Endpoint por defecto
+            let endpoint = 'crear-actividad';
 
             if (isEditing) {
                 endpoint = 'actualizar-actividad';
-                payload.id = actividadToEdit.id; // IMPORTANTE: Enviar el ID para actualizar
+                payload.id = actividadToEdit.id; 
+                // Para actualizar, a veces el backend pide 'nombre' o 'nombre_actividad'.
+                // Enviamos ambos para asegurar compatibilidad.
+                payload.nombre = nombre; 
             }
 
-            // Llamada al Backend
+            // 3. Llamada al Backend
             const { error } = await supabase.functions.invoke(endpoint, { body: payload });
 
-            if (error) {
-                const errorMsg = error.message || 'Error desconocido en el servidor';
-                throw new Error(errorMsg);
-            }
+            if (error) throw new Error(error.message || 'Error desconocido');
 
-            // Éxito
-            showNotification(isEditing ? 'Actividad actualizada correctamente.' : 'Actividad creada correctamente.', 'success');
-            
-            // Llamadas seguras a los callbacks del padre
+            showNotification(isEditing ? 'Actualizado correctamente.' : 'Creado correctamente.', 'success');
             handleSuccessCallback();
             handleClose();
 
         } catch (error) {
             console.error('Error submit:', error);
-            showNotification(`Error al guardar: ${error.message}`, 'error');
+            showNotification(`Error: ${error.message}`, 'error');
         } finally {
             setLoading(false);
         }
@@ -193,6 +187,16 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                 required 
                                 placeholder="Ej. Ensayo sobre Suelos"
                             />
+                            {/* --- SUGERENCIA DE NOMBRE DE ARCHIVO --- */}
+                            {nombre && (
+                                <div className="file-name-hint">
+                                    <FaInfoCircle className="hint-icon"/>
+                                    <span>
+                                        Formato sugerido para alumnos: <br/>
+                                        <code className="code-hint">{generarNombreSugerido(nombre)}</code>
+                                    </span>
+                                </div>
+                            )}
                         </div>
                         <div className="form-group short">
                             <label>Unidad</label>
@@ -221,7 +225,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                         <div className="label-with-action">
                             <label>Descripción / Instrucciones</label>
                             <button 
-                                type="button" // IMPORTANTE: type="button"
+                                type="button" 
                                 className="btn-ia-suggest"
                                 onClick={handleSuggestRubric}
                                 disabled={generatingIA}
@@ -234,7 +238,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                         <textarea 
                             value={descripcion} 
                             onChange={(e) => setDescripcion(e.target.value)} 
-                            placeholder="Describe detalladamente qué deben hacer los alumnos. La IA usará esto para crear la rúbrica."
+                            placeholder="Describe detalladamente la actividad..."
                             rows="4"
                         />
                     </div>
@@ -242,7 +246,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                     {/* Editor de Rúbrica */}
                     <div className="rubrica-section">
                         <div className="rubrica-header">
-                            <h4>Rúbrica de Evaluación</h4>
+                            <h4>Rúbrica</h4>
                             <span className={`puntos-counter ${totalPuntos === 100 ? 'ok' : 'error'}`}>
                                 Total: {totalPuntos} / 100
                             </span>
@@ -253,7 +257,7 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                 <div key={index} className="criterio-row">
                                     <input 
                                         type="text" 
-                                        placeholder="Descripción del criterio (ej. Ortografía)"
+                                        placeholder="Descripción"
                                         value={item.descripcion}
                                         onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
                                         className="input-desc"
@@ -268,43 +272,20 @@ const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit })
                                         required
                                     />
                                     {criterios.length > 1 && (
-                                        <button 
-                                            type="button" // IMPORTANTE: type="button"
-                                            onClick={() => removeCriterio(index)} 
-                                            className="btn-remove"
-                                            title="Eliminar criterio"
-                                        >
-                                            <FaTrash />
-                                        </button>
+                                        <button type="button" onClick={() => removeCriterio(index)} className="btn-remove"><FaTrash /></button>
                                     )}
                                 </div>
                             ))}
                         </div>
-                        <button 
-                            type="button" // IMPORTANTE: type="button"
-                            onClick={addCriterio} 
-                            className="btn-add-criterio"
-                        >
-                            <FaPlus /> Agregar Criterio
-                        </button>
+                        <button type="button" onClick={addCriterio} className="btn-add-criterio"><FaPlus /> Agregar Criterio</button>
                     </div>
 
                     {/* Botones Finales */}
                     <div className="form-actions">
-                        <button 
-                            type="button" // IMPORTANTE: type="button"
-                            onClick={handleClose} 
-                            className="btn-cancel"
-                        >
-                            Cancelar
-                        </button>
-                        <button 
-                            type="submit" 
-                            className="btn-save" 
-                            disabled={loading || totalPuntos !== 100}
-                        >
+                        <button type="button" onClick={handleClose} className="btn-cancel">Cancelar</button>
+                        <button type="submit" className="btn-save" disabled={loading || totalPuntos !== 100}>
                             {loading ? <FaSpinner className="spin" /> : <FaSave />}
-                            {loading ? ' Guardando...' : ' Guardar Actividad'}
+                            {loading ? ' Guardando...' : ' Guardar'}
                         </button>
                     </div>
                 </form>
