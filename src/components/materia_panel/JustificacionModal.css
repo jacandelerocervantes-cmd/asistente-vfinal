@@ -1,90 +1,106 @@
 /* src/components/materia_panel/JustificacionModal.css */
 .modal-overlay {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.6);
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     justify-content: center;
     align-items: center;
     z-index: 1000;
+    backdrop-filter: blur(2px);
 }
 
-.modal-content {
+.justificacion-modal {
     background: white;
-    padding: var(--spacing-lg);
-    border-radius: var(--border-radius);
     width: 90%;
     max-width: 600px;
-    max-height: 80vh;
-    overflow-y: auto;
-    animation: fadeIn 0.3s ease-out;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
 }
 
 .modal-header {
+    padding: 16px 24px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
+    color: white;
 }
 
-.modal-header h3 {
-    color: var(--color-primary);
-    margin: 0;
-    font-size: 1.4rem;
-}
+.header-success { background: linear-gradient(135deg, #16a34a, #15803d); }
+.header-warning { background: linear-gradient(135deg, #ea580c, #c2410c); }
 
-.close-btn {
-    background: none;
+.header-title { display: flex; align-items: center; gap: 10px; }
+.header-title h3 { margin: 0; font-size: 1.1rem; }
+.ia-icon { font-size: 1.2rem; }
+
+.close-button {
+    background: transparent;
     border: none;
-    font-size: 2rem;
+    color: white;
+    font-size: 1.2rem;
     cursor: pointer;
-    color: #888;
+    padding: 4px;
 }
 
-.calificacion-info {
-    margin-bottom: var(--spacing-lg);
-    font-size: 1.1rem;
+.modal-body { padding: 24px; overflow-y: auto; }
+
+.score-summary {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8fafc;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border: 1px solid #e2e8f0;
 }
 
-.calificacion-info span {
-    font-weight: bold;
-    font-size: 1.3rem;
-    padding: 4px 8px;
-    border-radius: var(--border-radius);
+.score-badge {
+    padding: 6px 12px;
+    border-radius: 6px;
+    display: flex;
+    gap: 8px;
+}
+.score-badge.pass { background: #dcfce7; color: #166534; }
+.score-badge.fail { background: #fee2e2; color: #991b1b; }
+
+.justification-content h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #334155;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 8px;
+    display: inline-block;
 }
 
-.calificacion-info .aprobado {
-    color: #2f855a;
-    background-color: #c6f6d5;
-}
-
-.calificacion-info .reprobado {
-    color: #c53030;
-    background-color: #fed7d7;
-}
-
-.justificacion-texto h4 {
-    color: var(--color-secondary);
-    margin-bottom: var(--spacing-sm);
-}
-
-.justificacion-texto p {
-    background-color: #f9fafb;
-    padding: var(--spacing-md);
-    border-radius: var(--border-radius);
-    white-space: pre-wrap; /* Mantiene los saltos de línea de la justificación */
+.text-scroll-area {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 0.95rem;
     line-height: 1.6;
+    color: #1e293b;
+    /* ESTA ES LA CLAVE PARA QUE SE VEA EL TEXTO DE LA IA */
+    white-space: pre-wrap; 
+    background-color: #fff;
 }
 
 .modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid #e2e8f0;
     display: flex;
     justify-content: flex-end;
-    margin-top: var(--spacing-xl);
-    padding-top: var(--spacing-md);
-    border-top: 1px solid var(--color-border);
+    background: #f8fafc;
+}
+
+.btn-primary {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
 }

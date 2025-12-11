@@ -2,296 +2,246 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useNotification } from '../../context/NotificationContext';
-import { FaSpinner, FaInfoCircle } from 'react-icons/fa'; 
 import './ActividadForm.css';
+import { FaMagic, FaSave, FaTimes, FaSpinner } from 'react-icons/fa';
 
-const ActividadForm = ({ materia, actividadToEdit, onSave, onCancel, initialUnidad }) => {
-    const [nombre, setNombre] = useState('');
-    const [unidad, setUnidad] = useState(initialUnidad || 1);
-    const [descripcion, setDescripcion] = useState('');
-    const [tipoEntrega, setTipoEntrega] = useState('individual');
-    const [criterios, setCriterios] = useState([{ descripcion: '', puntos: 50 }, { descripcion: '', puntos: 50 }]);
-    const [loading, setLoading] = useState(false);
-    const [loadingRubric, setLoadingRubric] = useState(false);
-    const isEditing = Boolean(actividadToEdit);
-    
+const ActividadForm = ({ materia, onClose, onActivityCreated, actividadToEdit }) => {
     const { showNotification } = useNotification();
+    const isEditing = !!actividadToEdit;
 
-    // Función auxiliar para generar el nombre de archivo sugerido
-    const generarNombreArchivo = (nombreActividad) => {
-        if (!nombreActividad) return "[Matricula]_NombreActividad.pdf";
-        const limpio = nombreActividad.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
-        return `[Matricula]_${limpio}.pdf`;
-    };
+    // Estados del formulario
+    const [nombre, setNombre] = useState('');
+    const [unidad, setUnidad] = useState(1);
+    const [tipoEntrega, setTipoEntrega] = useState('individual');
+    const [descripcion, setDescripcion] = useState('');
+    // Criterios es un array de objetos { descripcion, puntos }
+    const [criterios, setCriterios] = useState([{ descripcion: '', puntos: '' }]);
+    
+    const [loading, setLoading] = useState(false);
+    const [generatingIA, setGeneratingIA] = useState(false);
 
     // Cargar datos si es edición
     useEffect(() => {
-        if (isEditing && actividadToEdit) {
-            setLoading(true);
-            supabase.functions.invoke('get-activity-details', {
-                body: { actividad_id: actividadToEdit.id }
-            }).then(({ data, error }) => {
-                if (error) throw error;
-                setNombre(data.nombre);
-                setUnidad(data.unidad);
-                setTipoEntrega(data.tipo_entrega);
-                setDescripcion(data.descripcion || ''); 
-                if (data.criterios && data.criterios.length > 0) {
-                    setCriterios(data.criterios);
-                }
-            }).catch(error => {
-                const errorMessage = error.context?.details || error.message || "Error al cargar detalles.";
-                showNotification(errorMessage, 'error');
-            }).finally(() => {
-                setLoading(false);
-            });
+        if (actividadToEdit) {
+            setNombre(actividadToEdit.nombre || '');
+            setUnidad(actividadToEdit.unidad || 1);
+            setTipoEntrega(actividadToEdit.tipo_entrega || 'individual');
+            setDescripcion(actividadToEdit.descripcion || '');
+            
+            // Si hay criterios guardados (jsonb), los cargamos
+            if (actividadToEdit.criterios && Array.isArray(actividadToEdit.criterios)) {
+                setCriterios(actividadToEdit.criterios);
+            }
         }
-    }, [actividadToEdit, isEditing, showNotification]);
+    }, [actividadToEdit]);
 
+    // Manejo de Criterios Dinámicos
     const handleCriterioChange = (index, field, value) => {
-        const nuevosCriterios = [...criterios];
-        if (field === 'puntos') {
-            nuevosCriterios[index][field] = value === '' ? '' : parseInt(value, 10);
-        } else {
-            nuevosCriterios[index][field] = value;
-        }
-        setCriterios(nuevosCriterios);
+        const newCriterios = [...criterios];
+        newCriterios[index][field] = value;
+        setCriterios(newCriterios);
     };
 
-    const handleAddCriterio = () => {
-        setCriterios([...criterios, { descripcion: '', puntos: 0 }]);
+    const addCriterio = () => {
+        setCriterios([...criterios, { descripcion: '', puntos: '' }]);
     };
 
-    const handleRemoveCriterio = (index) => {
-        const nuevosCriterios = criterios.filter((_, i) => i !== index);
-        setCriterios(nuevosCriterios);
+    const removeCriterio = (index) => {
+        const newCriterios = criterios.filter((_, i) => i !== index);
+        setCriterios(newCriterios);
     };
 
+    // Calcular total de puntos en tiempo real
+    const totalPuntos = criterios.reduce((sum, item) => sum + (parseInt(item.puntos) || 0), 0);
+
+    // --- FUNCIÓN: GENERAR RÚBRICA CON IA ---
     const handleSuggestRubric = async () => {
-        if (!descripcion) {
-            showNotification("Escribe una descripción para generar la rúbrica.", 'warning');
+        if (!descripcion || descripcion.length < 10) {
+            showNotification('Escribe una descripción detallada primero.', 'warning');
             return;
         }
-        setLoadingRubric(true);
+
+        setGeneratingIA(true);
         try {
             const { data, error } = await supabase.functions.invoke('generar-rubrica-gemini', {
-                body: { descripcion_actividad: descripcion },
+                body: { 
+                    descripcion_actividad: descripcion,
+                    materia_nombre: materia?.nombre || 'General'
+                }
             });
 
             if (error) throw error;
 
-            if (data.criterios && data.criterios.length > 0) {
+            if (data.criterios) {
                 setCriterios(data.criterios);
-                showNotification("Rúbrica generada con éxito.", 'success');
-            } else {
-                showNotification("La IA no pudo generar una rúbrica válida.", 'warning');
+                showNotification('Rúbrica generada por IA exitosamente.', 'success');
             }
         } catch (error) {
-            const errorMessage = error.context?.details || error.message || "Error al generar la rúbrica.";
-            showNotification(errorMessage, 'error');
+            console.error(error);
+            showNotification('Error al generar con IA: ' + error.message, 'error');
         } finally {
-            setLoadingRubric(false);
+            setGeneratingIA(false);
         }
     };
 
-    const totalPuntos = criterios.reduce((sum, crit) => sum + (Number(crit.puntos) || 0), 0);
-
+    // --- FUNCIÓN: GUARDAR (CREAR O EDITAR) ---
     const handleSubmit = async (e) => {
         e.preventDefault();
+
         if (totalPuntos !== 100) {
-            showNotification(`La suma debe ser 100. Actualmente es: ${totalPuntos}.`, 'error');
+            showNotification(`Los puntos deben sumar 100. Actual: ${totalPuntos}`, 'error');
             return;
         }
+
         setLoading(true);
         try {
-            const functionName = isEditing ? 'actualizar-actividad' : 'crear-actividad';
-            
+            // Construimos el Payload Base
             const payload = {
                 materia_id: materia.id,
                 drive_url_materia: materia.drive_url,
-                nombre_actividad: nombre, // Campo para 'crear-actividad'
-                nombre: nombre,           // 'actualizar-actividad' espera este campo
+                nombre: nombre, // El backend espera 'nombre', no 'nombre_actividad'
                 unidad: parseInt(unidad, 10),
                 tipo_entrega: tipoEntrega,
                 criterios: criterios,
                 descripcion: descripcion,
+                rubricas_spreadsheet_id: materia.rubricas_spreadsheet_id // Necesario para crear/actualizar sheet
             };
 
+            let endpoint = 'crear-actividad'; // Por defecto crear
+
             if (isEditing) {
-                // CORRECCIÓN: Usar 'id' como espera el backend
+                endpoint = 'actualizar-actividad';
+                // *** CORRECCIÓN CRÍTICA PARA EDICIÓN ***
                 payload.id = actividadToEdit.id;
             }
 
-            const { data, error } = await supabase.functions.invoke(functionName, {
-                body: payload,
+            const { data, error } = await supabase.functions.invoke(endpoint, {
+                body: payload
             });
 
-            if (error) throw error;
+            if (error) {
+                // Parseamos el error si viene del backend
+                const errorMsg = error.message || 'Error desconocido';
+                throw new Error(errorMsg);
+            }
 
-            showNotification(data.message, 'success');
-            onSave(data.actividad);
+            showNotification(isEditing ? 'Actividad actualizada' : 'Actividad creada correctamente', 'success');
+            onActivityCreated(); // Recargar lista en el padre
+            onClose(); // Cerrar modal
 
         } catch (error) {
-            const errorMessage = error.context?.details || error.message || "Error al guardar la actividad.";
-            showNotification(errorMessage, 'error');
+            console.error('Error submit:', error);
+            showNotification(`Error: ${error.message}`, 'error');
         } finally {
             setLoading(false);
         }
     };
 
-    // --- Función corregida para renderizar la instrucción de nomenclatura ---
-    const renderNamingInstruction = () => {
-        let instruction = "";
-        let detail = "";
-        let exampleFile = "";
-
-        if (tipoEntrega === 'individual') {
-            instruction = "[MATRICULA]_[NombreArchivo]";
-            detail = "Cada alumno debe subir su propio archivo. El sistema detecta la matrícula al inicio del nombre.";
-            exampleFile = "H001_EnsayoJuan.pdf";
-        } else if (tipoEntrega === 'grupal') {
-            instruction = "[MATRICULA_LIDER]_[NombreArchivo]";
-            detail = "Solo un integrante (el líder) sube el archivo. El sistema buscará su equipo y asignará la entrega a todos.";
-            exampleFile = "H001_ProyectoEquipoAlfa.pdf";
-        } else {
-            instruction = "Igual que Grupal o Individual";
-            detail = "Si el alumno tiene equipo, se asigna a todos. Si no tiene equipo, se asigna solo a él.";
-            exampleFile = "H001_Actividad.pdf";
-        }
-
-        return (
-            <div className={`instruction-box ${tipoEntrega}`}>
-                <div className="icon-area">
-                    <FaInfoCircle />
-                </div>
-                <div className="text-area">
-                    <strong>Instrucción para Alumnos ({tipoEntrega}):</strong>
-                    <p>{detail}</p>
-                    <div className="filename-example">
-                        Formato: <span className="code">{instruction}</span>
-                        <br/>
-                        Ejemplo: <span className="code">{exampleFile}</span>
-                    </div>
-                </div>
-            </div>
-        );
-    };
-
-    if (loading && isEditing) {
-        return <p>Cargando datos de la actividad...</p>;
-    }
-
     return (
-        <div className="form-wrapper fade-in">
-            <div className="form-header">
-                <h3>{isEditing ? 'Editar Actividad' : 'Nueva Actividad'}</h3>
-            </div>
-            
-            <form onSubmit={handleSubmit} className="materia-form">
-                <div className="form-group">
-                    <label htmlFor="nombre_actividad">Nombre de la Actividad</label>
-                    <input id="nombre_actividad" type="text" value={nombre} onChange={(e) => setNombre(e.target.value)} required placeholder="Ej. Ensayo Revolución"/>
-                    {/* --- NUEVO: Sugerencia de Formato Dinámica --- */}
-                     {nombre && (
-                        <div style={{marginTop:'5px', fontSize:'0.85rem', color:'#4f46e5', background:'#eef2ff', padding:'8px', borderRadius:'4px'}}>
-                            <strong>💡 Formato de archivo sugerido:</strong><br/>
-                            <code>{generarNombreArchivo(nombre)}</code> (o .docx)
-                        </div>
-                    )}
-                </div>
-    
-                <div className="form-group-horizontal">
-                    <div className="form-group">
-                        <label htmlFor="unidad_actividad">Unidad</label>
-                        <select id="unidad_actividad" value={unidad} onChange={(e) => setUnidad(e.target.value)}>
-                            {Array.from({ length: materia?.unidades || 1 }, (_, i) => i + 1).map(u => (
-                                <option key={u} value={u}>Unidad {u}</option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="form-group">
-                        <label htmlFor="tipo_entrega">Tipo de Entrega</label>
-                        <select
-                            id="tipo_entrega"
-                            value={tipoEntrega}
-                            onChange={(e) => setTipoEntrega(e.target.value)}
-                            disabled={isEditing}
-                        >
-                            <option value="individual">Individual</option>
-                            <option value="grupal">Grupal</option>
-                            <option value="mixta">Mixta</option>
-                        </select>
-                        {isEditing && <small>El tipo de entrega no se puede modificar después de crear la actividad.</small>}
-                    </div>
+        <div className="modal-overlay">
+            <div className="modal-content actividad-form-modal">
+                <div className="modal-header">
+                    <h2>{isEditing ? 'Editar Actividad' : 'Nueva Actividad'}</h2>
+                    <button onClick={onClose} className="close-btn"><FaTimes /></button>
                 </div>
 
-                {/* --- CAJA DE INSTRUCCIONES --- */}
-                {renderNamingInstruction()}
-    
-                <div className="form-group">
-                    <label htmlFor="descripcion_actividad">Descripción e Instrucciones</label>
-                    <textarea
-                        id="descripcion_actividad"
-                        rows="4"
-                        value={descripcion}
-                        onChange={(e) => setDescripcion(e.target.value)}
-                        placeholder="Instrucciones para el alumno..."
-                    ></textarea>
-                    {/* Botón para insertar la regla de nombrado en la descripción */}
-                    {nombre && (
+                <form onSubmit={handleSubmit} className="form-body">
+                    {/* Campos Superiores */}
+                    <div className="form-row">
+                        <div className="form-group">
+                            <label>Nombre de la Actividad</label>
+                            <input 
+                                type="text" 
+                                value={nombre} 
+                                onChange={(e) => setNombre(e.target.value)} 
+                                required 
+                                placeholder="Ej. Ensayo sobre Suelos"
+                            />
+                        </div>
+                        <div className="form-group short">
+                            <label>Unidad</label>
+                            <input 
+                                type="number" 
+                                value={unidad} 
+                                onChange={(e) => setUnidad(e.target.value)} 
+                                min="1" max="10" 
+                                required 
+                            />
+                        </div>
+                    </div>
+
+                    <div className="form-group">
+                        <label>Tipo de Entrega</label>
+                        <select value={tipoEntrega} onChange={(e) => setTipoEntrega(e.target.value)}>
+                            <option value="individual">Individual (Cada alumno sube archivo)</option>
+                            <option value="grupal">Grupal (Un archivo por equipo)</option>
+                            <option value="mixta">Mixta (Individual + Grupal)</option>
+                        </select>
+                    </div>
+
+                    <div className="form-group">
+                        <label>Descripción / Instrucciones</label>
+                        <textarea 
+                            value={descripcion} 
+                            onChange={(e) => setDescripcion(e.target.value)} 
+                            placeholder="Describe qué deben hacer los alumnos..."
+                            rows="3"
+                        />
                         <button 
                             type="button" 
-                            onClick={() => setDescripcion(prev => 
-                                (prev || '') + `\n\nNOTA: Por favor nombra tu archivo así: "${generarNombreArchivo(nombre)}".`
-                            )}
-                            style={{fontSize:'0.8rem', color:'#4f46e5', background:'none', border:'none', cursor:'pointer', textDecoration:'underline', padding:'0', marginTop:'5px'}}
+                            className="btn-ia-suggest"
+                            onClick={handleSuggestRubric}
+                            disabled={generatingIA}
                         >
-                            + Agregar regla de nombrado a la descripción
-                        </button>
-                    )}
-                </div>
-    
-                <div className="rubrica-section">
-                    <div className="rubrica-header">
-                        <h4 style={{margin:0}}>Rúbrica de Evaluación ({totalPuntos}/100)</h4>
-                        <button type="button" onClick={handleSuggestRubric} className="btn-secondary btn-small">
-                            {loadingRubric ? <FaSpinner className="spin"/> : '✨ IA'} Sugerir
+                            {generatingIA ? <FaSpinner className="spin" /> : <FaMagic />} 
+                            {generatingIA ? ' Generando...' : ' IA Sugerir Rúbrica'}
                         </button>
                     </div>
-    
-                    <div className="criterios-list">
-                        {criterios.map((criterio, index) => (
-                            <div key={index} className="criterio-row">
-                                <input
-                                    type="text"
-                                    placeholder="Descripción del criterio..."
-                                    value={criterio.descripcion || ''}
-                                    onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
-                                />
-                                <input
-                                    type="number"
-                                    placeholder="Pts"
-                                    value={criterio.puntos}
-                                    onChange={(e) => handleCriterioChange(index, 'puntos', e.target.value)}
-                                />
-                                <button type="button" onClick={() => handleRemoveCriterio(index)} className="btn-danger btn-small">
-                                    &times;
-                                </button>
-                            </div>
-                        ))}
+
+                    {/* Editor de Rúbrica */}
+                    <div className="rubrica-section">
+                        <div className="rubrica-header">
+                            <h4>Rúbrica de Evaluación</h4>
+                            <span className={`puntos-counter ${totalPuntos === 100 ? 'ok' : 'error'}`}>
+                                Total: {totalPuntos} / 100
+                            </span>
+                        </div>
+                        
+                        <div className="criterios-list">
+                            {criterios.map((item, index) => (
+                                <div key={index} className="criterio-row">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Descripción del criterio (ej. Ortografía)"
+                                        value={item.descripcion}
+                                        onChange={(e) => handleCriterioChange(index, 'descripcion', e.target.value)}
+                                        className="input-desc"
+                                    />
+                                    <input 
+                                        type="number" 
+                                        placeholder="Pts"
+                                        value={item.puntos}
+                                        onChange={(e) => handleCriterioChange(index, 'puntos', e.target.value)}
+                                        className="input-pts"
+                                    />
+                                    {criterios.length > 1 && (
+                                        <button type="button" onClick={() => removeCriterio(index)} className="btn-remove">×</button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        <button type="button" onClick={addCriterio} className="btn-add-criterio">+ Agregar Criterio</button>
                     </div>
-                    <button type="button" onClick={handleAddCriterio} className="btn-tertiary" style={{width:'100%', marginTop:'10px'}}>
-                        + Añadir Criterio
-                    </button>
-                </div>
-    
-                <div className="form-actions">
-                    <button type="button" onClick={onCancel} className="btn-tertiary">Cancelar</button>
-                    <button type="submit" className="btn-primary" disabled={loading}>
-                        {loading ? <FaSpinner className="spin"/> : (isEditing ? 'Guardar Cambios' : 'Crear Actividad')}
-                    </button>
-                </div>
-            </form>
+
+                    <div className="form-actions">
+                        <button type="button" onClick={onClose} className="btn-cancel">Cancelar</button>
+                        <button type="submit" className="btn-save" disabled={loading || totalPuntos !== 100}>
+                            {loading ? <FaSpinner className="spin" /> : <FaSave />}
+                            {loading ? ' Guardando...' : ' Guardar Actividad'}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 };

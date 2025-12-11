@@ -1,37 +1,56 @@
-// src/components/materia_panel/JustificacionModal.jsx
 import React from 'react';
-import './JustificacionModal.css'; // Crearemos este archivo a continuación
+import './JustificacionModal.css'; // Asegúrate de que este CSS exista (te lo doy abajo)
+import { FaTimes, FaRobot, FaCheckCircle, FaExclamationTriangle } from 'react-icons/fa';
 
-const JustificacionModal = ({ calificacion, entregable, onClose, loading }) => {
+const JustificacionModal = ({ calificacion, onClose }) => {
     if (!calificacion) return null;
 
+    // Determinar si fue aprobado para el color del encabezado
+    const isAprobado = (calificacion.calificacion_final || calificacion.calificacion_obtenida) >= 70;
+    const nota = calificacion.calificacion_final || calificacion.calificacion_obtenida || '-';
+
     return (
-        <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header">
-                    <h3>Retroalimentación para {entregable?.nombre}</h3>
-                    <button onClick={onClose} className="close-btn">&times;</button>
+        <div className="modal-overlay">
+            <div className="modal-content justificacion-modal">
+                <div className={`modal-header ${isAprobado ? 'header-success' : 'header-warning'}`}>
+                    <div className="header-title">
+                        <FaRobot className="ia-icon" />
+                        <h3>Evaluación de IA</h3>
+                    </div>
+                    <button onClick={onClose} className="close-button">
+                        <FaTimes />
+                    </button>
                 </div>
+
                 <div className="modal-body">
-                    {loading ? (
-                        <p>Cargando retroalimentación...</p>
-                    ) : (
-                        <>
-                            <div className="calificacion-info">
-                                <strong>Calificación Obtenida: </strong>
-                                <span className={calificacion.calificacion_obtenida >= 60 ? 'aprobado' : 'reprobado'}>
-                                    {calificacion.calificacion_obtenida} / 100
-                                </span>
-                            </div>
-                            <div className="justificacion-texto">
-                                <h4>Justificación de la IA:</h4>
-                                <p>{calificacion.justificacion_texto || "No se encontró una justificación detallada."}</p>
-                            </div>
-                        </>
-                    )}
+                    <div className="score-summary">
+                        <div className="student-name">
+                            <small>Alumno:</small>
+                            <strong>{calificacion.alumnos?.nombre} {calificacion.alumnos?.apellido}</strong>
+                        </div>
+                        <div className={`score-badge ${isAprobado ? 'pass' : 'fail'}`}>
+                            <span>Calificación:</span>
+                            <strong>{nota} / 100</strong>
+                        </div>
+                    </div>
+
+                    <div className="justification-content">
+                        <h4>Retroalimentación y Análisis:</h4>
+                        <div className="text-scroll-area">
+                            {/* Aquí es donde se muestra el texto. Usamos white-space: pre-wrap en CSS */}
+                            {calificacion.retroalimentacion ? (
+                                calificacion.retroalimentacion
+                            ) : (
+                                <p className="empty-text">
+                                    <FaExclamationTriangle /> No hay justificación de texto disponible para esta evaluación.
+                                </p>
+                            )}
+                        </div>
+                    </div>
                 </div>
-                 <div className="modal-footer">
-                    <button onClick={onClose} className="btn-tertiary">Cerrar</button>
+
+                <div className="modal-footer">
+                    <button onClick={onClose} className="btn-primary">Entendido</button>
                 </div>
             </div>
         </div>
