@@ -3,12 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import EvaluacionForm from './EvaluacionForm'; // Componente para crear/editar
 import EvaluacionCard from './EvaluacionCard'; // Componente para mostrar cada evaluación en lista
-import './Evaluaciones.css'; // <--- AÑADIR ESTA LÍNEA
+import './Evaluaciones.css';
 
 const Evaluaciones = ({ materia }) => {
     const [evaluaciones, setEvaluaciones] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [view, setView] = useState('list'); // 'list' o 'form'
+    const [errorMsg, setErrorMsg] = useState(''); // Estado para mostrar error en pantalla
+    const [view, setView] = useState('list');
     const [evaluacionToEdit, setEvaluacionToEdit] = useState(null);
 
     useEffect(() => {
@@ -20,18 +21,38 @@ const Evaluaciones = ({ materia }) => {
 
     const fetchEvaluaciones = async () => {
         setLoading(true);
+        setErrorMsg(''); // Limpiar errores previos
         try {
+            console.log("Intentando cargar evaluaciones...");
+            
+            // INTENTO 1: Carga "segura" (sin columnas nuevas para probar)
+            // Si esto falla, el problema es de conexión básica o permisos.
+            /* const { data, error } = await supabase
+                .from('evaluaciones')
+                .select('*') 
+                .eq('materia_id', materia.id);
+            */
+
+            // INTENTO 2: Carga completa (Lo que tú quieres)
             const { data, error } = await supabase
                 .from('evaluaciones')
-                // --- 1. Pedir las dos columnas de activación ---
+                // Intentamos seleccionar todo. Si 'esta_activo' no existe en la BD, esto dará error.
                 .select('*, esta_activo, revision_activa')
                 .eq('materia_id', materia.id)
                 .order('created_at', { ascending: false });
-            if (error) throw error;
-            setEvaluaciones(data);
+
+            if (error) {
+                console.error("ERROR DE SUPABASE:", error);
+                throw error;
+            }
+
+            console.log("Evaluaciones cargadas:", data);
+            setEvaluaciones(data || []);
+
         } catch (error) {
-            console.error("Error cargando evaluaciones:", error);
-            alert("No se pudieron cargar las evaluaciones.");
+            console.error("Error capturado:", error);
+            // Mostrar el error en la pantalla para que lo veas
+            setErrorMsg("Error al cargar: " + (error.message || JSON.stringify(error)));
         } finally {
             setLoading(false);
         }
@@ -43,15 +64,15 @@ const Evaluaciones = ({ materia }) => {
     };
 
     const handleDelete = async (evaluacion) => {
-        if (window.confirm(`¿Estás seguro de eliminar la evaluación "${evaluacion.titulo}"? Esto borrará también todas sus preguntas y respuestas.`)) {
+        if (window.confirm(`¿Estás seguro de eliminar "${evaluacion.titulo}"?`)) {
             try {
-                setLoading(true); // O un loading específico para borrado
+                setLoading(true);
                 const { error } = await supabase.from('evaluaciones').delete().eq('id', evaluacion.id);
                 if (error) throw error;
                 alert("Evaluación eliminada.");
-                fetchEvaluaciones(); // Recarga la lista
+                fetchEvaluaciones();
             } catch (error) {
-                alert("Error al eliminar la evaluación: " + error.message);
+                alert("Error: " + error.message);
                 setLoading(false);
             }
         }
@@ -59,8 +80,7 @@ const Evaluaciones = ({ materia }) => {
 
     const handleSave = () => {
         setEvaluacionToEdit(null);
-        setView('list'); // Vuelve a la lista después de guardar
-        // fetchEvaluaciones() se llamará automáticamente por el useEffect
+        setView('list');
     };
 
     const handleCancel = () => {
@@ -68,8 +88,18 @@ const Evaluaciones = ({ materia }) => {
         setView('list');
     };
 
-    if (loading && view === 'list') {
-        return <p>Cargando evaluaciones...</p>;
+    // --- RENDERIZADO DE DEPURACIÓN ---
+    if (loading && view === 'list') return <p>Cargando evaluaciones... (Por favor espera)</p>;
+    
+    // Si hay error, lo mostramos en rojo grande
+    if (errorMsg && view === 'list') {
+        return (
+            <div style={{ padding: '20px', color: 'red', border: '1px solid red' }}>
+                <h3>Ocurrió un error:</h3>
+                <p>{errorMsg}</p>
+                <button onClick={fetchEvaluaciones}>Reintentar</button>
+            </div>
+        );
     }
 
     if (view === 'form') {
@@ -92,9 +122,9 @@ const Evaluaciones = ({ materia }) => {
                 </button>
             </div>
 
-            <div className="evaluaciones-grid" style={{ /* Puedes usar estilos similares a actividades-grid */ }}>
+            <div className="evaluaciones-grid">
                 {evaluaciones.length === 0 ? (
-                    <p>Aún no has creado ninguna evaluación para esta materia.</p>
+                    <p>No hay evaluaciones registradas (Lista vacía).</p>
                 ) : (
                     evaluaciones.map(ev => (
                         <EvaluacionCard
@@ -102,7 +132,6 @@ const Evaluaciones = ({ materia }) => {
                             evaluacion={ev}
                             onEdit={handleEdit}
                             onDelete={handleDelete}
-                            // Puedes añadir más props como onPublish, onSeeResults, etc.
                         />
                     ))
                 )}
