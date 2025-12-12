@@ -1,14 +1,13 @@
-// src/components/materia_panel/Evaluaciones.jsx
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import EvaluacionForm from './EvaluacionForm'; // Componente para crear/editar
-import EvaluacionCard from './EvaluacionCard'; // Componente para mostrar cada evaluación en lista
+import EvaluacionForm from './EvaluacionForm';
+import EvaluacionCard from './EvaluacionCard';
 import './Evaluaciones.css';
 
 const Evaluaciones = ({ materia }) => {
     const [evaluaciones, setEvaluaciones] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [errorMsg, setErrorMsg] = useState(''); // Estado para mostrar error en pantalla
+    const [errorMsg, setErrorMsg] = useState('');
     const [view, setView] = useState('list');
     const [evaluacionToEdit, setEvaluacionToEdit] = useState(null);
 
@@ -21,99 +20,67 @@ const Evaluaciones = ({ materia }) => {
 
     const fetchEvaluaciones = async () => {
         setLoading(true);
-        setErrorMsg(''); // Limpiar errores previos
+        setErrorMsg('');
+        
+        // Timeout de seguridad: Si Supabase tarda más de 5s, lanzamos error manual
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Tiempo de espera agotado al conectar con Supabase")), 5000)
+        );
+
         try {
-            console.log("Intentando cargar evaluaciones...");
+            console.log("Iniciando carga de evaluaciones...");
             
-            // INTENTO 1: Carga "segura" (sin columnas nuevas para probar)
-            // Si esto falla, el problema es de conexión básica o permisos.
-            /* const { data, error } = await supabase
-                .from('evaluaciones')
-                .select('*') 
-                .eq('materia_id', materia.id);
-            */
+            // Usamos Promise.race para competir entre la carga y el timeout
+            const { data, error } = await Promise.race([
+                supabase
+                    .from('evaluaciones')
+                    .select('*, esta_activo, revision_activa')
+                    .eq('materia_id', materia.id)
+                    .order('created_at', { ascending: false }),
+                timeoutPromise
+            ]);
 
-            // INTENTO 2: Carga completa (Lo que tú quieres)
-            const { data, error } = await supabase
-                .from('evaluaciones')
-                // Intentamos seleccionar todo. Si 'esta_activo' no existe en la BD, esto dará error.
-                .select('*, esta_activo, revision_activa')
-                .eq('materia_id', materia.id)
-                .order('created_at', { ascending: false });
-
-            if (error) {
-                console.error("ERROR DE SUPABASE:", error);
-                throw error;
-            }
-
+            if (error) throw error;
+            
             console.log("Evaluaciones cargadas:", data);
             setEvaluaciones(data || []);
 
         } catch (error) {
-            console.error("Error capturado:", error);
-            // Mostrar el error en la pantalla para que lo veas
-            setErrorMsg("Error al cargar: " + (error.message || JSON.stringify(error)));
+            console.error("Error crítico:", error);
+            setErrorMsg(error.message || "Error desconocido de conexión");
         } finally {
             setLoading(false);
         }
     };
 
-    const handleEdit = (evaluacion) => {
-        setEvaluacionToEdit(evaluacion);
-        setView('form');
-    };
-
-    const handleDelete = async (evaluacion) => {
-        if (window.confirm(`¿Estás seguro de eliminar "${evaluacion.titulo}"?`)) {
-            try {
-                setLoading(true);
-                const { error } = await supabase.from('evaluaciones').delete().eq('id', evaluacion.id);
-                if (error) throw error;
-                alert("Evaluación eliminada.");
-                fetchEvaluaciones();
-            } catch (error) {
-                alert("Error: " + error.message);
-                setLoading(false);
-            }
-        }
-    };
-
-    const handleSave = () => {
-        setEvaluacionToEdit(null);
-        setView('list');
-    };
-
-    const handleCancel = () => {
-        setEvaluacionToEdit(null);
-        setView('list');
-    };
-
-    // --- RENDERIZADO DE DEPURACIÓN ---
-    if (loading && view === 'list') return <p>Cargando evaluaciones... (Por favor espera)</p>;
+    const handleEdit = (ev) => { setEvaluacionToEdit(ev); setView('form'); };
+    const handleSave = () => { setEvaluacionToEdit(null); setView('list'); };
+    const handleCancel = () => { setEvaluacionToEdit(null); setView('list'); };
     
-    // Si hay error, lo mostramos en rojo grande
+    const handleDelete = async (ev) => {
+        if (!window.confirm("¿Eliminar evaluación?")) return;
+        try {
+            const { error } = await supabase.from('evaluaciones').delete().eq('id', ev.id);
+            if (error) throw error;
+            fetchEvaluaciones();
+        } catch(e) { alert(e.message); }
+    };
+
+    if (loading && view === 'list') return <div className="loading-state">Cargando evaluaciones...</div>;
+
     if (errorMsg && view === 'list') {
         return (
-            <div style={{ padding: '20px', color: 'red', border: '1px solid red' }}>
-                <h3>Ocurrió un error:</h3>
-                <p>{errorMsg}</p>
-                <button onClick={fetchEvaluaciones}>Reintentar</button>
+            <div className="error-state" style={{padding: '20px', textAlign: 'center'}}>
+                <p style={{color: 'red'}}>⚠️ {errorMsg}</p>
+                <button onClick={fetchEvaluaciones} className="btn-secondary">Reintentar Conexión</button>
             </div>
         );
     }
 
     if (view === 'form') {
-        return (
-            <EvaluacionForm
-                materia={materia}
-                evaluacionToEdit={evaluacionToEdit}
-                onSave={handleSave}
-                onCancel={handleCancel}
-            />
-        );
+        return <EvaluacionForm materia={materia} evaluacionToEdit={evaluacionToEdit} onSave={handleSave} onCancel={handleCancel} />;
     }
 
-    // Vista de Lista
     return (
         <div className="evaluaciones-panel">
             <div className="panel-actions">
@@ -124,15 +91,10 @@ const Evaluaciones = ({ materia }) => {
 
             <div className="evaluaciones-grid">
                 {evaluaciones.length === 0 ? (
-                    <p>No hay evaluaciones registradas (Lista vacía).</p>
+                    <p className="empty-state">No hay evaluaciones registradas.</p>
                 ) : (
                     evaluaciones.map(ev => (
-                        <EvaluacionCard
-                            key={ev.id}
-                            evaluacion={ev}
-                            onEdit={handleEdit}
-                            onDelete={handleDelete}
-                        />
+                        <EvaluacionCard key={ev.id} evaluacion={ev} onEdit={handleEdit} onDelete={handleDelete} />
                     ))
                 )}
             </div>
